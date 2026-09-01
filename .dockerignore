@@ -1,0 +1,6 @@
+.git
+.github
+.gitignore
+*.md
+# Servono solo ai test, e sono la parte più pesante del sorgente.
+internal/rfi/testdata

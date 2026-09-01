@@ -1,0 +1,10 @@
+services:
+  tabellonetreni:
+    image: ghcr.io/m4rc02u1f4a4/tabellonetreni:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    # Il servizio non scrive niente e non tiene stato oltre la cache in memoria.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

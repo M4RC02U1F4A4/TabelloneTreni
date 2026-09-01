@@ -1,0 +1,121 @@
+name: release
+
+# Ogni commit su main produce una versione, in semver derivata dai messaggi di
+# commit: `fix:` alza la patch, `feat:` la minor, un `!` o un BREAKING CHANGE la
+# major. Un commit fuori convenzione fa comunque una patch.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Due release contemporanee si contenderebbero lo stesso tag: le serializziamo.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # I test girano tutti su pagine salvate in testdata: non toccano la rete e
+  # non dipendono dal fatto che RFI sia raggiungibile dal runner.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: go vet ./...
+      - run: go test ./...
+
+  release:
+    needs: test
+    permissions:
+      contents: write   # per creare il tag e la release
+      packages: write   # per pubblicare su GHCR
+    # Sulle pull request ci si ferma ai test: nessun tag, nessuna immagine.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # lo script legge tutta la storia dei commit
+
+      - name: Calcola la prossima versione
+        id: v
+        run: |
+          VERSIONE=$(sh ci/prossima-versione.sh)
+          if [ -z "$VERSIONE" ]; then
+            echo "Nessun commit da rilasciare: nessun tag creato."
+          else
+            echo "Nuova versione: $VERSIONE"
+          fi
+          echo "versione=$VERSIONE" >> "$GITHUB_OUTPUT"
+
+      # GHCR rifiuta le maiuscole nel nome dell'immagine, e l'owner qui le ha.
+      - name: Nome immagine
+        if: steps.v.outputs.versione != ''
+        run: echo "IMMAGINE=ghcr.io/${OWNER,,}/tabellonetreni" >> "$GITHUB_ENV"
+        env:
+          OWNER: ${{ github.repository_owner }}
+
+      - name: Crea il tag
+        if: steps.v.outputs.versione != ''
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.v.outputs.versione }}" -m "Release ${{ steps.v.outputs.versione }}"
+          git push origin "${{ steps.v.outputs.versione }}"
+
+      - name: Set up Docker Buildx
+        if: steps.v.outputs.versione != ''
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login a GHCR
+        if: steps.v.outputs.versione != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Niente QEMU: il Dockerfile compila per l'architettura di destinazione
+      # restando sul runner amd64, quindi le due piattaforme costano poco.
+      - name: Build e push
+        if: steps.v.outputs.versione != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSIONE=${{ steps.v.outputs.versione }}
+          tags: |
+            ${{ env.IMMAGINE }}:${{ steps.v.outputs.versione }}
+            ${{ env.IMMAGINE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      # Dopo l'immagine: se il build fallisce, non resta una release che
+      # promette un artefatto inesistente.
+      - name: Crea la release
+        if: steps.v.outputs.versione != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.v.outputs.versione }}" \
+            --title "${{ steps.v.outputs.versione }}" \
+            --generate-notes
+
+      - name: Riepilogo
+        if: steps.v.outputs.versione != ''
+        run: |
+          {
+            echo "### Immagine pubblicata"
+            echo
+            echo '```'
+            echo "${IMMAGINE}:${{ steps.v.outputs.versione }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
