@@ -187,35 +187,55 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* ---------- elenco treni ---------- */
 
+/* La scheda è essa stessa il comando che apre le fermate: prima c'era una riga
+   "▸ 6 fermate" in fondo a ognuna, che su quaranta treni costava uno schermo
+   intero per un controllo che si usa di rado. Ora si toccano il treno e basta,
+   e al suo posto resta un chevron. */
+
 .treno {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 2px 12px;
-  padding: 12px 14px;
   margin-bottom: 8px;
   background: var(--piano);
   border: 1px solid var(--bordo);
   border-radius: var(--raggio);
+  overflow: hidden;
 }
 .treno.parte { border-color: var(--verde); }
 .treno.soppresso { opacity: 0.6; }
 
-.orario { grid-column: 1; grid-row: 1 / span 2; align-self: center; text-align: right; }
-.orario .ora { font-size: 21px; font-weight: 650; letter-spacing: -0.02em; }
-.orario .ora.barrato { text-decoration: line-through; text-decoration-thickness: 2px; }
-.orario .scarto { font-size: 12px; font-weight: 650; color: var(--rosso); }
-.orario .scarto.puntuale { color: var(--verde); }
+.riga-treno {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 12px 14px;
+}
+.riga-treno.espandibile { grid-template-columns: auto 1fr auto auto; }
+summary.riga-treno { cursor: pointer; list-style: none; }
+summary.riga-treno::-webkit-details-marker { display: none; }
 
-.dove { grid-column: 2; min-width: 0; }
-.dove .meta { display: block; font-size: 12px; color: var(--tenue); }
+.orario { text-align: right; }
+.orario .ora { display: block; font-size: 21px; font-weight: 650; letter-spacing: -0.02em; }
+.orario .ora.barrato { text-decoration: line-through; text-decoration-thickness: 2px; }
+.orario .scarto { display: block; font-size: 12px; font-weight: 650; color: var(--rosso); }
+
+/* La destinazione sta sopra: è la seconda cosa che si cerca dopo l'ora, e
+   prima era sotto una riga di grigio piccolo che si leggeva per forza per
+   prima senza servire a niente. */
+.dove { min-width: 0; }
+.destinazione { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Sugli arrivi la colonna porta la provenienza, non la destinazione: senza
    dirlo, due tabelloni identici significherebbero il contrario l'uno dell'altro. */
 .destinazione .da { color: var(--tenue); font-weight: 400; }
-.destinazione { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.arrivo { font-size: 13px; color: var(--tenue); margin-top: 1px; }
-.arrivo b { color: var(--testo); font-weight: 600; }
+.dove .meta {
+  display: block; margin-top: 1px;
+  font-size: 12.5px; color: var(--tenue);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Nella vista per tratta è il dato che si è venuti a cercare, quindi risalta
+   dentro la riga di dettaglio invece di occupare una riga propria. */
+.dove .meta .arrivo { color: var(--testo); font-weight: 650; }
 
-.binario { grid-column: 3; grid-row: 1 / span 2; align-self: center; text-align: center; min-width: 30px; }
+.binario { text-align: center; min-width: 30px; }
 .binario .num {
   display: block; font-size: 17px; font-weight: 650;
   padding: 3px 8px; border-radius: 8px; background: var(--piano-alto);
@@ -225,25 +245,27 @@ ul { list-style: none; margin: 0; padding: 0; }
    segno posato, non due righe di testo che gridano più del binario vero. */
 .binario .ignoto { color: var(--bordo); font-size: 20px; }
 
+.apri {
+  color: var(--tenue); opacity: 0.5; font-size: 20px; line-height: 1;
+  transition: transform 0.15s ease;
+}
+@media (prefers-reduced-motion: reduce) { .apri { transition: none; } }
+details[open] .apri { transform: rotate(90deg); }
+
+/* Gli avvisi restano visibili senza aprire niente: "treno alternativo" o
+   "carrozza in coda" servono mentre si guarda l'elenco, non dopo. */
 .avviso {
-  grid-column: 1 / -1; margin-top: 6px; padding-top: 6px;
-  border-top: 1px dashed var(--bordo);
+  grid-column: 1 / -1;
+  padding-top: 8px; border-top: 1px dashed var(--bordo);
   font-size: 12.5px; color: var(--ambra);
 }
 
-.fermate { grid-column: 1 / -1; margin-top: 8px; }
-.fermate summary {
-  font-size: 13px; color: var(--tenue); cursor: pointer; list-style: none; padding: 2px 0;
-}
-.fermate summary::-webkit-details-marker { display: none; }
-.fermate summary::before { content: "▸ "; }
-.fermate[open] summary::before { content: "▾ "; }
-.fermate ol {
-  margin: 8px 0 0; padding: 0 0 0 14px;
+.fermate {
+  margin: 0 14px 12px 46px; padding: 0 0 0 14px;
   border-left: 2px solid var(--bordo);
   font-size: 13.5px;
 }
-.fermate li { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+.fermate li { display: flex; justify-content: space-between; gap: 10px; padding: 2.5px 0; }
 .fermate li.meta-scelta { color: var(--ambra); font-weight: 600; }
 .fermate li time { color: var(--tenue); }
 .fermate li.meta-scelta time { color: inherit; }

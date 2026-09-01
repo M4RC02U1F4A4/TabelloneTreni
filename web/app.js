@@ -406,7 +406,8 @@ function disegnaRisultati() {
     note.push(`<p class="nota">RFI non pubblica le fermate dei treni in arrivo:
       qui sotto ci sono tutti gli arrivi, senza il filtro per ${esc(aNome)}.</p>`);
   }
-  if (d.filtered) {
+  // A zero treni il conteggio ripeterebbe quello che dice già lo stato vuoto.
+  if (d.filtered && d.trains.length > 0) {
     const n = d.trains.length;
     note.push(`<p class="nota">${n} ${n === 1 ? 'treno' : 'treni'} su ${d.total}
       ${n === 1 ? 'ferma' : 'fermano'} a ${esc(aNome)}.</p>`);
@@ -433,32 +434,49 @@ function rigaTreno(t, d) {
   else if (t.delay > 0) scarto = `<span class="scarto">+${t.delay}′</span>`;
   else if (t.status) scarto = `<span class="scarto">${esc(t.status.toLowerCase())}</span>`;
 
-  const meta = [t.category, t.number].filter(Boolean).join(' ');
   // Su alcuni treni RFI ripete la categoria anche come vettore
   // ("INTERCITY NOTTE · INTERCITY NOTTE"): si scrive una volta sola.
   const vettore = t.carrier && canon(t.carrier) !== canon(t.category || '') ? t.carrier : '';
+  // Con l'orario di arrivo la riga non ci sta tutta e verrebbe troncata: cede
+  // il posto il vettore, che è il campo che informa meno — RFI stesso lo mostra
+  // come logo, e su una tratta regionale è quasi sempre lo stesso.
+  const dettagli = [
+    t.arrival ? `<span class="arrivo">arrivo ${esc(t.arrival)}</span>` : '',
+    esc([t.category, t.number].filter(Boolean).join(' ')),
+    t.arrival ? '' : esc(vettore),
+  ].filter(Boolean).join(' · ');
 
-  return `<li class="${classi.join(' ')}">
+  const espandibile = t.stops && t.stops.length > 0;
+  const contenuto = `
     <div class="orario">
-      <div class="ora ${soppresso ? 'barrato' : ''}">${esc(t.time)}</div>
+      <span class="ora ${soppresso ? 'barrato' : ''}">${esc(t.time)}</span>
       ${scarto}
     </div>
     <div class="dove">
-      <span class="meta">${esc(meta)}${vettore ? ` · ${esc(vettore)}` : ''}</span>
       <div class="destinazione">${d.arrivals ? '<span class="da">da</span> ' : ''}${esc(t.terminus)}</div>
-      ${t.arrival ? `<div class="arrivo">arrivo a ${esc(d.to)} alle <b>${esc(t.arrival)}</b></div>` : ''}
+      <span class="meta">${dettagli}</span>
     </div>
     <div class="binario">
       ${t.platform ? `<span class="num">${esc(t.platform)}</span><span class="cap">BIN</span>`
                    : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
     </div>
-    ${t.notes ? `<div class="avviso">${esc(t.notes)}</div>` : ''}
-    ${fermate(t, d)}
+    ${espandibile ? '<span class="apri" aria-hidden="true">›</span>' : ''}
+    ${t.notes ? `<div class="avviso">${esc(t.notes)}</div>` : ''}`;
+
+  const riga = `riga-treno${espandibile ? ' espandibile' : ''}`;
+  if (!espandibile) {
+    return `<li class="${classi.join(' ')}"><div class="${riga}">${contenuto}</div></li>`;
+  }
+  // La scheda intera è il <summary>: toccare il treno apre le sue fermate.
+  return `<li class="${classi.join(' ')}">
+    <details>
+      <summary class="${riga}">${contenuto}</summary>
+      ${fermate(t)}
+    </details>
   </li>`;
 }
 
-function fermate(t, d) {
-  if (!t.stops || !t.stops.length) return '';
+function fermate(t) {
   // La fermata che interessa è quella su cui il filtro ha agganciato il treno:
   // la si riconosce dall'orario di arrivo, e va evidenziata una volta sola —
   // un treno può ripassare a orari diversi ma non due volte allo stesso.
@@ -466,10 +484,7 @@ function fermate(t, d) {
   const voci = t.stops.map((f, i) =>
     `<li class="${i === evidenziata ? 'meta-scelta' : ''}">
       <span>${esc(f.name)}</span><time>${esc(f.time)}</time></li>`).join('');
-  return `<details class="fermate">
-    <summary>${t.stops.length} ${t.stops.length === 1 ? 'fermata' : 'fermate'}</summary>
-    <ol>${voci}</ol>
-  </details>`;
+  return `<ol class="fermate">${voci}</ol>`;
 }
 
 /* ------------------------------------------------------------------ eventi */
