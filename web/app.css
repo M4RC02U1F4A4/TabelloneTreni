@@ -100,24 +100,76 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* ---------- home ---------- */
 
-.sezione + .sezione { margin-top: 22px; }
+/* Sulla home convivono due cose che si fanno in modi opposti: le tratte salvate
+   si toccano per andare, i campi di ricerca si compilano. Prima avevano lo
+   stesso aspetto e non si capiva quale fosse quale, per cui ora hanno due forme
+   diverse: le prime sono una lista di righe a filo, i secondi un blocco unico
+   riquadrato — la stessa distinzione che si vede fra una lista di voci e un
+   modulo raggruppato. */
+
+.sezione + .sezione { margin-top: 26px; }
+.testa-sezione { display: flex; align-items: baseline; justify-content: space-between; }
 .etichetta-sezione {
   font-size: 11.5px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase;
   color: var(--tenue); margin: 0 0 8px 2px;
 }
 
+/* --- lista: le tratte salvate e le voci di navigazione --- */
+
+.lista { border-top: 1px solid var(--bordo); }
+.riga { display: flex; align-items: center; border-bottom: 1px solid var(--bordo); }
+.riga-tocco {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 2px; background: none; border: 0; text-align: left;
+  font-size: 15px;
+}
+.riga-tocco .segno { flex: none; width: 15px; color: var(--ambra); font-size: 14px; }
+.riga-tocco .segno.tenue { color: var(--tenue); }
+.riga-tocco .testo { flex: 1; min-width: 0; font-weight: 600; }
+.riga-tocco .testo .freccia { color: var(--ambra); font-weight: 400; }
+/* Il qualificatore c'è ogni volta che la riga non è una tratta pura: così
+   l'assenza di etichetta non significa due cose diverse. */
+.riga-tocco .qualifica { color: var(--tenue); font-weight: 400; font-size: 13px; }
+.riga-tocco .chevron { flex: none; color: var(--bordo); font-size: 20px; line-height: 1; }
+.togli {
+  flex: none; padding: 12px 4px 12px 14px;
+  background: none; border: 0; color: var(--rosso); font-size: 16px;
+}
+
+/* --- modulo: la nuova ricerca --- */
+
+/* DA e A stanno in un solo riquadro separati da un filo, e il pulsante di
+   scambio siede a cavallo dei due: appartiene visibilmente a entrambi invece di
+   galleggiare fra loro. */
+.gruppo {
+  display: flex; align-items: stretch;
+  background: var(--piano); border: 1px solid var(--bordo); border-radius: var(--raggio);
+  margin-bottom: 12px;
+}
+.gruppo-campi { flex: 1; min-width: 0; }
 .campo {
   display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 13px 14px; margin-bottom: var(--gap);
-  background: var(--piano); border: 1px solid var(--bordo); border-radius: var(--raggio);
-  text-align: left;
+  padding: 14px; background: none; border: 0; text-align: left;
 }
+.gruppo-campi .campo + .campo { border-top: 1px solid var(--bordo); }
 .campo .sigla {
-  flex: none; width: 22px;
+  flex: none; width: 20px;
   color: var(--tenue); font-size: 12px; font-weight: 650;
 }
 .campo .valore { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .campo .valore.vuoto { color: var(--tenue); }
+.campo .chevron { flex: none; color: var(--bordo); font-size: 20px; line-height: 1; }
+
+.inverti {
+  flex: none; align-self: center;
+  width: 40px; height: 40px; margin: 0 8px;
+  display: grid; place-items: center;
+  background: var(--piano-alto); border: 1px solid var(--bordo); color: var(--tenue);
+  font-size: 17px;
+  border-radius: 22%;
+  corner-shape: squircle;
+}
 
 .principale {
   display: block; width: 100%;
@@ -131,18 +183,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 
 .btn-testo { background: none; border: 0; color: var(--ambra); padding: 6px; font-size: 15px; }
-
-.scambia {
-  display: block; margin: -4px 0 var(--gap) auto;
-  background: none; border: 0; color: var(--tenue); font-size: 13px; padding: 4px 6px;
-}
-
-.preferito { display: flex; align-items: center; gap: 10px; }
-.preferito .via { flex: 1; min-width: 0; }
-.preferito .via b { font-weight: 600; }
-.preferito .via .freccia { color: var(--ambra); }
-.preferito .modo { font-size: 12px; color: var(--tenue); }
-.togli { background: none; border: 0; color: var(--tenue); padding: 6px 2px; font-size: 17px; }
+.btn-testo.piccolo { font-size: 13px; padding: 4px 2px; }
 
 /* ---------- elenco treni ---------- */
 

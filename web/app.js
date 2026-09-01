@@ -26,9 +26,15 @@ const stato = {
   caricamento: false,
 };
 
+// Con "Modifica" attivo le righe dei preferiti mostrano la ✕. Fuori da quella
+// modalità non c'è: una ✕ accanto a una riga tappabile mette la cancellazione a
+// un dito dal gesto che si fa ogni giorno.
+let modificaPreferiti = false;
 let timerRinfresco = null;
 let timerEta = null;
 let richiestaInCorso = 0;
+
+const nomeStazione = (id) => stato.nomi.get(id) || `stazione ${id}`;
 
 const $ = (sel) => document.querySelector(sel);
 const testa = $('#testa');
@@ -139,9 +145,16 @@ const campoCerca = $('#cerca');
 const listaScelta = $('#risultati-scelta');
 let campoInModifica = null;
 
+const INVITI = {
+  da: 'Stazione di partenza',
+  a: 'Stazione di arrivo',
+  arrivi: 'Stazione di cui vedere gli arrivi',
+};
+
 function apriScelta(quale) {
   campoInModifica = quale;
   campoCerca.value = '';
+  campoCerca.placeholder = INVITI[quale] || 'Cerca stazione';
   disegnaScelta();
   pannello.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -176,6 +189,13 @@ listaScelta.addEventListener('click', (e) => {
   if (!b) return;
   const id = Number(b.dataset.id);
   ricorda(id);
+  // Un tabellone arrivi ha bisogno di una stazione sola, quindi non gli serve
+  // un modulo: scelta la stazione, ci si va direttamente.
+  if (campoInModifica === 'arrivi') {
+    chiudiScelta();
+    location.hash = `#/a/${id}`;
+    return;
+  }
   if (campoInModifica === 'da') stato.da = id; else stato.a = id;
   chiudiScelta();
   disegna();
@@ -210,6 +230,7 @@ async function cambiaRotta() {
   if (r.vista === 'home') {
     stato.dati = null;
     stato.errore = null;
+    stato.arrivi = false;
     try {
       await caricaStazioni();
     } catch (e) {
@@ -283,51 +304,77 @@ function disegnaHome() {
     <div class="sottotitolo">Partenze e arrivi RFI, filtrati per dove devi andare</div>`;
 
   const fav = preferiti();
-  const nome = (id) => stato.nomi.get(id) || `stazione ${id}`;
+  if (!fav.length) modificaPreferiti = false;
 
   app.innerHTML = `
     ${fav.length ? `
     <section class="sezione">
-      <h2 class="etichetta-sezione">Preferiti</h2>
-      <ul>${fav.map((p) => `
-        <li class="campo preferito">
-          <a class="via" href="${rottaDi(p.f, p.t, p.a)}">
-            <b>${esc(nome(p.f))}</b>${p.t ? ` <span class="freccia">→</span> <b>${esc(nome(p.t))}</b>` : ''}
-            <span class="modo">${p.a ? 'arrivi' : p.t ? '' : 'tutte le partenze'}</span>
-          </a>
-          <button class="togli" type="button" data-togli="${esc(chiaveTratta(p))}"
-                  aria-label="Togli dai preferiti">✕</button>
-        </li>`).join('')}
-      </ul>
+      <div class="testa-sezione">
+        <h2 class="etichetta-sezione">Preferiti</h2>
+        <button class="btn-testo piccolo" type="button" data-modifica>
+          ${modificaPreferiti ? 'Fine' : 'Modifica'}</button>
+      </div>
+      <ul class="lista">${fav.map((p) => rigaPreferito(p)).join('')}</ul>
     </section>` : ''}
 
     <section class="sezione">
-      <h2 class="etichetta-sezione">${stato.arrivi ? 'Arrivi a' : 'Cerca una tratta'}</h2>
-      <button class="campo" type="button" data-apri="da">
-        <span class="sigla">${stato.arrivi ? 'IN' : 'DA'}</span>
-        <span class="valore ${stato.da ? '' : 'vuoto'}">${stato.da ? esc(nome(stato.da))
-          : stato.arrivi ? 'Stazione' : 'Stazione di partenza'}</span>
-      </button>
-      ${stato.arrivi ? '' : `
-      <button class="scambia" type="button" data-scambia>⇅ inverti</button>
-      <button class="campo" type="button" data-apri="a">
-        <span class="sigla">A</span>
-        <span class="valore ${stato.a ? '' : 'vuoto'}">${stato.a ? esc(nome(stato.a)) : 'Stazione di arrivo (facoltativa)'}</span>
-      </button>`}
+      <h2 class="etichetta-sezione">Nuova ricerca</h2>
+      <div class="gruppo">
+        <div class="gruppo-campi">
+          ${campoStazione('da', 'DA', stato.da, 'Stazione di partenza')}
+          ${campoStazione('a', 'A', stato.a, 'Tutte le destinazioni')}
+        </div>
+        <button class="inverti" type="button" data-scambia
+                aria-label="Inverti partenza e arrivo">⇅</button>
+      </div>
       <button class="principale" type="button" data-vai ${stato.da ? '' : 'disabled'}>
-        ${stato.a && !stato.arrivi ? 'Vedi i treni per questa tratta' : stato.arrivi ? 'Vedi gli arrivi' : 'Vedi tutte le partenze'}
+        Vedi i treni
       </button>
-      <button class="scambia" type="button" data-modo style="margin: 10px auto 0 0">
-        ${stato.arrivi ? '← torna alle partenze' : 'oppure guarda gli arrivi di una stazione'}
-      </button>
+    </section>
+
+    <section class="sezione">
+      <ul class="lista">
+        <li class="riga">
+          <button class="riga-tocco" type="button" data-apri="arrivi">
+            <span class="segno tenue">↓</span>
+            <span class="testo">Arrivi di una stazione</span>
+            <span class="chevron">›</span>
+          </button>
+        </li>
+      </ul>
     </section>`;
+}
+
+function campoStazione(quale, sigla, id, vuoto) {
+  return `<button class="campo" type="button" data-apri="${quale}">
+    <span class="sigla">${sigla}</span>
+    <span class="valore ${id ? '' : 'vuoto'}">${id ? esc(nomeStazione(id)) : vuoto}</span>
+    <span class="chevron">›</span>
+  </button>`;
+}
+
+function rigaPreferito(p) {
+  return `<li class="riga">
+    <a class="riga-tocco" href="${rottaDi(p.f, p.t, p.a)}">
+      <span class="segno">★</span>
+      <span class="testo">${etichettaPreferito(p)}</span>
+      ${modificaPreferiti ? '' : '<span class="chevron">›</span>'}
+    </a>
+    ${modificaPreferiti ? `<button class="togli" type="button" data-togli="${esc(chiaveTratta(p))}"
+        aria-label="Togli dai preferiti">✕</button>` : ''}
+  </li>`;
+}
+
+function etichettaPreferito(p) {
+  if (p.a) return `${esc(nomeStazione(p.f))}<span class="qualifica"> · arrivi</span>`;
+  if (p.t) return `${esc(nomeStazione(p.f))} <span class="freccia">→</span> ${esc(nomeStazione(p.t))}`;
+  return `${esc(nomeStazione(p.f))}<span class="qualifica"> · tutte le partenze</span>`;
 }
 
 function disegnaRisultati() {
   const d = stato.dati;
-  const nome = (id) => stato.nomi.get(id) || '';
-  const daNome = (d && d.from) || nome(stato.da);
-  const aNome = (d && d.to) || nome(stato.a);
+  const daNome = (d && d.from) || (stato.da ? nomeStazione(stato.da) : '');
+  const aNome = (d && d.to) || (stato.a ? nomeStazione(stato.a) : '');
   const questa = { f: stato.da, t: stato.arrivi ? null : stato.a, a: stato.arrivi || undefined };
   const salvato = ePreferito(questa);
 
@@ -432,7 +479,7 @@ app.addEventListener('click', (e) => {
   if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
   else if (t.closest('[data-scambia]')) { [stato.da, stato.a] = [stato.a, stato.da]; disegna(); }
-  else if (t.closest('[data-modo]')) { stato.arrivi = !stato.arrivi; disegna(); }
+  else if (t.closest('[data-modifica]')) { modificaPreferiti = !modificaPreferiti; disegna(); }
   else if (t.closest('[data-togli]')) {
     const k = t.closest('[data-togli]').dataset.togli;
     scrivi('tt.preferiti', preferiti().filter((p) => chiaveTratta(p) !== k));
