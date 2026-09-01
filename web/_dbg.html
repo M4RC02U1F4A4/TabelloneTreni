@@ -13,6 +13,17 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="app.css">
+<style>:root {
+    --sfondo: #f4f6fa;
+    --piano: #ffffff;
+    --piano-alto: #eef1f7;
+    --bordo: #dde3ec;
+    --testo: #131820;
+    --tenue: #5d6b80;
+    --ambra: #a06000;
+    --verde: #0d7a4f;
+    --rosso: #c62828;
+  }</style>
 </head>
 <body>
 <header id="testa" class="testa"></header>
@@ -30,9 +41,5 @@
 </div>
 
 <script src="app.js" defer></script>
-<script defer>window.addEventListener("load",()=>setTimeout(()=>{
-document.querySelector('[data-apri="da"]').click();
-setTimeout(()=>{const c=document.querySelector("#cerca");c.value="milano p";
-c.dispatchEvent(new Event("input"))},200)},600))</script>
 </body>
 </html>

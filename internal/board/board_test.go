@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
@@ -218,5 +219,29 @@ func TestCoperturaNomiFermate(t *testing.T) {
 	// riconoscimento è diventato troppo permissivo: in entrambi i casi va vista.
 	if len(inattesi) > 0 {
 		t.Errorf("fermate date per fuori catalogo ma riconosciute: %v", inattesi)
+	}
+}
+
+// Venti richieste insieme sulla stessa stazione devono produrre un solo fetch:
+// è la garanzia su cui si regge il non tempestare RFI.
+func TestConcorrenza(t *testing.T) {
+	s, src := servizio("partenze-1715.html")
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			to := 0
+			if i%2 == 0 {
+				to = lodi
+			}
+			if _, err := s.Get(context.Background(), garibaldi, false, to); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if src.chiamate != 1 {
+		t.Errorf("%d fetch, atteso 1", src.chiamate)
 	}
 }

@@ -144,7 +144,13 @@ func (s *Service) tabellone(ctx context.Context, placeID int, arrivals bool) (*r
 		return v.board, nil
 	}
 
-	b, err := s.src.Fetch(ctx, placeID, arrivals)
+	// Il fetch è condiviso da tutti quelli in attesa su questa chiave, quindi
+	// non può dipendere da chi è arrivato per primo: se quel client chiude la
+	// pagina, gli altri si vedrebbero fallire una richiesta ancora valida.
+	fetchCtx, annulla := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+	defer annulla()
+
+	b, err := s.src.Fetch(fetchCtx, placeID, arrivals)
 	if err != nil {
 		// Un tabellone scaduto è più utile di un errore: RFI ogni tanto non
 		// risponde, e mostrare dati di mezzo minuto fa è meglio di una pagina

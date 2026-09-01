@@ -304,8 +304,9 @@ function disegnaHome() {
     <section class="sezione">
       <h2 class="etichetta-sezione">${stato.arrivi ? 'Arrivi a' : 'Cerca una tratta'}</h2>
       <button class="campo" type="button" data-apri="da">
-        <span class="sigla">DA</span>
-        <span class="valore ${stato.da ? '' : 'vuoto'}">${stato.da ? esc(nome(stato.da)) : 'Stazione di partenza'}</span>
+        <span class="sigla">${stato.arrivi ? 'IN' : 'DA'}</span>
+        <span class="valore ${stato.da ? '' : 'vuoto'}">${stato.da ? esc(nome(stato.da))
+          : stato.arrivi ? 'Stazione' : 'Stazione di partenza'}</span>
       </button>
       ${stato.arrivi ? '' : `
       <button class="scambia" type="button" data-scambia>⇅ inverti</button>
@@ -397,7 +398,7 @@ function rigaTreno(t, d) {
     </div>
     <div class="dove">
       <span class="meta">${esc(meta)}${vettore ? ` · ${esc(vettore)}` : ''}</span>
-      <div class="destinazione">${esc(t.terminus)}</div>
+      <div class="destinazione">${d.arrivals ? '<span class="da">da</span> ' : ''}${esc(t.terminus)}</div>
       ${t.arrival ? `<div class="arrivo">arrivo a ${esc(d.to)} alle <b>${esc(t.arrival)}</b></div>` : ''}
     </div>
     <div class="binario">
