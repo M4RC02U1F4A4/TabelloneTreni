@@ -396,7 +396,7 @@ function disegnaRisultati() {
   if (!d) {
     app.innerHTML = stato.errore
       ? `<p class="errore">${esc(stato.errore)}</p>`
-      : '<div class="scheletro"></div>'.repeat(4);
+      : `<ul>${scheletro().repeat(5)}</ul>`;
     return;
   }
 
@@ -422,6 +422,15 @@ function disegnaRisultati() {
 
   app.innerHTML = note.join('') + corpo;
 }
+
+// Ha la forma di una scheda vera, così l'elenco non sobbalza quando i dati
+// arrivano, ma con le barre al posto del testo.
+const scheletro = () => `<li class="treno scheletro" aria-hidden="true">
+  <div class="riga-treno">
+    <div class="orario"><span class="barra b-ora"></span></div>
+    <div class="dove"><span class="barra b-dest"></span><span class="barra b-meta"></span></div>
+  </div>
+</li>`;
 
 function rigaTreno(t, d) {
   const soppresso = t.cancelled;

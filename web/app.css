@@ -284,12 +284,15 @@ details[open] .apri { transform: rotate(90deg); }
   padding: 10px 12px; margin-bottom: 12px; border-radius: var(--raggio);
   background: var(--piano-alto); color: var(--tenue); font-size: 13px;
 }
-.scheletro {
-  height: 70px; margin-bottom: 8px; border-radius: var(--raggio);
-  background: var(--piano);
-  animation: pulsa 1.4s ease-in-out infinite;
-}
-@keyframes pulsa { 50% { opacity: 0.45; } }
+/* Lo scheletro deve leggersi come "sto caricando", non come una scheda senza
+   contenuto: un rettangolo vuoto della stessa forma di una scheda è
+   indistinguibile da un treno andato storto. Le barre dentro lo dicono. */
+.scheletro { animation: pulsa 1.4s ease-in-out infinite; }
+.scheletro .barra { display: block; background: var(--piano-alto); border-radius: 4px; }
+.scheletro .b-ora { width: 46px; height: 19px; }
+.scheletro .b-dest { width: 62%; height: 13px; }
+.scheletro .b-meta { width: 38%; height: 10px; margin-top: 6px; }
+@keyframes pulsa { 50% { opacity: 0.5; } }
 @media (prefers-reduced-motion: reduce) { .scheletro { animation: none; } }
 
 /* ---------- selettore stazione ---------- */

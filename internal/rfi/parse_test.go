@@ -146,3 +146,34 @@ func TestParseArriviSenzaFermate(t *testing.T) {
 		}
 	}
 }
+
+// Una riga senza contenuto non deve arrivare al client: apparirebbe come una
+// scheda vuota in mezzo all'elenco, indistinguibile da un errore.
+func TestRigheVuoteScartate(t *testing.T) {
+	const pagina = `<html><body>
+	<h1 class="nomestazione" id="nomeStazioneId">PROVA</h1>
+	<table id="monitor"><tbody>
+	  <tr id="123" name="treno">
+	    <td id="RTreno">123</td>
+	    <td id="RStazione" name="Destinazione"><div>ALTROVE</div></td>
+	    <td id="ROrario">10:00</td>
+	  </tr>
+	  <tr id="" name="treno">
+	    <td id="RTreno"></td>
+	    <td id="RStazione" name="Destinazione"><div></div></td>
+	    <td id="ROrario"></td>
+	  </tr>
+	  <tr id="" name="treno"></tr>
+	</tbody></table></body></html>`
+
+	b, err := Parse(strings.NewReader(pagina), 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Trains) != 1 {
+		t.Fatalf("%d treni, atteso 1: %+v", len(b.Trains), b.Trains)
+	}
+	if b.Trains[0].Terminus != "ALTROVE" || b.Trains[0].Time != "10:00" {
+		t.Errorf("treno = %+v", b.Trains[0])
+	}
+}

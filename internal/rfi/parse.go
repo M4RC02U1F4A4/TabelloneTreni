@@ -50,7 +50,13 @@ func Parse(r io.Reader, placeID int, arrivals bool) (*Board, error) {
 					b.Updated = m[1] + " " + m[2]
 				}
 			case n.Data == "tr" && attr(n, "name") == "treno":
-				b.Trains = append(b.Trains, leggiRiga(n))
+				// Una riga senza né orario né destinazione non è mostrabile:
+				// diventerebbe una scheda vuota in mezzo all'elenco. Non se ne
+				// sono viste finora, ma il costo di escluderle è nullo e il
+				// costo di lasciarle passare lo paga chi guarda il tabellone.
+				if t := leggiRiga(n); t.Time != "" || t.Terminus != "" {
+					b.Trains = append(b.Trains, t)
+				}
 				return // le righe non si annidano
 			}
 		}
