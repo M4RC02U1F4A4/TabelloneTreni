@@ -333,10 +333,10 @@ function disegnaRisultati() {
 
   testa.innerHTML = `
     <div class="testa-riga">
-      <a class="tondo" href="#/" aria-label="Torna alla home">←</a>
+      <a class="tasto" href="#/" aria-label="Torna alla home">←</a>
       <h1 class="titolo">${esc(daNome)}${aNome && !stato.arrivi ?
         ` <span class="freccia">→</span> ${esc(aNome)}` : ''}</h1>
-      <button class="tondo" type="button" data-preferito aria-pressed="${salvato}"
+      <button class="tasto" type="button" data-preferito aria-pressed="${salvato}"
               aria-label="${salvato ? 'Togli dai preferiti' : 'Aggiungi ai preferiti'}">${salvato ? '★' : '☆'}</button>
     </div>
     <div class="sottotitolo">

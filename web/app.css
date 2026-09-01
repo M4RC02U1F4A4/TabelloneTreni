@@ -77,16 +77,24 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .sottotitolo .fermo::before { background: var(--tenue); }
 
-.tondo {
+.tasto {
   flex: none;
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   display: grid; place-items: center;
   border: 1px solid var(--bordo);
-  border-radius: 50%;
   background: var(--piano);
-  font-size: 15px;
+  font-size: 16px;
+  /* Il 22% del lato è la proporzione con cui iOS smussa le icone delle app.
+     corner-shape lo rende la superellisse vera invece di un raccordo
+     circolare; dove non è supportato resta comunque un quadrato stondato. */
+  border-radius: 22%;
+  corner-shape: squircle;
 }
-.tondo[aria-pressed="true"] { color: var(--ambra); border-color: var(--ambra); }
+.tasto[aria-pressed="true"] {
+  color: var(--ambra);
+  border-color: color-mix(in srgb, var(--ambra) 55%, transparent);
+  background: color-mix(in srgb, var(--ambra) 12%, var(--piano));
+}
 
 .app { padding: 14px; max-width: 640px; margin: 0 auto; }
 
