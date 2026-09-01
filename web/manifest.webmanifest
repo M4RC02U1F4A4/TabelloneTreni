@@ -1,0 +1,16 @@
+{
+  "name": "Tabellone Treni",
+  "short_name": "Tabellone",
+  "description": "Partenze e arrivi RFI, filtrati per la stazione dove devi andare.",
+  "lang": "it",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0e13",
+  "theme_color": "#0b0e13",
+  "icons": [
+    { "src": "icona.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "icona-180.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

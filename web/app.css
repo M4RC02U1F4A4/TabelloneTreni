@@ -1,0 +1,245 @@
+/* Tavolozza scura per prima: un tabellone di stazione è scuro, e su un telefono
+   in mano alla sera è anche la scelta che stanca meno. La variante chiara serve
+   al caso opposto, il display al sole sul marciapiede. */
+:root {
+  --sfondo: #0b0e13;
+  --piano: #151a23;
+  --piano-alto: #1d2431;
+  --bordo: #262f3d;
+  --testo: #e8edf5;
+  --tenue: #8a96a8;
+  --ambra: #ffb020;
+  --verde: #3ddc97;
+  --rosso: #ff6b6b;
+  --raggio: 12px;
+  --gap: 10px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --sfondo: #f4f6fa;
+    --piano: #ffffff;
+    --piano-alto: #eef1f7;
+    --bordo: #dde3ec;
+    --testo: #131820;
+    --tenue: #5d6b80;
+    --ambra: #a06000;
+    --verde: #0d7a4f;
+    --rosso: #c62828;
+  }
+}
+
+* { box-sizing: border-box; }
+/* Serve perché più sotto alcuni elementi hanno un display esplicito, che
+   altrimenti prevale su quello del foglio di stile del browser per [hidden]. */
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--sfondo);
+  color: var(--testo);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  /* Le cifre incolonnate sono ciò che rende leggibile una lista di orari. */
+  font-variant-numeric: tabular-nums;
+  -webkit-text-size-adjust: 100%;
+  padding-bottom: env(safe-area-inset-bottom);
+  overscroll-behavior-y: contain;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+ul { list-style: none; margin: 0; padding: 0; }
+
+/* ---------- intestazione ---------- */
+
+.testa {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--sfondo) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--bordo);
+  padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+}
+.testa-riga { display: flex; align-items: center; gap: 10px; }
+.titolo { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin: 0; flex: 1; min-width: 0; }
+.titolo .freccia { color: var(--ambra); font-weight: 400; }
+.sottotitolo { color: var(--tenue); font-size: 12.5px; margin-top: 2px; }
+.sottotitolo .vivo::before {
+  content: "";
+  display: inline-block;
+  width: 6px; height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--verde);
+  vertical-align: 1px;
+}
+.sottotitolo .fermo::before { background: var(--tenue); }
+
+.tondo {
+  flex: none;
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  border: 1px solid var(--bordo);
+  border-radius: 50%;
+  background: var(--piano);
+  font-size: 15px;
+}
+.tondo[aria-pressed="true"] { color: var(--ambra); border-color: var(--ambra); }
+
+.app { padding: 14px; max-width: 640px; margin: 0 auto; }
+
+/* ---------- home ---------- */
+
+.sezione + .sezione { margin-top: 22px; }
+.etichetta-sezione {
+  font-size: 11.5px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--tenue); margin: 0 0 8px 2px;
+}
+
+.campo {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px 14px; margin-bottom: var(--gap);
+  background: var(--piano); border: 1px solid var(--bordo); border-radius: var(--raggio);
+  text-align: left;
+}
+.campo .sigla {
+  flex: none; width: 22px;
+  color: var(--tenue); font-size: 12px; font-weight: 650;
+}
+.campo .valore { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.campo .valore.vuoto { color: var(--tenue); }
+
+.principale {
+  display: block; width: 100%;
+  padding: 14px; border: 0; border-radius: var(--raggio);
+  background: var(--ambra); color: #10131a;
+  font-weight: 650; font-size: 16px;
+}
+.principale:disabled { opacity: 0.45; }
+@media (prefers-color-scheme: light) {
+  .principale { color: #fff; }
+}
+
+.btn-testo { background: none; border: 0; color: var(--ambra); padding: 6px; font-size: 15px; }
+
+.scambia {
+  display: block; margin: -4px 0 var(--gap) auto;
+  background: none; border: 0; color: var(--tenue); font-size: 13px; padding: 4px 6px;
+}
+
+.preferito { display: flex; align-items: center; gap: 10px; }
+.preferito .via { flex: 1; min-width: 0; }
+.preferito .via b { font-weight: 600; }
+.preferito .via .freccia { color: var(--ambra); }
+.preferito .modo { font-size: 12px; color: var(--tenue); }
+.togli { background: none; border: 0; color: var(--tenue); padding: 6px 2px; font-size: 17px; }
+
+/* ---------- elenco treni ---------- */
+
+.treno {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2px 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: var(--piano);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+}
+.treno.parte { border-color: var(--verde); }
+.treno.soppresso { opacity: 0.6; }
+
+.orario { grid-column: 1; grid-row: 1 / span 2; align-self: center; text-align: right; }
+.orario .ora { font-size: 21px; font-weight: 650; letter-spacing: -0.02em; }
+.orario .ora.barrato { text-decoration: line-through; text-decoration-thickness: 2px; }
+.orario .scarto { font-size: 12px; font-weight: 650; color: var(--rosso); }
+.orario .scarto.puntuale { color: var(--verde); }
+
+.dove { grid-column: 2; min-width: 0; }
+.dove .meta { display: block; font-size: 12px; color: var(--tenue); }
+.destinazione { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arrivo { font-size: 13px; color: var(--tenue); margin-top: 1px; }
+.arrivo b { color: var(--testo); font-weight: 600; }
+
+.binario { grid-column: 3; grid-row: 1 / span 2; align-self: center; text-align: center; min-width: 30px; }
+.binario .num {
+  display: block; font-size: 17px; font-weight: 650;
+  padding: 3px 8px; border-radius: 8px; background: var(--piano-alto);
+}
+.binario .cap { display: block; font-size: 10px; color: var(--tenue); letter-spacing: 0.05em; }
+/* Il binario non assegnato è la norma finché il treno non è vicino: merita un
+   segno posato, non due righe di testo che gridano più del binario vero. */
+.binario .ignoto { color: var(--bordo); font-size: 20px; }
+
+.avviso {
+  grid-column: 1 / -1; margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed var(--bordo);
+  font-size: 12.5px; color: var(--ambra);
+}
+
+.fermate { grid-column: 1 / -1; margin-top: 8px; }
+.fermate summary {
+  font-size: 13px; color: var(--tenue); cursor: pointer; list-style: none; padding: 2px 0;
+}
+.fermate summary::-webkit-details-marker { display: none; }
+.fermate summary::before { content: "▸ "; }
+.fermate[open] summary::before { content: "▾ "; }
+.fermate ol {
+  margin: 8px 0 0; padding: 0 0 0 14px;
+  border-left: 2px solid var(--bordo);
+  font-size: 13.5px;
+}
+.fermate li { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+.fermate li.meta-scelta { color: var(--ambra); font-weight: 600; }
+.fermate li time { color: var(--tenue); }
+.fermate li.meta-scelta time { color: inherit; }
+
+/* ---------- stati ---------- */
+
+.senza-risultati { text-align: center; color: var(--tenue); padding: 40px 20px; }
+.senza-risultati p { margin: 0 0 4px; }
+.errore {
+  padding: 12px 14px; border-radius: var(--raggio);
+  background: color-mix(in srgb, var(--rosso) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rosso) 40%, transparent);
+  font-size: 14px;
+}
+.nota {
+  padding: 10px 12px; margin-bottom: 12px; border-radius: var(--raggio);
+  background: var(--piano-alto); color: var(--tenue); font-size: 13px;
+}
+.scheletro {
+  height: 70px; margin-bottom: 8px; border-radius: var(--raggio);
+  background: var(--piano);
+  animation: pulsa 1.4s ease-in-out infinite;
+}
+@keyframes pulsa { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .scheletro { animation: none; } }
+
+/* ---------- selettore stazione ---------- */
+
+.scelta {
+  position: fixed; inset: 0; z-index: 20;
+  background: var(--sfondo);
+  display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+}
+.scelta-testa {
+  display: flex; gap: 8px; align-items: center;
+  padding: 10px 12px; border-bottom: 1px solid var(--bordo);
+}
+.cerca {
+  flex: 1; min-width: 0;
+  padding: 11px 13px; border-radius: 10px;
+  border: 1px solid var(--bordo); background: var(--piano);
+  -webkit-appearance: none;
+}
+.elenco-scelta { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 24px; }
+.elenco-scelta li button {
+  display: block; width: 100%; text-align: left;
+  padding: 13px 16px; background: none; border: 0;
+  border-bottom: 1px solid var(--bordo);
+}
+.elenco-scelta li button mark { background: none; color: var(--ambra); font-weight: 650; }
+.elenco-scelta .intestazione {
+  padding: 14px 16px 6px; font-size: 11.5px; font-weight: 650;
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--tenue);
+}

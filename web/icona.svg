@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Tabellone Treni">
+  <!-- Il fondo copre tutto il riquadro perché l'icona è anche maskable: Android
+       la ritaglia a piacere, e il disegno sta dentro il cerchio di sicurezza. -->
+  <rect width="512" height="512" fill="#0b0e13"/>
+  <g fill="#ffb020">
+    <rect x="112" y="152" width="216" height="36" rx="8"/>
+    <rect x="112" y="238" width="152" height="36" rx="8"/>
+    <rect x="112" y="324" width="184" height="36" rx="8"/>
+  </g>
+  <circle cx="372" cy="170" r="18" fill="#3ddc97"/>
+</svg>
