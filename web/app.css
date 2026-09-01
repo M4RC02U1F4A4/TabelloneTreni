@@ -44,6 +44,10 @@ body {
   overscroll-behavior-y: contain;
 }
 button, input { font: inherit; color: inherit; }
+/* I link qui dentro sono elementi di interfaccia — una riga dei preferiti, la
+   freccia indietro — non testo in mezzo a un discorso: prendono il colore di
+   chi li contiene invece di quello di default del browser. */
+a { color: inherit; text-decoration: none; }
 button { cursor: pointer; }
 ul { list-style: none; margin: 0; padding: 0; }
 
