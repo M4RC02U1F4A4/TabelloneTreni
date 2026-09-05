@@ -66,6 +66,7 @@ const ICONE = {
   indietro: '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>',
   scambia: '<path d="M8 20V4"/><path d="M4 8l4-4 4 4"/><path d="M16 4v16"/><path d="M20 16l-4 4-4-4"/>',
   giu: '<path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>',
+  su: '<path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>',
   // Il gallone di apertura riga: 9..15 in orizzontale, 6..18 in verticale,
   // quindi centrato — e la rotazione di 90 gradi sulla scheda aperta gira
   // attorno al suo centro vero invece che attorno al centro di una riga di
@@ -177,6 +178,7 @@ let campoInModifica = null;
 const INVITI = {
   da: 'Stazione di partenza',
   a: 'Stazione di arrivo',
+  partenze: 'Stazione di cui vedere le partenze',
   arrivi: 'Stazione di cui vedere gli arrivi',
 };
 
@@ -218,11 +220,12 @@ listaScelta.addEventListener('click', (e) => {
   if (!b) return;
   const id = Number(b.dataset.id);
   ricorda(id);
-  // Un tabellone arrivi ha bisogno di una stazione sola, quindi non gli serve
-  // un modulo: scelta la stazione, ci si va direttamente.
-  if (campoInModifica === 'arrivi') {
+  // Un tabellone intero ha bisogno di una stazione sola, quindi non gli serve
+  // il modulo con due campi: scelta la stazione, ci si va direttamente.
+  if (campoInModifica === 'arrivi' || campoInModifica === 'partenze') {
+    const arrivi = campoInModifica === 'arrivi';
     chiudiScelta();
-    location.hash = `#/a/${id}`;
+    location.hash = rottaDi(id, null, arrivi);
     return;
   }
   if (campoInModifica === 'da') stato.da = id; else stato.a = id;
@@ -362,7 +365,15 @@ function disegnaHome() {
     </section>
 
     <section class="sezione">
+      <h2 class="etichetta-sezione">Tabellone di una stazione</h2>
       <ul class="lista">
+        <li class="riga">
+          <button class="riga-tocco" type="button" data-apri="partenze">
+            <span class="segno tenue">${icona('su')}</span>
+            <span class="testo">Partenze di una stazione</span>
+            <span class="chevron">${icona('gallone')}</span>
+          </button>
+        </li>
         <li class="riga">
           <button class="riga-tocco" type="button" data-apri="arrivi">
             <span class="segno tenue">${icona('giu')}</span>
