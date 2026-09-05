@@ -342,9 +342,29 @@ details[open] .apri { transform: rotate(90deg); }
   font-size: 13.5px;
 }
 .fermate li { display: flex; justify-content: space-between; gap: 10px; padding: 2.5px 0; }
+/* I nomi di ViaggiaTreno sono per esteso, non abbreviati come quelli del
+   tabellone: "MALPENSA AEROPORTO TERMINAL 2" su un telefono andrebbe a capo, e
+   una fermata alta due righe in una lista di venti si sente. */
+.fermate li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fermate li time { flex: none; }
 .fermate li.meta-scelta { color: var(--ambra); font-weight: 600; }
 .fermate li time { color: var(--tenue); }
 .fermate li.meta-scelta time { color: inherit; }
+
+/* Le fermate già servite si smorzano: quello che resta acceso è la parte di
+   viaggio che deve ancora succedere, che è l'unica su cui si può fare
+   qualcosa. */
+.fermate li.passata { color: var(--tenue); }
+.fermate li.passata time { color: var(--tenue); }
+.fermate li.passata time small { font-size: 11px; font-weight: 650; margin-left: 3px; }
+.fermate li.passata.meta-scelta { color: var(--ambra); }
+
+/* Dove si trova il treno adesso: sta sopra le fermate perché è la risposta
+   alla domanda per cui si è aperta la scheda. */
+.viaggio-nota {
+  margin: 0 14px 8px 46px; padding: 0;
+  color: var(--tenue); font-size: 12.5px;
+}
 
 /* ---------- stati ---------- */
 

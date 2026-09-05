@@ -26,6 +26,11 @@ import (
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
 
+// Il database dei fusi orari va dentro il binario: gli orari dei treni sono in
+// Europe/Rome e vanno formattati lì, mentre l'immagine finale è una distroless
+// static, dove non c'è nessun /usr/share/zoneinfo su cui contare.
+import _ "time/tzdata"
+
 //go:embed all:web
 var contenutoWeb embed.FS
 

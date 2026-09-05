@@ -3,6 +3,7 @@ package api
 import (
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -122,5 +123,46 @@ func TestElencoStazioni(t *testing.T) {
 	corpo, _ := io.ReadAll(resp.Body)
 	if len(corpo) < 10000 {
 		t.Errorf("elenco di soli %d byte", len(corpo))
+	}
+}
+
+// Un treno che ViaggiaTreno non segue non è un errore: è la normalità per metà
+// del tabellone, e il client deve poterlo distinguere da un guasto senza
+// interpretare un codice di stato.
+func TestTrenoNonSeguito(t *testing.T) {
+	res := chiedi(t, server(), "/api/train?from=1715&number=1", nil)
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("stato = %d, atteso 200", res.StatusCode)
+	}
+	var d map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	if d["tracked"] != false {
+		t.Errorf("tracked = %v, atteso false", d["tracked"])
+	}
+}
+
+func TestTrenoParametriMancanti(t *testing.T) {
+	casi := []struct {
+		nome     string
+		percorso string
+	}{
+		{"senza stazione", "/api/train?number=1"},
+		{"stazione non numerica", "/api/train?from=abc&number=1"},
+		{"stazione a zero", "/api/train?from=0&number=1"},
+		{"senza numero di treno", "/api/train?from=1715"},
+		{"numero di soli spazi", "/api/train?from=1715&number=%20%20"},
+	}
+	for _, caso := range casi {
+		t.Run(caso.nome, func(t *testing.T) {
+			res := chiedi(t, server(), caso.percorso, nil)
+			defer res.Body.Close()
+			if res.StatusCode != http.StatusBadRequest {
+				t.Fatalf("stato = %d, atteso 400", res.StatusCode)
+			}
+		})
 	}
 }

@@ -8,6 +8,9 @@ const API = {
   stazioni: 'api/stations',
   tabellone: (da, a, arrivi) =>
     `api/board?from=${da}` + (a ? `&to=${a}` : '') + (arrivi ? '&arrivals=true' : ''),
+  treno: (da, numero, a, arrivi) =>
+    `api/train?from=${da}&number=${encodeURIComponent(numero)}` +
+    (a ? `&to=${a}` : '') + (arrivi ? '&arrivals=true' : ''),
 };
 
 const RINFRESCO = 60_000;   // come chiesto: una volta al minuto
@@ -25,6 +28,15 @@ const stato = {
   errore: null,
   caricamento: false,
 };
+
+/* Le schede aperte e i viaggi già scaricati.
+
+   Il tabellone si ridisegna intero una volta al minuto: senza tenere da parte
+   quali schede erano aperte, ogni aggiornamento le richiuderebbe in faccia a
+   chi le stava leggendo. I viaggi restano in mano al client per lo stesso
+   motivo — un ridisegno non deve rifare le richieste già fatte. */
+const aperti = new Set();
+const viaggi = new Map(); // numero treno -> { stato: 'attesa'|'ok'|'errore', dati }
 
 // Con "Modifica" attivo le righe dei preferiti mostrano la ✕. Fuori da quella
 // modalità non c'è: una ✕ accanto a una riga tappabile mette la cancellazione a
@@ -276,6 +288,9 @@ async function cambiaRotta() {
   stato.da = r.da; stato.a = r.a; stato.arrivi = r.arrivi;
   stato.dati = null;
   stato.errore = null;
+  // Schede aperte e viaggi valgono per il tabellone che si sta lasciando.
+  aperti.clear();
+  viaggi.clear();
   // Il catalogo pesa una ventina di KB compressi e qui non serve: i nomi delle
   // due stazioni arrivano già con il tabellone. Si scarica in sottofondo, per
   // il momento in cui si aprirà il selettore.
@@ -590,7 +605,7 @@ function rigaTreno(t, d, misure) {
   }
   // La scheda intera è il <summary>: toccare il treno apre le sue fermate.
   return `<li class="${classi.join(' ')}">
-    <details>
+    <details data-treno="${esc(t.number)}"${aperti.has(t.number) ? ' open' : ''}>
       <summary class="${riga}">${contenuto}</summary>
       ${fermate(t)}
     </details>
@@ -598,6 +613,9 @@ function rigaTreno(t, d, misure) {
 }
 
 function fermate(t) {
+  const viaggio = viaggi.get(t.number);
+  if (viaggio && viaggio.stato === 'ok' && viaggio.dati.stops?.length) return viaggioReale(t, viaggio.dati);
+
   // La fermata che interessa è quella su cui il filtro ha agganciato il treno:
   // la si riconosce dall'orario di arrivo, e va evidenziata una volta sola —
   // un treno può ripassare a orari diversi ma non due volte allo stesso.
@@ -605,7 +623,64 @@ function fermate(t) {
   const voci = t.stops.map((f, i) =>
     `<li class="${i === evidenziata ? 'meta-scelta' : ''}">
       <span>${esc(f.name)}</span><time>${esc(f.time)}</time></li>`).join('');
-  return `<ol class="fermate">${voci}</ol>`;
+  // Le fermate previste restano leggibili in ogni caso: sostituirle con
+  // un'attesa toglierebbe un'informazione che c'è già. Sotto, però, va detto
+  // com'è andata la ricerca del viaggio vero — anche quando è andata a vuoto,
+  // altrimenti chi ha toccato la scheda resta senza risposta.
+  const note = {
+    attesa: 'cerco dov\'è il treno…',
+    ok: 'ViaggiaTreno non segue questo treno',
+    errore: 'viaggio non disponibile adesso',
+  };
+  const nota = viaggio ? `<p class="viaggio-nota">${note[viaggio.stato]}</p>` : '';
+  return `<ol class="fermate">${voci}</ol>${nota}`;
+}
+
+/* Le fermate secondo ViaggiaTreno: quelle già servite portano l'ora a cui il
+   treno ci è passato davvero, le altre solo quella prevista.
+
+   Non si prova a proiettare il ritardo sulle fermate future: ViaggiaTreno non
+   lo fa — lì lascia zero, che è un campo non compilato e non una previsione — e
+   inventarlo qui vorrebbe dire stampare un orario che nessuno ha calcolato,
+   con l'aria di essere un dato. */
+function viaggioReale(t, d) {
+  const voci = d.stops.map((f) => {
+    const classi = [];
+    if (f.passed) classi.push('passata');
+    if (f.chosen) classi.push('meta-scelta');
+    const ora = f.passed && f.actual
+      ? `${esc(f.actual)}${f.delay ? ` <small>${f.delay > 0 ? '+' : ''}${f.delay}</small>` : ''}`
+      : esc(f.scheduled);
+    return `<li class="${classi.join(' ')}"><span>${esc(f.name)}</span><time>${ora}</time></li>`;
+  }).join('');
+
+  const dove = d.tracked && d.lastSeen?.station
+    ? `<p class="viaggio-nota">rilevato a ${esc(d.lastSeen.station)}${
+        d.lastSeen.time ? ` alle ${esc(d.lastSeen.time)}` : ''}</p>`
+    : '<p class="viaggio-nota">non ancora partito</p>';
+  return `${dove}<ol class="fermate">${voci}</ol>`;
+}
+
+/* Scarica il viaggio di un treno, una volta sola per treno.
+
+   Parte solo quando qualcuno apre la scheda: è una richiesta per treno su un
+   servizio lento, e farla per tutti e quaranta i treni di un tabellone
+   significherebbe pagarla quaranta volte per le due o tre schede che si aprono
+   davvero. */
+async function scaricaViaggio(numero) {
+  if (viaggi.has(numero)) return;
+  viaggi.set(numero, { stato: 'attesa' });
+  disegna();
+  try {
+    const r = await fetch(API.treno(stato.da, numero, stato.a, stato.arrivi));
+    if (!r.ok) throw new Error(`errore ${r.status}`);
+    viaggi.set(numero, { stato: 'ok', dati: await r.json() });
+  } catch {
+    // Un viaggio che non arriva non è un guasto della pagina: restano le
+    // fermate previste, che è quello che si vedeva prima di questa aggiunta.
+    viaggi.set(numero, { stato: 'errore' });
+  }
+  disegna();
 }
 
 /* ------------------------------------------------------------------ eventi */
@@ -622,6 +697,19 @@ app.addEventListener('click', (e) => {
     disegna();
   }
 });
+
+// `toggle` non fa bubbling: si ascolta in fase di cattura sul contenitore.
+app.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.dataset.treno) return;
+  const numero = d.dataset.treno;
+  if (d.open) {
+    aperti.add(numero);
+    scaricaViaggio(numero);
+  } else {
+    aperti.delete(numero);
+  }
+}, true);
 
 testa.addEventListener('click', (e) => {
   if (!e.target.closest('[data-preferito]')) return;

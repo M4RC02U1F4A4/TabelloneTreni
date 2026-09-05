@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"sync"
@@ -258,12 +259,23 @@ type liveFinta struct {
 	arrivi   bool
 	misure   map[string]vt.Treno
 	err      error
+
+	andamenti    int
+	chiestoPer   string
+	viaggio      *vt.Andamento
+	errAndamento error
 }
 
 func (r *liveFinta) Treni(ctx context.Context, codice string, arrivi bool) (map[string]vt.Treno, error) {
 	r.chiamate++
 	r.codice, r.arrivi = codice, arrivi
 	return r.misure, r.err
+}
+
+func (r *liveFinta) Andamento(ctx context.Context, codOrigine, numero string, data int64) (*vt.Andamento, error) {
+	r.andamenti++
+	r.chiestoPer = fmt.Sprintf("%s|%s|%d", codOrigine, numero, data)
+	return r.viaggio, r.errAndamento
 }
 
 func minuti(n int) *int { return &n }
@@ -491,4 +503,126 @@ func TestBinarioCambiatoAncheSenzaMisura(t *testing.T) {
 		return
 	}
 	t.Fatalf("treno %s non trovato nel tabellone di prova", trenoA)
+}
+
+// --- il viaggio del singolo treno -------------------------------------------
+
+func viaggioFinto() *vt.Andamento {
+	return &vt.Andamento{Ritardo: 3, Stazione: "MILANO LAMBRATE", Fermate: []vt.Fermata{{Nome: "X"}}}
+}
+
+// Le coordinate per chiedere l'andamento le ha già lette il tabellone: al
+// client si chiede solo quale treno, non da dove parte e di che giorno è.
+func TestAndamentoUsaLeCoordinateDelTabellone(t *testing.T) {
+	live := &liveFinta{
+		misure:  map[string]vt.Treno{trenoA: {CodOrigine: "S01700", DataPartenza: 1788645600000}},
+		viaggio: viaggioFinto(),
+	}
+	s, _ := servizioConLive("partenze-1715.html", live)
+	if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := s.Andamento(context.Background(), garibaldi, false, trenoA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == nil || a.Stazione != "MILANO LAMBRATE" {
+		t.Fatalf("andamento = %+v", a)
+	}
+	atteso := "S01700|" + trenoA + "|1788645600000"
+	if live.chiestoPer != atteso {
+		t.Errorf("chiesto per %q, atteso %q", live.chiestoPer, atteso)
+	}
+}
+
+// Toccare due volte la stessa scheda non deve chiedere due volte la stessa cosa
+// a un servizio lento.
+func TestAndamentoInCache(t *testing.T) {
+	live := &liveFinta{
+		misure:  map[string]vt.Treno{trenoA: {CodOrigine: "S01700", DataPartenza: 1}},
+		viaggio: viaggioFinto(),
+	}
+	s, _ := servizioConLive("partenze-1715.html", live)
+	if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := s.Andamento(context.Background(), garibaldi, false, trenoA); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if live.andamenti != 1 {
+		t.Fatalf("chiamate = %d, attesa 1", live.andamenti)
+	}
+}
+
+// I casi in cui il viaggio semplicemente non c'è: non sono errori, e non devono
+// diventarlo. La scheda si apre lo stesso, con le fermate previste.
+func TestAndamentoAssenteNonEUnErrore(t *testing.T) {
+	casi := []struct {
+		nome    string
+		prepara func(t *testing.T) *Service
+		treno   string
+	}{
+		{
+			nome: "nessuna seconda fonte",
+			prepara: func(t *testing.T) *Service {
+				s, _ := servizio("partenze-1715.html")
+				if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
+					t.Fatal(err)
+				}
+				return s
+			},
+			treno: trenoA,
+		},
+		{
+			nome: "tabellone mai letto",
+			prepara: func(t *testing.T) *Service {
+				s, _ := servizioConLive("partenze-1715.html", &liveFinta{viaggio: viaggioFinto()})
+				return s
+			},
+			treno: trenoA,
+		},
+		{
+			nome: "treno che ViaggiaTreno non conosce",
+			prepara: func(t *testing.T) *Service {
+				live := &liveFinta{misure: map[string]vt.Treno{}, viaggio: viaggioFinto()}
+				s, _ := servizioConLive("partenze-1715.html", live)
+				if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
+					t.Fatal(err)
+				}
+				return s
+			},
+			treno: trenoA,
+		},
+		{
+			nome: "treno senza le coordinate per chiederlo",
+			prepara: func(t *testing.T) *Service {
+				live := &liveFinta{
+					misure:  map[string]vt.Treno{trenoA: {Ritardo: minuti(2)}},
+					viaggio: viaggioFinto(),
+				}
+				s, _ := servizioConLive("partenze-1715.html", live)
+				if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
+					t.Fatal(err)
+				}
+				return s
+			},
+			treno: trenoA,
+		},
+	}
+	for _, caso := range casi {
+		t.Run(caso.nome, func(t *testing.T) {
+			s := caso.prepara(t)
+			a, err := s.Andamento(context.Background(), garibaldi, false, caso.treno)
+			if err != nil {
+				t.Fatalf("errore invece di un viaggio assente: %v", err)
+			}
+			if a != nil {
+				t.Fatalf("andamento = %+v, atteso nessuno", a)
+			}
+		})
+	}
 }

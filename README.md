@@ -7,6 +7,7 @@ con l'orario a cui ci arrivano.
 
 - **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
 - **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
+- **toccando un treno si vede dov'è adesso**, con gli orari reali delle fermate che ha già servito
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
@@ -105,6 +106,42 @@ Il cambio non dipende dal ritardo: un treno non ancora rilevato non ha una
 misura, ma può benissimo avere già un binario diverso da quello previsto — ed è
 anzi il momento in cui la cosa serve di più, perché sei ancora sul piazzale a
 decidere dove andare.
+
+### Dov'è il treno adesso
+
+Il tabellone dice di quanto un treno è in ritardo. Quando il numero è grosso la
+domanda diventa un'altra — *ci arriva davvero?* — e la risposta è dove si trova
+adesso. Toccando la scheda di un treno, sopra le sue fermate compare l'ultimo
+punto in cui ViaggiaTreno l'ha visto, e le fermate già servite portano l'ora a
+cui ci è passato davvero invece di quella prevista.
+
+Costa una richiesta per treno su un servizio lento, quindi parte **solo quando
+la scheda si apre**: farla per tutti e quaranta i treni di un tabellone
+significherebbe pagarla quaranta volte per le due o tre schede che si aprono. I
+viaggi già scaricati restano in mano al client, e lato server stanno in una
+cache di trenta secondi, così toccare due volte la stessa scheda non chiede due
+volte la stessa cosa.
+
+Il treno si identifica con il tabellone da cui lo si è aperto: le coordinate che
+ViaggiaTreno pretende — stazione di origine e giorno di partenza, oltre al
+numero — le ha già lette il tabellone, e chiederle al client vorrebbe dire
+fidarsi di quello che rimanda indietro.
+
+**Non si prova a indovinare quando arriverà alle fermate che restano.**
+ViaggiaTreno lì lascia zero, che è un campo non compilato e non una previsione,
+e proiettare il ritardo attuale sugli orari futuri stamperebbe un'ora che
+nessuno ha calcolato con l'aria di essere un dato.
+
+La fermata dove scendi resta evidenziata anche in questa lista, e qui il
+confronto avviene sul **codice stazione**, non sul nome o sull'orario: le due
+fonti scrivono gli stessi posti in modi diversi, e un confronto sui nomi
+sbaglierebbe proprio dove non si può sbagliare.
+
+Gli orari li formatta il server in `Europe/Rome`, non il telefono: chi guarda
+potrebbe essere altrove e vedrebbe orari spostati di un'ora accanto a quelli di
+RFI, che italiani lo sono sempre. Il database dei fusi sta dentro il binario
+(404 KB) perché l'immagine finale è una distroless static, dove non c'è nessun
+`/usr/share/zoneinfo` su cui contare.
 
 ### Il riconoscimento delle fermate
 

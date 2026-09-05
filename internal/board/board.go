@@ -34,6 +34,7 @@ type Source interface {
 // perché i test non devono uscire in rete per averla.
 type Live interface {
 	Treni(ctx context.Context, codice string, arrivi bool) (map[string]vt.Treno, error)
+	Andamento(ctx context.Context, codOrigine, numero string, data int64) (*vt.Andamento, error)
 }
 
 type Service struct {
@@ -43,6 +44,17 @@ type Service struct {
 
 	mu    sync.Mutex
 	cache map[chiave]*voce
+
+	// Cache degli andamenti, separata da quella dei tabelloni: si riempie solo
+	// con i treni che qualcuno apre davvero, che sono pochi, ma va a mani sul
+	// dito di chi tocca la stessa scheda due volte di seguito.
+	muAnd  sync.Mutex
+	viaggi map[string]*viaggio
+}
+
+type viaggio struct {
+	andamento *vt.Andamento
+	scadeIl   time.Time
 }
 
 type chiave struct {
@@ -61,7 +73,12 @@ type voce struct {
 }
 
 func New(src Source, cat *stations.Catalogo) *Service {
-	return &Service{src: src, catalogo: cat, cache: map[chiave]*voce{}}
+	return &Service{
+		src:      src,
+		catalogo: cat,
+		cache:    map[chiave]*voce{},
+		viaggi:   map[string]*viaggio{},
+	}
 }
 
 // ConLive attacca la seconda fonte. Senza, il servizio si comporta come prima e
@@ -252,4 +269,66 @@ func unisci(b *rfi.Board, live map[string]vt.Treno) {
 			b.Trains[i].PlatformActual = t.BinarioEffettivo
 		}
 	}
+}
+
+// AndamentoMax è quanti viaggi restano in cache. Sono le schede aperte di
+// recente: poche per definizione, ma senza un tetto il processo le accumula
+// finché resta acceso.
+const AndamentoMax = 200
+
+// Andamento restituisce il viaggio di un treno del tabellone: dove si trova
+// adesso e a che ora è passato dalle fermate che ha già servito.
+//
+// Il treno si identifica con il tabellone da cui lo si è aperto, perché le
+// coordinate che ViaggiaTreno pretende — stazione di origine e giorno di
+// partenza, oltre al numero — le ha già lette il tabellone: chiederle al client
+// vorrebbe dire fidarsi di quello che rimanda indietro.
+//
+// Restituisce nil, senza errore, in tutti i casi in cui il dato semplicemente
+// non c'è: nessuna seconda fonte, tabellone mai letto, treno che ViaggiaTreno
+// non conosce, treno che non traccia.
+func (s *Service) Andamento(ctx context.Context, placeID int, arrivals bool, numero string) (*vt.Andamento, error) {
+	if s.live == nil {
+		return nil, nil
+	}
+	numero = strings.TrimSpace(numero)
+
+	s.mu.Lock()
+	v := s.cache[chiave{placeID, arrivals}]
+	s.mu.Unlock()
+	if v == nil {
+		return nil, nil
+	}
+	v.mu.Lock()
+	t, ok := v.live[numero]
+	v.mu.Unlock()
+	if !ok || t.CodOrigine == "" || t.DataPartenza == 0 {
+		return nil, nil
+	}
+
+	k := fmt.Sprintf("%s|%s|%d", t.CodOrigine, numero, t.DataPartenza)
+	s.muAnd.Lock()
+	if c := s.viaggi[k]; c != nil && time.Now().Before(c.scadeIl) {
+		s.muAnd.Unlock()
+		return c.andamento, nil
+	}
+	s.muAnd.Unlock()
+
+	a, err := s.live.Andamento(ctx, t.CodOrigine, numero, t.DataPartenza)
+	if err != nil {
+		return nil, err
+	}
+
+	s.muAnd.Lock()
+	defer s.muAnd.Unlock()
+	// Tetto banale: si butta una voce qualsiasi. Sono tutte equivalenti e
+	// scadute o quasi, e tenere un ordine costerebbe più di quanto valga.
+	for len(s.viaggi) >= AndamentoMax {
+		for kk := range s.viaggi {
+			delete(s.viaggi, kk)
+			break
+		}
+	}
+	s.viaggi[k] = &viaggio{andamento: a, scadeIl: time.Now().Add(TTL)}
+	return a, nil
 }
