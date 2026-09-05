@@ -265,6 +265,17 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    pezzo più grande della riga e non costa niente in larghezza. */
 .treno.in-ritardo .ora { color: var(--rosso); }
 
+/* Nella legenda le pastiglie sono vuote: un numero d'esempio accanto a una
+   lista di numeri veri si legge come un dato, e a spiegare due colori bastano
+   i due colori. */
+/* Il bordo è nella tinta che quel colore ha sul testo: senza cifra dentro, sul
+   fondo scuro resterebbe il solo fondo della pastiglia, che è tenue apposta per
+   stare dietro a un numero acceso. */
+.legenda .campione {
+  min-width: 0; width: 22px; height: 16px; padding: 0;
+  border: 1px solid currentColor;
+}
+
 .legenda {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   margin: 0 0 var(--gap); padding: 0 2px;

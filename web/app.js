@@ -474,10 +474,10 @@ const scheletro = () => `<li class="treno scheletro" aria-hidden="true">
 
 /* I due ritardi.
 
-   RFI pubblica il proprio con parsimonia: a Gallarate alle 21 dava zero su
-   tutti e trentacinque i treni mentre ViaggiaTreno, negli stessi minuti, ne
-   misurava sette in ritardo fra uno e quattro minuti. Il ritardo piccolo, che è
-   poi quello che decide se il treno si prende, sul tabellone non c'è.
+   RFI pubblica il proprio con parsimonia: sotto i pochi minuti arrotonda a
+   zero — cinque treni su un campione di venti viaggiavano fra +1 e +2 con il
+   tabellone che dichiarava zero — e sopra l'ora si aggiorna con calma, tanto
+   che un treno da 95 minuti ne dichiarava 70.
 
    Quale delle due sia quella giusta non lo decide l'app: si mostrano tutt'e
    due, e il colore dice da dove viene il numero. Che il treno sia in ritardo lo
@@ -524,8 +524,8 @@ const conMisure = (d) => d.trains.some((t) => ritardoLive(t) !== null);
 function legenda(d) {
   if (!conMisure(d)) return '';
   return `<p class="legenda">
-    <span class="scarto rfi">0</span> tabellone RFI
-    <span class="scarto vt">+3</span> misurato sul treno
+    <span class="scarto rfi campione"></span> tabellone RFI
+    <span class="scarto vt campione"></span> misurato sul treno
   </p>`;
 }
 
