@@ -77,6 +77,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .sottotitolo .fermo::before { background: var(--tenue); }
 
+/* Le icone sono quadrate e centrate sulla loro griglia: il centraggio del
+   contenitore basta, non serve nessuna correzione ottica per glifo. */
+.icona { display: block; width: 20px; height: 20px; }
+
 .tasto {
   flex: none;
   width: 40px; height: 40px;
@@ -124,14 +128,21 @@ ul { list-style: none; margin: 0; padding: 0; }
   padding: 13px 2px; background: none; border: 0; text-align: left;
   font-size: 15px;
 }
-.riga-tocco .segno { flex: none; width: 15px; color: var(--ambra); font-size: 14px; }
+/* Il segno sta in una colonna di larghezza fissa perché i testi delle righe
+   restino incolonnati fra loro: dentro può esserci un'icona di qualsiasi
+   forma, e va al centro della colonna. */
+.riga-tocco .segno {
+  flex: none; width: 15px; color: var(--ambra); font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.riga-tocco .segno .icona { width: 15px; height: 15px; }
 .riga-tocco .segno.tenue { color: var(--tenue); }
 .riga-tocco .testo { flex: 1; min-width: 0; font-weight: 600; }
 .riga-tocco .testo .freccia { color: var(--ambra); font-weight: 400; }
 /* Il qualificatore c'è ogni volta che la riga non è una tratta pura: così
    l'assenza di etichetta non significa due cose diverse. */
 .riga-tocco .qualifica { color: var(--tenue); font-weight: 400; font-size: 13px; }
-.riga-tocco .chevron { flex: none; color: var(--bordo); font-size: 20px; line-height: 1; }
+.riga-tocco .chevron { flex: none; color: var(--bordo); display: flex; align-items: center; }
 .togli {
   flex: none; padding: 12px 4px 12px 14px;
   background: none; border: 0; color: var(--rosso); font-size: 16px;
@@ -159,7 +170,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .campo .valore { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .campo .valore.vuoto { color: var(--tenue); }
-.campo .chevron { flex: none; color: var(--bordo); font-size: 20px; line-height: 1; }
+.campo .chevron { flex: none; color: var(--bordo); display: flex; align-items: center; }
 
 .inverti {
   flex: none; align-self: center;
@@ -246,7 +257,8 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 .binario .ignoto { color: var(--bordo); font-size: 20px; }
 
 .apri {
-  color: var(--tenue); opacity: 0.5; font-size: 20px; line-height: 1;
+  color: var(--tenue); opacity: 0.5;
+  display: flex; align-items: center;
   transition: transform 0.15s ease;
 }
 @media (prefers-reduced-motion: reduce) { .apri { transition: none; } }

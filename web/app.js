@@ -52,6 +52,35 @@ function canon(s) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/* Le icone sono disegni, non testo.
+
+   Un glifo come "←" non ha l'inchiostro al centro della propria riga, e di
+   quanto sia spostato lo decide il font: misurato qui mezzo pixel troppo in
+   basso, mentre "⇅" e "↓" stanno tre decimi troppo in alto — versi opposti, e
+   su un altro sistema i valori cambiano ancora. Nessun centraggio CSS può
+   rimediare, perché centra la riga di testo e non il segno che c'è dentro.
+
+   Disegnate su una griglia di 24, invece, sono centrate per costruzione e lo
+   restano su qualsiasi telefono. */
+const ICONE = {
+  indietro: '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>',
+  scambia: '<path d="M8 20V4"/><path d="M4 8l4-4 4 4"/><path d="M16 4v16"/><path d="M20 16l-4 4-4-4"/>',
+  giu: '<path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>',
+  // Il gallone di apertura riga: 9..15 in orizzontale, 6..18 in verticale,
+  // quindi centrato — e la rotazione di 90 gradi sulla scheda aperta gira
+  // attorno al suo centro vero invece che attorno al centro di una riga di
+  // testo, che è il motivo per cui prima sembrava scivolare.
+  gallone: '<path d="M9 6l6 6-6 6"/>',
+  // Stella a cinque punte col rettangolo che la contiene centrato in 12,12:
+  // il glifo "☆" del font stava tre quarti di pixel troppo in alto, e accanto
+  // alla freccia ormai centrata la differenza si vedeva.
+  stella: `<path d="M12 3.32L14.16 9.95L21.13 9.95L15.49 14.05L17.64 20.68L12 16.58L6.36 20.68L8.51 14.05L2.87 9.95L9.84 9.95Z"/>`,
+};
+
+const icona = (nome, piena) => `<svg class="icona" viewBox="0 0 24 24" fill="${piena ? 'currentColor' : 'none'}"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+  aria-hidden="true">${ICONE[nome]}</svg>`;
+
 function leggi(chiave, difetto) {
   try { return JSON.parse(localStorage.getItem(chiave)) ?? difetto; }
   catch { return difetto; }
@@ -325,7 +354,7 @@ function disegnaHome() {
           ${campoStazione('a', 'A', stato.a, 'Tutte le destinazioni')}
         </div>
         <button class="inverti" type="button" data-scambia
-                aria-label="Inverti partenza e arrivo">⇅</button>
+                aria-label="Inverti partenza e arrivo">${icona('scambia')}</button>
       </div>
       <button class="principale" type="button" data-vai ${stato.da ? '' : 'disabled'}>
         Vedi i treni
@@ -336,9 +365,9 @@ function disegnaHome() {
       <ul class="lista">
         <li class="riga">
           <button class="riga-tocco" type="button" data-apri="arrivi">
-            <span class="segno tenue">↓</span>
+            <span class="segno tenue">${icona('giu')}</span>
             <span class="testo">Arrivi di una stazione</span>
-            <span class="chevron">›</span>
+            <span class="chevron">${icona('gallone')}</span>
           </button>
         </li>
       </ul>
@@ -349,16 +378,16 @@ function campoStazione(quale, sigla, id, vuoto) {
   return `<button class="campo" type="button" data-apri="${quale}">
     <span class="sigla">${sigla}</span>
     <span class="valore ${id ? '' : 'vuoto'}">${id ? esc(nomeStazione(id)) : vuoto}</span>
-    <span class="chevron">›</span>
+    <span class="chevron">${icona('gallone')}</span>
   </button>`;
 }
 
 function rigaPreferito(p) {
   return `<li class="riga">
     <a class="riga-tocco" href="${rottaDi(p.f, p.t, p.a)}">
-      <span class="segno">★</span>
+      <span class="segno">${icona('stella', true)}</span>
       <span class="testo">${etichettaPreferito(p)}</span>
-      ${modificaPreferiti ? '' : '<span class="chevron">›</span>'}
+      ${modificaPreferiti ? '' : `<span class="chevron">${icona('gallone')}</span>`}
     </a>
     ${modificaPreferiti ? `<button class="togli" type="button" data-togli="${esc(chiaveTratta(p))}"
         aria-label="Togli dai preferiti">✕</button>` : ''}
@@ -380,11 +409,11 @@ function disegnaRisultati() {
 
   testa.innerHTML = `
     <div class="testa-riga">
-      <a class="tasto" href="#/" aria-label="Torna alla home">←</a>
+      <a class="tasto" href="#/" aria-label="Torna alla home">${icona('indietro')}</a>
       <h1 class="titolo">${esc(daNome)}${aNome && !stato.arrivi ?
         ` <span class="freccia">→</span> ${esc(aNome)}` : ''}</h1>
       <button class="tasto" type="button" data-preferito aria-pressed="${salvato}"
-              aria-label="${salvato ? 'Togli dai preferiti' : 'Aggiungi ai preferiti'}">${salvato ? '★' : '☆'}</button>
+              aria-label="${salvato ? 'Togli dai preferiti' : 'Aggiungi ai preferiti'}">${icona('stella', salvato)}</button>
     </div>
     <div class="sottotitolo">
       ${stato.arrivi ? 'Arrivi' : 'Partenze'} ·
@@ -469,7 +498,7 @@ function rigaTreno(t, d) {
       ${t.platform ? `<span class="num">${esc(t.platform)}</span><span class="cap">BIN</span>`
                    : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
     </div>
-    ${espandibile ? '<span class="apri" aria-hidden="true">›</span>' : ''}
+    ${espandibile ? `<span class="apri" aria-hidden="true">${icona('gallone')}</span>` : ''}
     ${t.notes ? `<div class="avviso">${esc(t.notes)}</div>` : ''}`;
 
   const riga = `riga-treno${espandibile ? ' espandibile' : ''}`;
