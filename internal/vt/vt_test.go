@@ -25,7 +25,7 @@ func clienteSu(t *testing.T, h http.HandlerFunc) (*Client, *[]string) {
 
 func fixture(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile("testdata/partenze-S01030.json")
+	b, err := os.ReadFile("testdata/partenze-S01645.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,28 +36,31 @@ func TestRitardiSullaRispostaVera(t *testing.T) {
 	corpo := fixture(t)
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
 
-	r, err := c.Ritardi(context.Background(), "S01030", false)
+	r, err := c.Ritardi(context.Background(), "S01645", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 27 treni nella risposta, 14 dei quali non ancora partiti: restano i 13
+	// 24 treni nella risposta, 14 dei quali non ancora partiti: restano i 10
 	// che qualcuno ha davvero misurato.
-	if len(r) != 13 {
-		t.Fatalf("misure = %d, attese 13", len(r))
+	if len(r) != 10 {
+		t.Fatalf("misure = %d, attese 10", len(r))
 	}
 
 	casi := []struct {
 		treno  string
 		minuti int
 	}{
-		{"2440", 2},
-		{"24577", 4},
+		{"3087", 2},
+		// Un ritardo grosso: nella stessa risposta il tabellone ne dichiarava
+		// 70, e sono i venticinque minuti di differenza il motivo per cui le
+		// due letture restano separate invece che scegliere la migliore.
+		{"9808", 95},
 		// Zero misurato: il treno è stato rilevato e va in orario. È il caso
 		// che distingue una misura dal valore di partenza del campo.
-		{"10243", 0},
+		{"25080", 0},
 		// In anticipo: ViaggiaTreno lo scrive "in orario", ma il numero è -1 e
 		// quello che si mostra è il numero.
-		{"2443", -1},
+		{"2979", -1},
 	}
 	for _, caso := range casi {
 		got, ok := r[caso.treno]
@@ -70,10 +73,10 @@ func TestRitardiSullaRispostaVera(t *testing.T) {
 		}
 	}
 
-	// 2981 nella risposta c'è, con ritardo 0, ma non è mai partito: quello zero
-	// non è una misura e non deve arrivare fino allo schermo.
-	if _, ok := r["2981"]; ok {
-		t.Error("il treno non partito 2981 non deve avere una misura")
+	// 24880 nella risposta c'è, con ritardo 0, ma non è mai partito: quello
+	// zero non è una misura e non deve arrivare fino allo schermo.
+	if _, ok := r["24880"]; ok {
+		t.Error("il treno non partito 24880 non deve avere una misura")
 	}
 }
 
@@ -104,19 +107,19 @@ func TestNonPartitoNonEUnaMisura(t *testing.T) {
 func TestArriviEPartenzeSonoDuePercorsi(t *testing.T) {
 	c, chiesti := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[]")) })
 
-	if _, err := c.Ritardi(context.Background(), "S01030", false); err != nil {
+	if _, err := c.Ritardi(context.Background(), "S01645", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Ritardi(context.Background(), "S01030", true); err != nil {
+	if _, err := c.Ritardi(context.Background(), "S01645", true); err != nil {
 		t.Fatal(err)
 	}
 	if len(*chiesti) != 2 {
 		t.Fatalf("richieste = %d, attese 2", len(*chiesti))
 	}
-	if !strings.HasPrefix((*chiesti)[0], "/partenze/S01030/") {
+	if !strings.HasPrefix((*chiesti)[0], "/partenze/S01645/") {
 		t.Errorf("percorso partenze = %q", (*chiesti)[0])
 	}
-	if !strings.HasPrefix((*chiesti)[1], "/arrivi/S01030/") {
+	if !strings.HasPrefix((*chiesti)[1], "/arrivi/S01645/") {
 		t.Errorf("percorso arrivi = %q", (*chiesti)[1])
 	}
 }
@@ -126,7 +129,7 @@ func TestArriviEPartenzeSonoDuePercorsi(t *testing.T) {
 func TestCorpoVuoto(t *testing.T) {
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) {})
 
-	r, err := c.Ritardi(context.Background(), "S01030", false)
+	r, err := c.Ritardi(context.Background(), "S01645", false)
 	if err != nil {
 		t.Fatalf("corpo vuoto trattato come errore: %v", err)
 	}
@@ -140,7 +143,7 @@ func TestErroreHTTP(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	if _, err := c.Ritardi(context.Background(), "S01030", false); err == nil {
+	if _, err := c.Ritardi(context.Background(), "S01645", false); err == nil {
 		t.Fatal("un 500 deve dare errore")
 	}
 }

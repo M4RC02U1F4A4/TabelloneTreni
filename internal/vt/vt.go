@@ -1,10 +1,10 @@
 // Package vt legge i ritardi che ViaggiaTreno misura sui treni.
 //
 // Serve perché il tabellone di RFI, che è la fonte principale di questa app,
-// pubblica il ritardo con parsimonia: campionando Gallarate alle 21 di sera,
-// RFI dava zero su tutti e trentacinque i treni mentre ViaggiaTreno, negli
-// stessi minuti, ne dava sette in ritardo fra uno e quattro minuti. Il ritardo
-// piccolo — quello che decide se il treno si prende o no — su RFI non c'è.
+// pubblica il ritardo con parsimonia, e in due modi diversi. Sotto i pochi
+// minuti arrotonda a zero: su un campione di venti treni, cinque viaggiavano
+// fra +1 e +2 con il tabellone che dichiarava zero. Sopra l'ora si aggiorna con
+// calma: un treno che ne aveva 95 sul tabellone ne dichiarava 70.
 //
 // Le due letture restano separate fino allo schermo: qui non si sceglie quale
 // sia quella giusta, si mostrano tutt'e due.

@@ -13,10 +13,10 @@ con l'orario a cui ci arrivano.
 
 |  |  |
 |:--|:--|
-| <img width="330" src="docs/home.png" alt="La home con quattro tratte fra i preferiti"> | <img width="330" src="docs/tratta.png" alt="I treni da Milano Porta Garibaldi che fermano a Milano Rogoredo, con l'elenco fermate aperto"> |
-| **Le tratte salvate stanno in cima**, e si aprono con un tocco. | **Solo i treni che fermano dove vai**, con l'ora a cui ci arrivano. Toccando il treno si aprono le fermate, con la tua evidenziata. |
-| <img width="330" src="docs/tabellone.png" alt="Il tabellone completo delle partenze da Milano Porta Garibaldi"> | <img width="330" src="docs/ricerca.png" alt="La ricerca stazione con la corrispondenza evidenziata"> |
-| **Il tabellone completo**, se ti serve tutto: ritardi, binari, soppressioni e avvisi. | **La ricerca** cerca dentro il nome, non solo all'inizio, e non tocca la rete. |
+| <img width="330" src="docs/home.png" alt="La home con quattro tratte fra i preferiti e le due voci per il tabellone di una stazione"> | <img width="330" src="docs/tratta.png" alt="I treni da Milano Porta Garibaldi che fermano a Milano Rogoredo, con l'elenco fermate aperto"> |
+| **Le tratte salvate stanno in cima**, e si aprono con un tocco; sotto, il tabellone intero di una stazione, partenze o arrivi. | **Solo i treni che fermano dove vai**, con l'ora a cui ci arrivano. Toccando il treno si aprono le fermate, con la tua evidenziata. |
+| <img width="330" src="docs/tabellone.png" alt="Il tabellone completo delle partenze da Milano Porta Garibaldi, con i due ritardi affiancati su ogni treno"> | <img width="330" src="docs/ricerca.png" alt="La ricerca stazione con la corrispondenza evidenziata in mezzo al nome"> |
+| **Il tabellone completo**: binari, soppressioni, avvisi e i **due ritardi** affiancati — in cima, un treno che per RFI ne ha 70 e per ViaggiaTreno 95. | **La ricerca** cerca dentro il nome, non solo all'inizio, e non tocca la rete. |
 
 ## Come funziona
 
@@ -39,11 +39,16 @@ tabellone scaduto invece di un errore.
 
 ### I due ritardi
 
-RFI pubblica il proprio ritardo con parsimonia. Campionando Gallarate alle 21 di
-sera, il tabellone dava **zero su tutti e trentacinque i treni**; ViaggiaTreno,
-negli stessi minuti e sugli stessi treni, ne misurava sette fra uno e quattro
-minuti di ritardo e uno in anticipo di due. Il ritardo piccolo — quello che
-decide se il treno si prende o no — sul tabellone non c'è.
+RFI pubblica il proprio ritardo con parsimonia, e sbaglia in due modi diversi.
+Campione preso a Milano Porta Garibaldi alle 21:48: sui 20 treni presenti in
+entrambe le fonti, ViaggiaTreno ne aveva sei con una misura vera, e su **cinque
+di quei sei il tabellone diceva zero** mentre il treno viaggiava a +2, +2, +1,
+−1, −1. Il sesto era un treno molto in ritardo: **RFI ne dichiarava 70, il treno
+ne aveva 95**.
+
+Sotto i pochi minuti il tabellone arrotonda a zero, e proprio lì si decide se il
+treno si prende; sopra l'ora, si aggiorna con calma, e venticinque minuti di
+differenza cambiano la sera.
 
 Quale delle due letture sia quella giusta non lo decide l'app: le mostra
 tutt'e due, una accanto all'altra, e il colore dice da dove viene il numero.
