@@ -3,7 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0e13">
+<!-- La barra del browser attorno alla pagina non segue il foglio di stile: la
+     sceglie il browser da qui, e con un colore solo restava scura anche con il
+     telefono in tema chiaro. Due dichiarazioni, una per tema, tengono la
+     cornice dello stesso colore dello sfondo che le sta sotto. -->
+<meta name="theme-color" content="#0b0e13" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
 <meta name="description" content="Tabelloni RFI in versione leggera per telefono, con filtro per stazione di arrivo.">
 <meta name="color-scheme" content="dark light">
 <title>Tabellone Treni</title>
@@ -11,7 +16,12 @@
 <link rel="icon" href="icona.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icona-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- "default" significa "come il sistema": l'ora e la batteria diventano scure
+     col telefono in tema chiaro e restano chiare in tema scuro. Con
+     "black-translucent" erano bianche sempre, quindi illeggibili sopra
+     l'intestazione chiara, e la pagina passava sotto la barra di stato senza
+     che niente le lasciasse il posto. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>

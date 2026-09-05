@@ -6,6 +6,7 @@ andare**. Scegli partenza e arrivo e vedi solo i treni che fermano davvero lì,
 con l'orario a cui ci arrivano.
 
 - **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
+- **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
 - installabile sulla schermata iniziale del telefono
