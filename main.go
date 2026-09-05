@@ -23,6 +23,7 @@ import (
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
 
 //go:embed all:web
@@ -44,7 +45,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	svc := board.New(rfi.NewClient(), stations.Default)
+	svc := board.New(rfi.NewClient(), stations.Default).ConRitardi(vt.NewClient())
 	srv := &http.Server{
 		Addr:              indirizzo(),
 		Handler:           api.New(svc, stations.Default, statici).Handler(),

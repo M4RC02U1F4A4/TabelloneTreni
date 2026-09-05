@@ -37,6 +37,15 @@ type Train struct {
 	// Arrival è l'orario in cui il treno arriva alla stazione scelta come
 	// destinazione. Lo riempie il filtro, quindi è vuoto sul tabellone crudo.
 	Arrival string `json:"arrival,omitempty"`
+	// LiveDelay è il ritardo che ViaggiaTreno misura sul treno vero, in minuti.
+	// Come Arrival, non viene da questo pacchetto: lo attacca il servizio
+	// tabellone dopo aver letto la seconda fonte.
+	//
+	// È un puntatore perché qui lo zero è un'informazione — "misurato, in
+	// orario" — e va distinto dall'assenza di misura, che capita quando
+	// ViaggiaTreno non ha quel treno o non l'ha ancora rilevato da nessuna
+	// parte. Delay, sopra, non ha lo stesso problema: RFI lo stampa comunque.
+	LiveDelay *int `json:"liveDelay,omitempty"`
 	// Stops è vuoto sui tabelloni degli arrivi: RFI pubblica le fermate
 	// successive solo per le partenze.
 	Stops []Stop `json:"stops,omitempty"`

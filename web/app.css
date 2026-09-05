@@ -11,6 +11,14 @@
   --ambra: #ffb020;
   --verde: #3ddc97;
   --rosso: #ff6b6b;
+  /* Le due fonti del ritardo. Non sono l'ambra e il verde dell'interfaccia
+     travestiti: qui il colore dice da quale lettura arriva il numero, e
+     agganciarli ai colori di stato vorrebbe dire cambiare significato al
+     tabellone il giorno che si ritocca un accento. */
+  --rfi-testo: #ffcb6b;
+  --rfi-fondo: #3a2708;
+  --vt-testo: #6fd6ce;
+  --vt-fondo: #0d3230;
   --raggio: 12px;
   --gap: 10px;
 }
@@ -25,6 +33,10 @@
     --ambra: #a06000;
     --verde: #0d7a4f;
     --rosso: #c62828;
+    --rfi-testo: #7a4a00;
+    --rfi-fondo: #ffeecd;
+    --vt-testo: #04635c;
+    --vt-fondo: #d3f2ef;
   }
 }
 
@@ -129,8 +141,8 @@ ul { list-style: none; margin: 0; padding: 0; }
   font-size: 15px;
 }
 /* Il segno sta in una colonna di larghezza fissa perché i testi delle righe
-   restino incolonnati fra loro: dentro può esserci un'icona di qualsiasi
-   forma, e va al centro della colonna. */
+   restino incolonnati fra loro: dentro può esserci una stella di testo o
+   un'icona, e in entrambi i casi va al centro della colonna. */
 .riga-tocco .segno {
   flex: none; width: 15px; color: var(--ambra); font-size: 14px;
   display: flex; align-items: center; justify-content: center;
@@ -227,7 +239,37 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 .orario { text-align: right; }
 .orario .ora { display: block; font-size: 21px; font-weight: 650; letter-spacing: -0.02em; }
 .orario .ora.barrato { text-decoration: line-through; text-decoration-thickness: 2px; }
-.orario .scarto { display: block; font-size: 12px; font-weight: 650; color: var(--rosso); }
+/* Le due pastiglie stanno sotto l'ora, sulla stessa riga: affiancate ci vanno
+   perché senza unità di misura sono due o tre caratteri l'una, e la colonna
+   dell'orario è già larga quanto "22:47". */
+.orario .scarti { display: flex; gap: 4px; justify-content: flex-end; margin-top: 1px; }
+.orario .scarto {
+  font-size: 12px; font-weight: 650;
+  padding: 1px 5px; border-radius: 5px;
+  /* Larghezza minima e testo centrato: "+12" e "0" occupano lo stesso spazio,
+     e la colonna non balla da una riga all'altra. */
+  min-width: 26px; text-align: center;
+}
+/* Il soppresso e i testi di RFI non sono una misura e non hanno una fonte da
+   distinguere: restano la scritta rossa di prima, senza pastiglia. */
+.orario .scarto.solo {
+  display: block; padding: 0; background: none; color: var(--rosso); min-width: 0;
+}
+.scarto.rfi { color: var(--rfi-testo); background: var(--rfi-fondo); }
+.scarto.vt { color: var(--vt-testo); background: var(--vt-fondo); }
+/* Tiene la larghezza e non si vede: è il posto riservato, non una pastiglia. */
+.scarto.vt.vuota { background: none; }
+
+/* Il ritardo non è più il colore della pastiglia, che ora dice la fonte: il
+   "questo treno è in ritardo" da cogliere di sfuggita passa sull'ora, che è il
+   pezzo più grande della riga e non costa niente in larghezza. */
+.treno.in-ritardo .ora { color: var(--rosso); }
+
+.legenda {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: 0 0 var(--gap); padding: 0 2px;
+  color: var(--tenue); font-size: 12.5px;
+}
 
 /* La destinazione sta sopra: è la seconda cosa che si cerca dopo l'ora, e
    prima era sotto una riga di grigio piccolo che si leggeva per forza per

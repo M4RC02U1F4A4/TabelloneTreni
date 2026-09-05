@@ -5,6 +5,7 @@ con in più la cosa che al sito originale manca: **il filtro per dove devi
 andare**. Scegli partenza e arrivo e vedi solo i treni che fermano davvero lì,
 con l'orario a cui ci arrivano.
 
+- **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
 - installabile sulla schermata iniziale del telefono
@@ -35,6 +36,42 @@ I tabelloni stanno in cache 30 secondi, presi sotto un lock per stazione: dieci
 persone sulla stessa stazione producono comunque una richiesta sola verso RFI
 ogni mezzo minuto. Se RFI smette di rispondere, per un minuto viene servito il
 tabellone scaduto invece di un errore.
+
+### I due ritardi
+
+RFI pubblica il proprio ritardo con parsimonia. Campionando Gallarate alle 21 di
+sera, il tabellone dava **zero su tutti e trentacinque i treni**; ViaggiaTreno,
+negli stessi minuti e sugli stessi treni, ne misurava sette fra uno e quattro
+minuti di ritardo e uno in anticipo di due. Il ritardo piccolo — quello che
+decide se il treno si prende o no — sul tabellone non c'è.
+
+Quale delle due letture sia quella giusta non lo decide l'app: le mostra
+tutt'e due, una accanto all'altra, e il colore dice da dove viene il numero.
+Che il treno sia in ritardo lo dice invece l'orario, che diventa rosso.
+
+| Pastiglia | Campo JSON | Sorgente |
+| --- | --- | --- |
+| ambra | `delay` | la cella "ritardo" del tabellone RFI |
+| ciano | `liveDelay` | `partenze`/`arrivi` di ViaggiaTreno, per la stessa stazione |
+
+Le due fonti si accoppiano sul **numero del treno**, l'unico identificatore che
+condividono. È anche una chiave prudente: lo stesso numero su due tabelloni
+vicini è lo stesso treno, quindi un accoppiamento sbagliato fra stazioni non
+trova niente invece di mostrare il ritardo di un altro treno.
+
+**La pastiglia ciano manca finché il treno non è stato rilevato.** ViaggiaTreno
+manda `ritardo: 0` anche per un treno che non è ancora partito: è il valore di
+partenza del campo, non una misura. A separare i due casi è `compRitardo`, che
+sul primo dice "non partito" e sul secondo "in orario" — e uno zero mostrato
+come puntualità sarebbe una puntualità che nessuno ha visto. Un ritardo diverso
+da zero, invece, vale come misura comunque, così la regola non si rompe il
+giorno che compare una dicitura nuova.
+
+La lettura di ViaggiaTreno è **facoltativa in ogni punto**: parte in parallelo a
+quella di RFI (non in fila, altrimenti la pagina aspetterebbe la somma di due
+servizi lenti), va nella stessa cache da 30 secondi, e se fallisce o se la
+stazione non ha un codice ViaggiaTreno il tabellone esce come prima, con il solo
+ritardo di RFI.
 
 ### Il riconoscimento delle fermate
 
@@ -68,7 +105,8 @@ HTML, CSS e JavaScript senza passo di build, quindi non serve Node.
 
 ## Aggiornare il catalogo delle stazioni
 
-Il catalogo (2435 stazioni con i loro alias) è committato in
+Il catalogo (2435 stazioni con i loro alias e, per 2423 di esse, il codice
+ViaggiaTreno da cui si leggono i ritardi) è committato in
 `internal/stations/stations.json` ed embeddato nel binario: il server parte
 istantaneamente e non dipende da due siti esterni per riuscire ad avviarsi.
 Cambia molto di rado; per rigenerarlo:
@@ -86,6 +124,9 @@ go run ./cmd/genstations
   Ferrovienord (Saronno, Castellanza), quella svizzera oltre Chiasso, né
   impianti come Malpensa Aeroporto e Milano Bovisa Politecnico. Compaiono come
   fermate dei treni ma non sono selezionabili.
+- **Le stazioni senza codice ViaggiaTreno restano al solo tabellone.** Sono
+  dodici su 2435, quelle il cui nome non si accoppia con nessuna voce
+  dell'elenco di ViaggiaTreno: lì la pastiglia ciano non compare mai.
 - **Il markup di RFI può cambiare senza preavviso.** I test girano su pagine
   reali salvate in `internal/rfi/testdata`: se si rompono senza che sia cambiato
   il codice, è cambiato il sito.

@@ -52,7 +52,7 @@ function canon(s) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* Le icone sono disegni, non testo.
+/* Le frecce sono disegni, non testo.
 
    Un glifo come "←" non ha l'inchiostro al centro della propria riga, e di
    quanto sia spostato lo decide il font: misurato qui mezzo pixel troppo in
@@ -454,13 +454,13 @@ function disegnaRisultati() {
   }
 
   const corpo = d.trains.length
-    ? `<ul>${d.trains.map((t) => rigaTreno(t, d)).join('')}</ul>`
+    ? `<ul>${d.trains.map((t) => rigaTreno(t, d, conMisure(d))).join('')}</ul>`
     : `<div class="senza-risultati">
          <p>Nessun treno da ${esc(daNome)}${d.filtered ? ` che ferma a ${esc(aNome)}` : ''}.</p>
          <p>Il tabellone copre solo le prossime ore.</p>
        </div>`;
 
-  app.innerHTML = note.join('') + corpo;
+  app.innerHTML = note.join('') + legenda(d) + corpo;
 }
 
 // Ha la forma di una scheda vera, così l'elenco non sobbalza quando i dati
@@ -472,16 +472,71 @@ const scheletro = () => `<li class="treno scheletro" aria-hidden="true">
   </div>
 </li>`;
 
-function rigaTreno(t, d) {
+/* I due ritardi.
+
+   RFI pubblica il proprio con parsimonia: a Gallarate alle 21 dava zero su
+   tutti e trentacinque i treni mentre ViaggiaTreno, negli stessi minuti, ne
+   misurava sette in ritardo fra uno e quattro minuti. Il ritardo piccolo, che è
+   poi quello che decide se il treno si prende, sul tabellone non c'è.
+
+   Quale delle due sia quella giusta non lo decide l'app: si mostrano tutt'e
+   due, e il colore dice da dove viene il numero. Che il treno sia in ritardo lo
+   dice invece l'orario, che diventa rosso: era il colore che aveva prima il
+   ritardo, e resta il segnale da leggere di sfuggita.
+
+   La pastiglia di ViaggiaTreno manca finché il treno non è stato rilevato da
+   qualche parte: lì una misura non esiste, e uno zero al suo posto sarebbe una
+   puntualità che nessuno ha visto. */
+const ritardoLive = (t) => (typeof t.liveDelay === 'number' ? t.liveDelay : null);
+const ritardoRFI = (t) => (t.cancelled ? null : (typeof t.delay === 'number' ? t.delay : 0));
+/* Il ritardo che conta per il colore dell'ora: la misura sul treno quando c'è,
+   altrimenti quel che dice il tabellone. */
+const ritardoVero = (t) => (ritardoLive(t) ?? ritardoRFI(t));
+
+const segnoRitardo = (m) => (m > 0 ? `+${m}` : String(m));
+
+function scarti(t, riservaVT) {
+  if (t.cancelled) return '<span class="scarto solo">soppresso</span>';
+  // RFI ogni tanto scrive nella cella del ritardo un testo invece di un numero
+  // ("RITARDO", per un ritardo annunciato ma non ancora quantificato): quello
+  // va riportato tale e quale, non tradotto in una cifra che non ha mandato.
+  if (t.status) return `<span class="scarto solo">${esc(t.status.toLowerCase())}</span>`;
+
+  const live = ritardoLive(t);
+  // Posto vuoto al posto della misura mancante: senza, la pastiglia di RFI
+  // scivolerebbe a destra, proprio dove sulle altre righe c'è quella di
+  // ViaggiaTreno. Il posto si riserva solo se in lista una misura c'è: quando
+  // non ne ha nessuno sarebbe una colonna vuota per tutto il tabellone.
+  const seconda = live !== null
+    ? `<span class="scarto vt">${segnoRitardo(live)}</span>`
+    : (riservaVT ? '<span class="scarto vt vuota"></span>' : '');
+  return `<span class="scarti">
+    <span class="scarto rfi">${segnoRitardo(ritardoRFI(t))}</span>
+    ${seconda}
+  </span>`;
+}
+
+/** Se in lista almeno un treno è stato rilevato, la seconda colonna esiste. */
+const conMisure = (d) => d.trains.some((t) => ritardoLive(t) !== null);
+
+/* La legenda compare solo se almeno un treno porta la misura di ViaggiaTreno:
+   con la sola colonna di RFI non ci sarebbero due colori da spiegare. */
+function legenda(d) {
+  if (!conMisure(d)) return '';
+  return `<p class="legenda">
+    <span class="scarto rfi">0</span> tabellone RFI
+    <span class="scarto vt">+3</span> misurato sul treno
+  </p>`;
+}
+
+function rigaTreno(t, d, misure) {
   const soppresso = t.cancelled;
   const classi = ['treno'];
   if (soppresso) classi.push('soppresso');
   else if (t.boarding) classi.push('parte');
+  if (!soppresso && ritardoVero(t) > 0) classi.push('in-ritardo');
 
-  let scarto = '';
-  if (soppresso) scarto = '<span class="scarto">soppresso</span>';
-  else if (t.delay > 0) scarto = `<span class="scarto">+${t.delay}′</span>`;
-  else if (t.status) scarto = `<span class="scarto">${esc(t.status.toLowerCase())}</span>`;
+  const scarto = scarti(t, misure);
 
   // Su alcuni treni RFI ripete la categoria anche come vettore
   // ("INTERCITY NOTTE · INTERCITY NOTTE"): si scrive una volta sola.

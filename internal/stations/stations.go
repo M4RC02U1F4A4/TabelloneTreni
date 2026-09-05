@@ -19,6 +19,11 @@ type Station struct {
 	ID      int      `json:"i"`
 	Name    string   `json:"n"`
 	Aliases []string `json:"a,omitempty"`
+	// VT è il codice della stessa stazione su ViaggiaTreno ("S01030"), da cui
+	// si leggono i ritardi misurati sui treni. È vuoto per le stazioni che
+	// ViaggiaTreno non ha o che non si è riusciti ad accoppiare: lì il
+	// tabellone resta quello di RFI e basta.
+	VT string `json:"v,omitempty"`
 
 	forme []string // Name e Aliases in forma canonica, pronti al confronto
 }

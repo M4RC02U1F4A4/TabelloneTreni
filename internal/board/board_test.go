@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sort"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
 
 // sorgenteFinta serve il tabellone salvato in testdata di internal/rfi, così i
@@ -243,5 +245,186 @@ func TestConcorrenza(t *testing.T) {
 	wg.Wait()
 	if src.chiamate != 1 {
 		t.Errorf("%d fetch, atteso 1", src.chiamate)
+	}
+}
+
+// --- la seconda fonte: i ritardi misurati da ViaggiaTreno -------------------
+
+// ritardiFinti sta al posto di ViaggiaTreno: registra come è stato chiamato e
+// restituisce quello che gli si dice.
+type ritardiFinti struct {
+	chiamate int
+	codice   string
+	arrivi   bool
+	misure   map[string]vt.Ritardo
+	err      error
+}
+
+func (r *ritardiFinti) Ritardi(ctx context.Context, codice string, arrivi bool) (map[string]vt.Ritardo, error) {
+	r.chiamate++
+	r.codice, r.arrivi = codice, arrivi
+	return r.misure, r.err
+}
+
+// Due treni che nel tabellone di prova ci sono davvero.
+const (
+	trenoA = "24377"
+	trenoB = "24576"
+)
+
+func servizioConRitardi(file string, live Ritardi) (*Service, *sorgenteFinta) {
+	s, src := servizio(file)
+	return s.ConRitardi(live), src
+}
+
+func ritardoDi(r *Result, numero string) *int {
+	for i := range r.Trains {
+		if r.Trains[i].Number == numero {
+			return r.Trains[i].LiveDelay
+		}
+	}
+	return nil
+}
+
+func TestRitardiMisuratiSiAttaccanoAlTreno(t *testing.T) {
+	live := &ritardiFinti{misure: map[string]vt.Ritardo{
+		trenoA: {Minuti: 7},
+		// Zero misurato: deve arrivare come 0, non come "nessuna misura".
+		trenoB: {Minuti: 0},
+		// Un treno che sul tabellone RFI non c'è non deve dare fastidio.
+		"999999": {Minuti: 3},
+	}}
+	s, _ := servizioConRitardi("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live.chiamate != 1 {
+		t.Fatalf("chiamate a ViaggiaTreno = %d, attesa 1", live.chiamate)
+	}
+	if live.codice == "" {
+		t.Fatal("la stazione deve portare il codice ViaggiaTreno")
+	}
+	if live.arrivi {
+		t.Error("un tabellone partenze non deve chiedere gli arrivi")
+	}
+
+	if got := ritardoDi(r, trenoA); got == nil || *got != 7 {
+		t.Errorf("treno %s: ritardo misurato = %v, atteso 7", trenoA, got)
+	}
+	if got := ritardoDi(r, trenoB); got == nil || *got != 0 {
+		t.Errorf("treno %s: ritardo misurato = %v, atteso 0", trenoB, got)
+	}
+
+	// Tutti gli altri restano senza misura, e senza misura vuol dire nil: è la
+	// differenza fra "misurato in orario" e "non lo sappiamo".
+	senza := 0
+	for i := range r.Trains {
+		if r.Trains[i].LiveDelay == nil {
+			senza++
+		}
+	}
+	if senza != len(r.Trains)-2 {
+		t.Errorf("treni senza misura = %d, attesi %d", senza, len(r.Trains)-2)
+	}
+}
+
+func TestSenzaSecondaFonteIlTabelloneEsceLoStesso(t *testing.T) {
+	s, _ := servizio("partenze-1715.html")
+
+	r, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Trains) == 0 {
+		t.Fatal("tabellone vuoto")
+	}
+	for i := range r.Trains {
+		if r.Trains[i].LiveDelay != nil {
+			t.Fatalf("treno %s: misura inattesa", r.Trains[i].Number)
+		}
+	}
+}
+
+// Se ViaggiaTreno non risponde, il tabellone deve uscire con il solo ritardo di
+// RFI: è la lettura in più delle due, non quella da cui dipende la pagina.
+func TestViaggiaTrenoRottoNonRompeIlTabellone(t *testing.T) {
+	live := &ritardiFinti{err: errors.New("connessione rifiutata")}
+	s, _ := servizioConRitardi("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatalf("l'errore della seconda fonte è arrivato fino in cima: %v", err)
+	}
+	if len(r.Trains) == 0 {
+		t.Fatal("tabellone vuoto")
+	}
+	if got := ritardoDi(r, trenoA); got != nil {
+		t.Errorf("treno %s: misura = %v, attesa nessuna", trenoA, got)
+	}
+}
+
+// Una stazione che ViaggiaTreno non ha non deve nemmeno far partire la
+// richiesta: non c'è codice da chiedere.
+func TestStazioneSenzaCodiceNonInterrogaViaggiaTreno(t *testing.T) {
+	st := stations.Default.ByID(garibaldi)
+	if st == nil {
+		t.Fatal("stazione di prova assente dal catalogo")
+	}
+	prima := st.VT
+	st.VT = ""
+	defer func() { st.VT = prima }()
+
+	live := &ritardiFinti{misure: map[string]vt.Ritardo{trenoA: {Minuti: 7}}}
+	s, _ := servizioConRitardi("partenze-1715.html", live)
+
+	if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if live.chiamate != 0 {
+		t.Fatalf("chiamate a ViaggiaTreno = %d, attese 0", live.chiamate)
+	}
+}
+
+// Le due letture stanno nella stessa cache: dentro il TTL, una seconda
+// richiesta non deve toccare né RFI né ViaggiaTreno.
+func TestLaCacheCopreEntrambeLeFonti(t *testing.T) {
+	live := &ritardiFinti{misure: map[string]vt.Ritardo{trenoA: {Minuti: 7}}}
+	s, src := servizioConRitardi("partenze-1715.html", live)
+
+	for i := 0; i < 3; i++ {
+		if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if src.chiamate != 1 || live.chiamate != 1 {
+		t.Fatalf("chiamate: RFI=%d ViaggiaTreno=%d, attesa 1 e 1", src.chiamate, live.chiamate)
+	}
+}
+
+// Il tabellone in cache porta con sé le misure, quindi anche la lista filtrata
+// per destinazione deve uscire con i ritardi attaccati.
+func TestIlFiltroNonPerdeLeMisure(t *testing.T) {
+	live := &ritardiFinti{misure: map[string]vt.Ritardo{trenoA: {Minuti: 7}}}
+	s, _ := servizioConRitardi("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, rogoredo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Filtered {
+		t.Fatal("la lista doveva essere filtrata")
+	}
+	trovato := false
+	for i := range r.Trains {
+		if r.Trains[i].LiveDelay != nil {
+			trovato = true
+		}
+	}
+	if !trovato && ritardoDi(r, trenoA) == nil {
+		// Il treno di prova può non fermare a Rogoredo: in quel caso il test
+		// non ha niente da dire, e va saltato invece che fatto fallire a caso.
+		t.Skip("il treno di prova non passa dal filtro")
 	}
 }

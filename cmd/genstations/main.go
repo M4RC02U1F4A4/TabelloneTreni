@@ -69,14 +69,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	conAlias := 0
+	conAlias, conCodice := 0, 0
 	for _, s := range elenco {
 		if len(s.Aliases) > 0 {
 			conAlias++
 		}
+		if s.VT != "" {
+			conCodice++
+		}
 	}
-	fmt.Printf("scritte %d stazioni in %s (%d con alias, %d KB)\n",
-		len(elenco), *out, conAlias, len(body)/1024)
+	fmt.Printf("scritte %d stazioni in %s (%d con alias, %d col codice ViaggiaTreno, %d KB)\n",
+		len(elenco), *out, conAlias, conCodice, len(body)/1024)
 }
 
 // scaricaRFI estrae le coppie PlaceId/nome dalla <select> della home. È l'unica
@@ -116,17 +119,27 @@ func scaricaRFI() (map[int]string, error) {
 }
 
 type stazioneVT struct {
-	Localita struct {
+	CodiceStazione string `json:"codiceStazione"`
+	Localita       struct {
 		NomeLungo string `json:"nomeLungo"`
 		NomeBreve string `json:"nomeBreve"`
 	} `json:"localita"`
 }
 
-// scaricaViaggiaTreno serve solo per i nomi brevi: sono la stessa forma
-// abbreviata che RFI stampa nelle fermate ("MI BOVISA P.", "MI.P.GARIBALDI"),
-// e sono quindi il ponte fra le due grafie.
-func scaricaViaggiaTreno() (map[string]string, error) {
-	out := map[string]string{}
+// datiVT è quello che di ViaggiaTreno finisce nel catalogo.
+type datiVT struct {
+	// Breve è la forma abbreviata che RFI stampa nelle fermate
+	// ("MI BOVISA P.", "MI.P.GARIBALDI"): è il ponte fra le due grafie.
+	Breve string
+	// Codice è l'identificatore ViaggiaTreno ("S01030"), quello con cui si
+	// chiedono i ritardi misurati sui treni di quella stazione.
+	Codice string
+}
+
+// scaricaViaggiaTreno prende dall'elenco stazioni le due cose che servono: il
+// nome breve, per riconoscere le fermate, e il codice, per i ritardi.
+func scaricaViaggiaTreno() (map[string]datiVT, error) {
+	out := map[string]datiVT{}
 	var ultimoErr error
 	for reg := 0; reg <= 22; reg++ {
 		body, err := prendi(urlVT + strconv.Itoa(reg))
@@ -145,7 +158,7 @@ func scaricaViaggiaTreno() (map[string]string, error) {
 				continue
 			}
 			if c := stations.Canon(lungo); c != "" {
-				out[c] = breve
+				out[c] = datiVT{Breve: breve, Codice: strings.TrimSpace(s.CodiceStazione)}
 			}
 		}
 	}
@@ -155,7 +168,7 @@ func scaricaViaggiaTreno() (map[string]string, error) {
 	return out, nil
 }
 
-func unisci(rfi map[int]string, vt map[string]string) []*stations.Station {
+func unisci(rfi map[int]string, vt map[string]datiVT) []*stations.Station {
 	// I nomi canonici di ViaggiaTreno in ordine, per la seconda passata: la
 	// prima è una lookup esatta, la seconda tollera le abbreviazioni.
 	canoniVT := make([]string, 0, len(vt))
@@ -169,14 +182,15 @@ func unisci(rfi map[int]string, vt map[string]string) []*stations.Station {
 	for id, nome := range rfi {
 		s := &stations.Station{ID: id, Name: nome}
 		c := stations.Canon(nome)
-		if breve, ok := vt[c]; ok {
-			s.Aliases = append(s.Aliases, breve)
+		if d, ok := vt[c]; ok {
+			s.Aliases = append(s.Aliases, d.Breve)
+			s.VT = d.Codice
 			esatti++
 		} else {
 			// Un solo candidato o nessuno: due candidati vorrebbero dire che
 			// l'abbreviazione è ambigua, e un alias ambiguo farebbe comparire
 			// treni che non fermano dove dici tu.
-			var trovato string
+			var trovato datiVT
 			n := 0
 			for _, cv := range canoniVT {
 				if stations.Combacia(c, cv) {
@@ -187,7 +201,8 @@ func unisci(rfi map[int]string, vt map[string]string) []*stations.Station {
 				}
 			}
 			if n == 1 {
-				s.Aliases = append(s.Aliases, trovato)
+				s.Aliases = append(s.Aliases, trovato.Breve)
+				s.VT = trovato.Codice
 				fuzzy++
 			}
 		}
