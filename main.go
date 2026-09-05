@@ -45,7 +45,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	svc := board.New(rfi.NewClient(), stations.Default).ConRitardi(vt.NewClient())
+	svc := board.New(rfi.NewClient(), stations.Default).ConLive(vt.NewClient())
 	srv := &http.Server{
 		Addr:              indirizzo(),
 		Handler:           api.New(svc, stations.Default, statici).Handler(),

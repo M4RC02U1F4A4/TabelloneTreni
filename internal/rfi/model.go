@@ -46,6 +46,16 @@ type Train struct {
 	// ViaggiaTreno non ha quel treno o non l'ha ancora rilevato da nessuna
 	// parte. Delay, sopra, non ha lo stesso problema: RFI lo stampa comunque.
 	LiveDelay *int `json:"liveDelay,omitempty"`
+	// PlatformChanged dice che il treno parte da un binario diverso da quello
+	// previsto. Come LiveDelay, lo attacca il servizio tabellone leggendo la
+	// seconda fonte: RFI pubblica una casella sola, dalla quale non si vede se
+	// il numero che c'è dentro è quello di sempre o quello di stasera.
+	PlatformChanged bool `json:"platformChanged,omitempty"`
+	// I due binari secondo la seconda fonte, valorizzati solo quando
+	// differiscono: servono a dire *da quale* binario il treno si è spostato,
+	// che a chi si è già incamminato interessa quanto sapere che si è spostato.
+	PlatformScheduled string `json:"platformScheduled,omitempty"`
+	PlatformActual    string `json:"platformActual,omitempty"`
 	// Stops è vuoto sui tabelloni degli arrivi: RFI pubblica le fermate
 	// successive solo per le partenze.
 	Stops []Stop `json:"stops,omitempty"`

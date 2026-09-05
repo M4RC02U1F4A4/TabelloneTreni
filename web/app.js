@@ -550,6 +550,22 @@ function rigaTreno(t, d, misure) {
     t.arrival ? '' : esc(vettore),
   ].filter(Boolean).join(' · ');
 
+  // Il binario cambiato: si dice da quale, non solo che è successo.
+  //
+  // Quale dei due numeri sia la novità dipende da chi è avanti fra le due
+  // fonti. Se il tabellone mostra già quello nuovo, la cosa da aggiungere è
+  // quello vecchio, per chi si è incamminato prima; se invece è rimasto
+  // indietro sul previsto, la cosa da aggiungere è quello nuovo. Fuori da
+  // questi due casi le due fonti dicono tre numeri diversi, e allora l'unica
+  // cosa onesta è dire che è cambiato senza pretendere di sapere in quale
+  // direzione.
+  let cambio = null;
+  if (t.platformChanged) {
+    if (t.platform === t.platformActual && t.platformScheduled) cambio = `era ${t.platformScheduled}`;
+    else if (t.platform === t.platformScheduled && t.platformActual) cambio = `ora ${t.platformActual}`;
+    else cambio = 'cambiato';
+  }
+
   const espandibile = t.stops && t.stops.length > 0;
   const contenuto = `
     <div class="orario">
@@ -560,8 +576,9 @@ function rigaTreno(t, d, misure) {
       <div class="destinazione">${d.arrivals ? '<span class="da">da</span> ' : ''}${esc(t.terminus)}</div>
       <span class="meta">${dettagli}</span>
     </div>
-    <div class="binario">
-      ${t.platform ? `<span class="num">${esc(t.platform)}</span><span class="cap">BIN</span>`
+    <div class="binario${cambio ? ' cambiato' : ''}">
+      ${t.platform ? `<span class="num">${esc(t.platform)}</span>
+                      <span class="cap">${cambio ? esc(cambio) : 'BIN'}</span>`
                    : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
     </div>
     ${espandibile ? `<span class="apri" aria-hidden="true">${icona('gallone')}</span>` : ''}

@@ -6,6 +6,7 @@ andare**. Scegli partenza e arrivo e vedi solo i treni che fermano davvero lì,
 con l'orario a cui ci arrivano.
 
 - **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
+- **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
@@ -78,6 +79,32 @@ quella di RFI (non in fila, altrimenti la pagina aspetterebbe la somma di due
 servizi lenti), va nella stessa cache da 30 secondi, e se fallisce o se la
 stazione non ha un codice ViaggiaTreno il tabellone esce come prima, con il solo
 ritardo di RFI.
+
+### Il binario cambiato
+
+RFI pubblica una casella sola per il binario, e dal numero che c'è dentro non si
+capisce se è quello di sempre o quello di stasera. ViaggiaTreno invece dichiara
+i due valori separati — `binarioProgrammato` e `binarioEffettivo` — nella stessa
+risposta che si scarica già per i ritardi: riconoscere un cambio non costa
+nessuna richiesta in più.
+
+Serve che ci siano **tutti e due**: con un valore solo non si sta confrontando
+niente, e un "cambiato" annunciato per un campo mancante manderebbe qualcuno a
+cercare un binario che non è cambiato affatto.
+
+Quale dei due numeri sia la novità dipende da chi è avanti fra le due fonti, e
+l'etichetta lo dice di conseguenza:
+
+| Sul tabellone c'è | Etichetta | Perché |
+| --- | --- | --- |
+| il binario nuovo | `era 2` | serve il vecchio, per chi si è già incamminato |
+| ancora il previsto | `ora 21` | serve il nuovo, che il tabellone non ha ancora preso |
+| un terzo numero | `cambiato` | le fonti non concordano: si dice il fatto, non la direzione |
+
+Il cambio non dipende dal ritardo: un treno non ancora rilevato non ha una
+misura, ma può benissimo avere già un binario diverso da quello previsto — ed è
+anzi il momento in cui la cosa serve di più, perché sei ancora sul piazzale a
+decidere dove andare.
 
 ### Il riconoscimento delle fermate
 

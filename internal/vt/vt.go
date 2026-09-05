@@ -23,10 +23,31 @@ import (
 
 const base = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno"
 
-// Ritardo è la misura su un singolo treno.
-type Ritardo struct {
-	// Minuti può essere negativo: un treno in anticipo esiste.
-	Minuti int
+// Treno è quello che ViaggiaTreno sa di un treno del tabellone.
+type Treno struct {
+	// Ritardo in minuti, negativo se il treno è in anticipo. È nil finché il
+	// treno non è stato rilevato da nessuna parte: lì una misura non esiste, e
+	// lo zero che ViaggiaTreno manda è il default del campo, non un dato.
+	Ritardo *int
+	// I due binari, come li dichiara ViaggiaTreno: il previsto e quello
+	// assegnato davvero. Uno dei due può mancare, e allora non si può dire
+	// niente su un eventuale cambio.
+	BinarioProgrammato string
+	BinarioEffettivo   string
+	// Le coordinate con cui si chiede l'andamento di questo treno. Non servono
+	// al tabellone, servono a chi poi apre la scheda del singolo treno.
+	CodOrigine   string
+	DataPartenza int64
+}
+
+// Cambiato dice se il treno parte da un binario diverso da quello previsto.
+//
+// Serve che ci siano tutti e due: con un solo valore non si sta confrontando
+// niente, e un "cambiato" annunciato per un dato mancante manderebbe la gente a
+// cercare un binario che non è cambiato affatto.
+func (t Treno) Cambiato() bool {
+	return t.BinarioProgrammato != "" && t.BinarioEffettivo != "" &&
+		t.BinarioProgrammato != t.BinarioEffettivo
 }
 
 // Client interroga ViaggiaTreno. Lo zero value non è utilizzabile: usare New.
@@ -46,17 +67,29 @@ func NewClient() *Client {
 }
 
 // treno è la forma del singolo elemento nelle risposte partenze/arrivi.
-// Si leggono tre campi su una trentina: il resto non serve a niente qui.
+// Si leggono otto campi su una trentina: il resto non serve a niente qui.
 type treno struct {
-	NumeroTreno int      `json:"numeroTreno"`
-	Ritardo     float64  `json:"ritardo"`
-	CompRitardo []string `json:"compRitardo"`
+	NumeroTreno       int      `json:"numeroTreno"`
+	Ritardo           float64  `json:"ritardo"`
+	CompRitardo       []string `json:"compRitardo"`
+	CodOrigine        string   `json:"codOrigine"`
+	DataPartenzaTreno int64    `json:"dataPartenzaTreno"`
+
+	BinarioProgrammatoPartenza string `json:"binarioProgrammatoPartenzaDescrizione"`
+	BinarioEffettivoPartenza   string `json:"binarioEffettivoPartenzaDescrizione"`
+	BinarioProgrammatoArrivo   string `json:"binarioProgrammatoArrivoDescrizione"`
+	BinarioEffettivoArrivo     string `json:"binarioEffettivoArrivoDescrizione"`
 }
 
-// Ritardi restituisce i ritardi misurati, indicizzati per numero di treno.
+// Treni restituisce quello che ViaggiaTreno sa dei treni di una stazione,
+// indicizzato per numero di treno.
 //
-// codice è quello di ViaggiaTreno ("S01030"), non il PlaceId di RFI.
-func (c *Client) Ritardi(ctx context.Context, codice string, arrivi bool) (map[string]Ritardo, error) {
+// codice è quello di ViaggiaTreno ("S01645"), non il PlaceId di RFI.
+//
+// Ci sono dentro tutti i treni della risposta, non solo quelli già rilevati: il
+// ritardo di un treno non ancora partito non esiste, ma il suo binario sì — ed
+// è proprio prima della partenza che un cambio di binario conta.
+func (c *Client) Treni(ctx context.Context, codice string, arrivi bool) (map[string]Treno, error) {
 	verso := "partenze"
 	if arrivi {
 		verso = "arrivi"
@@ -84,7 +117,7 @@ func (c *Client) Ritardi(ctx context.Context, codice string, arrivi bool) (map[s
 	}
 	// Una stazione senza partenze risponde 200 con corpo vuoto, non con "[]".
 	if len(body) == 0 {
-		return map[string]Ritardo{}, nil
+		return map[string]Treno{}, nil
 	}
 
 	var elenco []treno
@@ -92,12 +125,21 @@ func (c *Client) Ritardi(ctx context.Context, codice string, arrivi bool) (map[s
 		return nil, fmt.Errorf("%s: %w", url, err)
 	}
 
-	out := make(map[string]Ritardo, len(elenco))
+	out := make(map[string]Treno, len(elenco))
 	for _, t := range elenco {
-		if !rilevato(t) {
-			continue
+		v := Treno{CodOrigine: t.CodOrigine, DataPartenza: t.DataPartenzaTreno}
+		if rilevato(t) {
+			minuti := int(math.Round(t.Ritardo))
+			v.Ritardo = &minuti
 		}
-		out[strconv.Itoa(t.NumeroTreno)] = Ritardo{Minuti: int(math.Round(t.Ritardo))}
+		// Su un tabellone arrivi il binario che interessa è quello di arrivo:
+		// i campi di partenza lì restano vuoti, e viceversa.
+		if arrivi {
+			v.BinarioProgrammato, v.BinarioEffettivo = t.BinarioProgrammatoArrivo, t.BinarioEffettivoArrivo
+		} else {
+			v.BinarioProgrammato, v.BinarioEffettivo = t.BinarioProgrammatoPartenza, t.BinarioEffettivoPartenza
+		}
+		out[strconv.Itoa(t.NumeroTreno)] = v
 	}
 	return out, nil
 }

@@ -27,17 +27,18 @@ type Source interface {
 	Fetch(ctx context.Context, placeID int, arrivals bool) (*rfi.Board, error)
 }
 
-// Ritardi è la seconda fonte: ViaggiaTreno, che misura il ritardo sul treno
-// invece di stamparlo sul tabellone. È un'interfaccia perché è facoltativa —
-// un Service senza resta un servizio che funziona, solo con una colonna in
-// meno — e perché i test non devono uscire in rete per averla.
-type Ritardi interface {
-	Ritardi(ctx context.Context, codice string, arrivi bool) (map[string]vt.Ritardo, error)
+// Live è la seconda fonte: ViaggiaTreno, che misura il ritardo sul treno invece
+// di stamparlo sul tabellone, e che dei binari dichiara sia il previsto sia
+// quello assegnato davvero. È un'interfaccia perché è facoltativa — un Service
+// senza resta un servizio che funziona, solo con qualche colonna in meno — e
+// perché i test non devono uscire in rete per averla.
+type Live interface {
+	Treni(ctx context.Context, codice string, arrivi bool) (map[string]vt.Treno, error)
 }
 
 type Service struct {
 	src      Source
-	live     Ritardi
+	live     Live
 	catalogo *stations.Catalogo
 
 	mu    sync.Mutex
@@ -53,16 +54,20 @@ type voce struct {
 	mu      sync.Mutex // serializza i fetch sulla stessa chiave
 	board   *rfi.Board
 	scadeIl time.Time
+	// Quello che ViaggiaTreno ha detto sugli stessi treni. Sul tabellone ne
+	// finiscono ritardo e binario, ma qui restano anche le coordinate con cui
+	// chiedere l'andamento del singolo treno quando qualcuno apre la scheda.
+	live map[string]vt.Treno
 }
 
 func New(src Source, cat *stations.Catalogo) *Service {
 	return &Service{src: src, catalogo: cat, cache: map[chiave]*voce{}}
 }
 
-// ConRitardi attacca la seconda fonte. Senza, il servizio si comporta come
-// prima e i treni escono con il solo ritardo di RFI.
-func (s *Service) ConRitardi(r Ritardi) *Service {
-	s.live = r
+// ConLive attacca la seconda fonte. Senza, il servizio si comporta come prima e
+// i treni escono con il solo tabellone di RFI.
+func (s *Service) ConLive(l Live) *Service {
+	s.live = l
 	return s
 }
 
@@ -172,11 +177,11 @@ func (s *Service) tabellone(ctx context.Context, placeID int, arrivals bool) (*r
 	// Le due fonti si leggono insieme, non in fila: sono indipendenti, e messe
 	// in sequenza la pagina aspetterebbe la somma di due servizi lenti invece
 	// del più lento dei due.
-	ritardi := s.leggiRitardi(fetchCtx, placeID, arrivals)
+	live := s.leggiLive(fetchCtx, placeID, arrivals)
 
 	b, err := s.src.Fetch(fetchCtx, placeID, arrivals)
 	if err != nil {
-		<-ritardi // la goroutine ha il posto in un canale con buffer: non resta appesa
+		<-live // la goroutine ha il posto in un canale con buffer: non resta appesa
 		// Un tabellone scaduto è più utile di un errore: RFI ogni tanto non
 		// risponde, e mostrare dati di mezzo minuto fa è meglio di una pagina
 		// vuota. Oltre il minuto di ritardo, però, l'errore va detto.
@@ -188,13 +193,14 @@ func (s *Service) tabellone(ctx context.Context, placeID int, arrivals bool) (*r
 	// Le misure si attaccano al tabellone appena arrivato, prima che entri in
 	// cache: da qui in poi è un tabellone solo, che porta con sé tutt'e due le
 	// letture, e nessuno a valle deve sapere che le fonti erano due.
-	uniRitardi(b, <-ritardi)
+	misure := <-live
+	unisci(b, misure)
 
-	v.board, v.scadeIl = b, time.Now().Add(TTL)
+	v.board, v.scadeIl, v.live = b, time.Now().Add(TTL), misure
 	return b, nil
 }
 
-// leggiRitardi avvia la lettura di ViaggiaTreno e restituisce il canale da cui
+// leggiLive avvia la lettura di ViaggiaTreno e restituisce il canale da cui
 // arriverà. Il canale ha un posto in buffer perché chi l'ha avviata possa
 // andarsene senza lasciare la goroutine appesa a scrivere.
 //
@@ -202,17 +208,17 @@ func (s *Service) tabellone(ctx context.Context, placeID int, arrivals bool) (*r
 // configurata, stazione senza codice ViaggiaTreno, oppure servizio che non
 // risponde. È una lettura in più, non una da cui dipendere: un tabellone col
 // solo ritardo di RFI è quello che l'app mostrava fino a ieri.
-func (s *Service) leggiRitardi(ctx context.Context, placeID int, arrivi bool) <-chan map[string]vt.Ritardo {
-	ch := make(chan map[string]vt.Ritardo, 1)
+func (s *Service) leggiLive(ctx context.Context, placeID int, arrivi bool) <-chan map[string]vt.Treno {
+	ch := make(chan map[string]vt.Treno, 1)
 	st := s.catalogo.ByID(placeID)
 	if s.live == nil || st == nil || st.VT == "" {
 		ch <- nil
 		return ch
 	}
 	go func() {
-		r, err := s.live.Ritardi(ctx, st.VT, arrivi)
+		r, err := s.live.Treni(ctx, st.VT, arrivi)
 		if err != nil {
-			log.Printf("ritardi ViaggiaTreno per %s (%s): %v", st.Name, st.VT, err)
+			log.Printf("ViaggiaTreno per %s (%s): %v", st.Name, st.VT, err)
 			r = nil
 		}
 		ch <- r
@@ -220,23 +226,30 @@ func (s *Service) leggiRitardi(ctx context.Context, placeID int, arrivi bool) <-
 	return ch
 }
 
-// uniRitardi accoppia le due fonti sul numero di treno.
+// unisci accoppia le due fonti sul numero di treno.
 //
 // Il numero è l'unica chiave possibile — RFI e ViaggiaTreno non condividono
 // nessun altro identificatore — ed è anche una chiave buona: lo stesso numero
 // in due tabelloni vicini è lo stesso treno, quindi anche un accoppiamento
 // sbagliato fra stazioni finirebbe per non trovare niente invece che per
 // mostrare il ritardo di un altro treno.
-func uniRitardi(b *rfi.Board, ritardi map[string]vt.Ritardo) {
-	if len(ritardi) == 0 {
+func unisci(b *rfi.Board, live map[string]vt.Treno) {
+	if len(live) == 0 {
 		return
 	}
 	for i := range b.Trains {
-		r, ok := ritardi[strings.TrimSpace(b.Trains[i].Number)]
+		t, ok := live[strings.TrimSpace(b.Trains[i].Number)]
 		if !ok {
 			continue
 		}
-		minuti := r.Minuti
-		b.Trains[i].LiveDelay = &minuti
+		if t.Ritardo != nil {
+			minuti := *t.Ritardo
+			b.Trains[i].LiveDelay = &minuti
+		}
+		if t.Cambiato() {
+			b.Trains[i].PlatformChanged = true
+			b.Trains[i].PlatformScheduled = t.BinarioProgrammato
+			b.Trains[i].PlatformActual = t.BinarioEffettivo
+		}
 	}
 }

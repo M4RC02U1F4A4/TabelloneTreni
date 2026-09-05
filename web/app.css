@@ -309,6 +309,17 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    segno posato, non due righe di testo che gridano più del binario vero. */
 .binario .ignoto { color: var(--bordo); font-size: 20px; }
 
+/* Il binario cambiato all'ultimo è la cosa che fa perdere il treno più del
+   ritardo, e RFI la pubblica come un numero qualunque in una casella qualunque.
+   Qui prende il colore dell'accento e la parola al posto di "BIN": la scritta è
+   più larga, quindi la colonna si allarga solo su queste righe, che è
+   esattamente dove si vuole che l'occhio vada. */
+.binario.cambiato .num {
+  color: var(--ambra);
+  background: color-mix(in srgb, var(--ambra) 16%, var(--piano-alto));
+}
+.binario.cambiato .cap { color: var(--ambra); font-weight: 650; }
+
 .apri {
   color: var(--tenue); opacity: 0.5;
   display: flex; align-items: center;

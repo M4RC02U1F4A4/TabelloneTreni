@@ -250,21 +250,23 @@ func TestConcorrenza(t *testing.T) {
 
 // --- la seconda fonte: i ritardi misurati da ViaggiaTreno -------------------
 
-// ritardiFinti sta al posto di ViaggiaTreno: registra come è stato chiamato e
-// restituisce quello che gli si dice.
-type ritardiFinti struct {
+// liveFinta sta al posto di ViaggiaTreno: registra come è stata chiamata e
+// restituisce quello che le si dice.
+type liveFinta struct {
 	chiamate int
 	codice   string
 	arrivi   bool
-	misure   map[string]vt.Ritardo
+	misure   map[string]vt.Treno
 	err      error
 }
 
-func (r *ritardiFinti) Ritardi(ctx context.Context, codice string, arrivi bool) (map[string]vt.Ritardo, error) {
+func (r *liveFinta) Treni(ctx context.Context, codice string, arrivi bool) (map[string]vt.Treno, error) {
 	r.chiamate++
 	r.codice, r.arrivi = codice, arrivi
 	return r.misure, r.err
 }
+
+func minuti(n int) *int { return &n }
 
 // Due treni che nel tabellone di prova ci sono davvero.
 const (
@@ -272,9 +274,9 @@ const (
 	trenoB = "24576"
 )
 
-func servizioConRitardi(file string, live Ritardi) (*Service, *sorgenteFinta) {
+func servizioConLive(file string, live Live) (*Service, *sorgenteFinta) {
 	s, src := servizio(file)
-	return s.ConRitardi(live), src
+	return s.ConLive(live), src
 }
 
 func ritardoDi(r *Result, numero string) *int {
@@ -287,14 +289,14 @@ func ritardoDi(r *Result, numero string) *int {
 }
 
 func TestRitardiMisuratiSiAttaccanoAlTreno(t *testing.T) {
-	live := &ritardiFinti{misure: map[string]vt.Ritardo{
-		trenoA: {Minuti: 7},
+	live := &liveFinta{misure: map[string]vt.Treno{
+		trenoA: {Ritardo: minuti(7)},
 		// Zero misurato: deve arrivare come 0, non come "nessuna misura".
-		trenoB: {Minuti: 0},
+		trenoB: {Ritardo: minuti(0)},
 		// Un treno che sul tabellone RFI non c'è non deve dare fastidio.
-		"999999": {Minuti: 3},
+		"999999": {Ritardo: minuti(3)},
 	}}
-	s, _ := servizioConRitardi("partenze-1715.html", live)
+	s, _ := servizioConLive("partenze-1715.html", live)
 
 	r, err := s.Get(context.Background(), garibaldi, false, 0)
 	if err != nil {
@@ -350,8 +352,8 @@ func TestSenzaSecondaFonteIlTabelloneEsceLoStesso(t *testing.T) {
 // Se ViaggiaTreno non risponde, il tabellone deve uscire con il solo ritardo di
 // RFI: è la lettura in più delle due, non quella da cui dipende la pagina.
 func TestViaggiaTrenoRottoNonRompeIlTabellone(t *testing.T) {
-	live := &ritardiFinti{err: errors.New("connessione rifiutata")}
-	s, _ := servizioConRitardi("partenze-1715.html", live)
+	live := &liveFinta{err: errors.New("connessione rifiutata")}
+	s, _ := servizioConLive("partenze-1715.html", live)
 
 	r, err := s.Get(context.Background(), garibaldi, false, 0)
 	if err != nil {
@@ -376,8 +378,8 @@ func TestStazioneSenzaCodiceNonInterrogaViaggiaTreno(t *testing.T) {
 	st.VT = ""
 	defer func() { st.VT = prima }()
 
-	live := &ritardiFinti{misure: map[string]vt.Ritardo{trenoA: {Minuti: 7}}}
-	s, _ := servizioConRitardi("partenze-1715.html", live)
+	live := &liveFinta{misure: map[string]vt.Treno{trenoA: {Ritardo: minuti(7)}}}
+	s, _ := servizioConLive("partenze-1715.html", live)
 
 	if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
 		t.Fatal(err)
@@ -390,8 +392,8 @@ func TestStazioneSenzaCodiceNonInterrogaViaggiaTreno(t *testing.T) {
 // Le due letture stanno nella stessa cache: dentro il TTL, una seconda
 // richiesta non deve toccare né RFI né ViaggiaTreno.
 func TestLaCacheCopreEntrambeLeFonti(t *testing.T) {
-	live := &ritardiFinti{misure: map[string]vt.Ritardo{trenoA: {Minuti: 7}}}
-	s, src := servizioConRitardi("partenze-1715.html", live)
+	live := &liveFinta{misure: map[string]vt.Treno{trenoA: {Ritardo: minuti(7)}}}
+	s, src := servizioConLive("partenze-1715.html", live)
 
 	for i := 0; i < 3; i++ {
 		if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
@@ -406,8 +408,8 @@ func TestLaCacheCopreEntrambeLeFonti(t *testing.T) {
 // Il tabellone in cache porta con sé le misure, quindi anche la lista filtrata
 // per destinazione deve uscire con i ritardi attaccati.
 func TestIlFiltroNonPerdeLeMisure(t *testing.T) {
-	live := &ritardiFinti{misure: map[string]vt.Ritardo{trenoA: {Minuti: 7}}}
-	s, _ := servizioConRitardi("partenze-1715.html", live)
+	live := &liveFinta{misure: map[string]vt.Treno{trenoA: {Ritardo: minuti(7)}}}
+	s, _ := servizioConLive("partenze-1715.html", live)
 
 	r, err := s.Get(context.Background(), garibaldi, false, rogoredo)
 	if err != nil {
@@ -427,4 +429,66 @@ func TestIlFiltroNonPerdeLeMisure(t *testing.T) {
 		// non ha niente da dire, e va saltato invece che fatto fallire a caso.
 		t.Skip("il treno di prova non passa dal filtro")
 	}
+}
+
+// Il cambio di binario arriva al tabellone come una bandiera sul treno: RFI
+// pubblica una casella sola, dalla quale non si vede se il numero che c'è
+// dentro è quello di sempre o quello di stasera.
+func TestBinarioCambiatoArrivaAlTreno(t *testing.T) {
+	live := &liveFinta{misure: map[string]vt.Treno{
+		trenoA: {BinarioProgrammato: "4", BinarioEffettivo: "5"},
+		trenoB: {BinarioProgrammato: "1", BinarioEffettivo: "1"},
+	}}
+	s, _ := servizioConLive("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range r.Trains {
+		cambiato := r.Trains[i].PlatformChanged
+		switch r.Trains[i].Number {
+		case trenoA:
+			if !cambiato {
+				t.Errorf("treno %s: il binario è passato dal 4 al 5, va segnalato", trenoA)
+			}
+		case trenoB:
+			if cambiato {
+				t.Errorf("treno %s: binario confermato sul suo, niente da segnalare", trenoB)
+			}
+		default:
+			if cambiato {
+				t.Errorf("treno %s: nessun dato dalla seconda fonte, non può risultare cambiato",
+					r.Trains[i].Number)
+			}
+		}
+	}
+}
+
+// Un treno non ancora rilevato non ha un ritardo, ma può benissimo avere già
+// un binario diverso da quello previsto: è anzi il momento in cui la cosa
+// serve di più, perché sei ancora sul piazzale a decidere dove andare.
+func TestBinarioCambiatoAncheSenzaMisura(t *testing.T) {
+	live := &liveFinta{misure: map[string]vt.Treno{
+		trenoA: {BinarioProgrammato: "4", BinarioEffettivo: "5"},
+	}}
+	s, _ := servizioConLive("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range r.Trains {
+		if r.Trains[i].Number != trenoA {
+			continue
+		}
+		if r.Trains[i].LiveDelay != nil {
+			t.Errorf("treno %s: nessuna misura, il ritardo deve restare assente", trenoA)
+		}
+		if !r.Trains[i].PlatformChanged {
+			t.Errorf("treno %s: il cambio di binario non dipende dalla misura", trenoA)
+		}
+		return
+	}
+	t.Fatalf("treno %s non trovato nel tabellone di prova", trenoA)
 }

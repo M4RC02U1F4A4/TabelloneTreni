@@ -36,14 +36,24 @@ func TestRitardiSullaRispostaVera(t *testing.T) {
 	corpo := fixture(t)
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
 
-	r, err := c.Ritardi(context.Background(), "S01645", false)
+	r, err := c.Treni(context.Background(), "S01645", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 24 treni nella risposta, 14 dei quali non ancora partiti: restano i 10
-	// che qualcuno ha davvero misurato.
-	if len(r) != 10 {
-		t.Fatalf("misure = %d, attese 10", len(r))
+	// Ci sono tutti i treni della risposta, misurati o no: il ritardo di un
+	// treno fermo non esiste, ma il suo binario sì.
+	if len(r) != 24 {
+		t.Fatalf("treni = %d, attesi 24", len(r))
+	}
+	misurati := 0
+	for _, v := range r {
+		if v.Ritardo != nil {
+			misurati++
+		}
+	}
+	// 24 treni, 14 dei quali non ancora partiti da nessuna parte.
+	if misurati != 10 {
+		t.Fatalf("misure = %d, attese 10", misurati)
 	}
 
 	casi := []struct {
@@ -65,18 +75,64 @@ func TestRitardiSullaRispostaVera(t *testing.T) {
 	for _, caso := range casi {
 		got, ok := r[caso.treno]
 		if !ok {
+			t.Errorf("treno %s: assente dalla risposta", caso.treno)
+			continue
+		}
+		if got.Ritardo == nil {
 			t.Errorf("treno %s: nessuna misura", caso.treno)
 			continue
 		}
-		if got.Minuti != caso.minuti {
-			t.Errorf("treno %s: %d minuti, attesi %d", caso.treno, got.Minuti, caso.minuti)
+		if *got.Ritardo != caso.minuti {
+			t.Errorf("treno %s: %d minuti, attesi %d", caso.treno, *got.Ritardo, caso.minuti)
 		}
 	}
 
 	// 24880 nella risposta c'è, con ritardo 0, ma non è mai partito: quello
 	// zero non è una misura e non deve arrivare fino allo schermo.
-	if _, ok := r["24880"]; ok {
-		t.Error("il treno non partito 24880 non deve avere una misura")
+	if v := r["24880"]; v.Ritardo != nil {
+		t.Errorf("il treno non partito 24880 non deve avere una misura, ha %d", *v.Ritardo)
+	}
+
+	// Le coordinate per chiedere l'andamento di quel treno viaggiano con lui.
+	if v := r["9808"]; v.CodOrigine == "" || v.DataPartenza == 0 {
+		t.Errorf("treno 9808: manca l'aggancio all'andamento (%q, %d)", v.CodOrigine, v.DataPartenza)
+	}
+}
+
+// Il cambio di binario si può dichiarare solo confrontando due valori: con uno
+// solo non si sta confrontando niente. Tutti i casi qui sotto vengono dalla
+// risposta reale in testdata.
+func TestBinarioCambiato(t *testing.T) {
+	corpo := fixture(t)
+	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
+
+	r, err := c.Treni(context.Background(), "S01645", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	casi := []struct {
+		nome     string
+		treno    string
+		prog     string
+		eff      string
+		cambiato bool
+	}{
+		{"cambiato davvero", "10244", "4", "5", true},
+		{"confermato sul suo", "2980", "14", "14", false},
+		{"solo l'effettivo", "24880", "", "17", false},
+		{"solo il previsto", "2979", "20", "", false},
+		{"nessuno dei due", "9808", "", "", false},
+	}
+	for _, caso := range casi {
+		v := r[caso.treno]
+		if v.BinarioProgrammato != caso.prog || v.BinarioEffettivo != caso.eff {
+			t.Errorf("%s (treno %s): binari %q/%q, attesi %q/%q",
+				caso.nome, caso.treno, v.BinarioProgrammato, v.BinarioEffettivo, caso.prog, caso.eff)
+		}
+		if got := v.Cambiato(); got != caso.cambiato {
+			t.Errorf("%s (treno %s): cambiato = %v, atteso %v", caso.nome, caso.treno, got, caso.cambiato)
+		}
 	}
 }
 
@@ -107,10 +163,10 @@ func TestNonPartitoNonEUnaMisura(t *testing.T) {
 func TestArriviEPartenzeSonoDuePercorsi(t *testing.T) {
 	c, chiesti := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[]")) })
 
-	if _, err := c.Ritardi(context.Background(), "S01645", false); err != nil {
+	if _, err := c.Treni(context.Background(), "S01645", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Ritardi(context.Background(), "S01645", true); err != nil {
+	if _, err := c.Treni(context.Background(), "S01645", true); err != nil {
 		t.Fatal(err)
 	}
 	if len(*chiesti) != 2 {
@@ -129,7 +185,7 @@ func TestArriviEPartenzeSonoDuePercorsi(t *testing.T) {
 func TestCorpoVuoto(t *testing.T) {
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) {})
 
-	r, err := c.Ritardi(context.Background(), "S01645", false)
+	r, err := c.Treni(context.Background(), "S01645", false)
 	if err != nil {
 		t.Fatalf("corpo vuoto trattato come errore: %v", err)
 	}
@@ -143,7 +199,7 @@ func TestErroreHTTP(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	if _, err := c.Ritardi(context.Background(), "S01645", false); err == nil {
+	if _, err := c.Treni(context.Background(), "S01645", false); err == nil {
 		t.Fatal("un 500 deve dare errore")
 	}
 }
