@@ -8,10 +8,16 @@
   --bordo: #262f3d;
   --testo: #e8edf5;
   --tenue: #8a96a8;
-  --ambra: #ffb020;
+  /* L'accento. Nello scuro è l'ambra dei tabelloni di stazione, che su un fondo
+     quasi nero è anche il colore giusto. Nel chiaro quella stessa tinta, per
+     restare leggibile, dovrebbe scurirsi fino al senape: si legge peggio,
+     sporca le note — che sono tante — e finisce vicina al rosso del ritardo.
+     Lì passa quindi a un blu, che sul grigio-azzurro del fondo si stacca da
+     solo e non somiglia né al rosso del ritardo né al verde di "in partenza". */
+  --accento: #ffb020;
   --verde: #3ddc97;
   --rosso: #ff6b6b;
-  /* Le due fonti del ritardo. Non sono l'ambra e il verde dell'interfaccia
+  /* Le due fonti del ritardo. Non sono l'accento e il verde dell'interfaccia
      travestiti: qui il colore dice da quale lettura arriva il numero, e
      agganciarli ai colori di stato vorrebbe dire cambiare significato al
      tabellone il giorno che si ritocca un accento. */
@@ -30,7 +36,7 @@
     --bordo: #dde3ec;
     --testo: #131820;
     --tenue: #5d6b80;
-    --ambra: #a06000;
+    --accento: #1a56db;
     --verde: #0d7a4f;
     --rosso: #c62828;
     --rfi-testo: #7a4a00;
@@ -76,7 +82,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .testa-riga { display: flex; align-items: center; gap: 10px; }
 .titolo { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin: 0; flex: 1; min-width: 0; }
-.titolo .freccia { color: var(--ambra); font-weight: 400; }
+.titolo .freccia { color: var(--accento); font-weight: 400; }
 .sottotitolo { color: var(--tenue); font-size: 12.5px; margin-top: 2px; }
 .sottotitolo .vivo::before {
   content: "";
@@ -107,9 +113,9 @@ ul { list-style: none; margin: 0; padding: 0; }
   corner-shape: squircle;
 }
 .tasto[aria-pressed="true"] {
-  color: var(--ambra);
-  border-color: color-mix(in srgb, var(--ambra) 55%, transparent);
-  background: color-mix(in srgb, var(--ambra) 12%, var(--piano));
+  color: var(--accento);
+  border-color: color-mix(in srgb, var(--accento) 55%, transparent);
+  background: color-mix(in srgb, var(--accento) 12%, var(--piano));
 }
 
 .app { padding: 14px; max-width: 640px; margin: 0 auto; }
@@ -144,13 +150,13 @@ ul { list-style: none; margin: 0; padding: 0; }
    restino incolonnati fra loro: dentro può esserci una stella di testo o
    un'icona, e in entrambi i casi va al centro della colonna. */
 .riga-tocco .segno {
-  flex: none; width: 15px; color: var(--ambra); font-size: 14px;
+  flex: none; width: 15px; color: var(--accento); font-size: 14px;
   display: flex; align-items: center; justify-content: center;
 }
 .riga-tocco .segno .icona { width: 15px; height: 15px; }
 .riga-tocco .segno.tenue { color: var(--tenue); }
 .riga-tocco .testo { flex: 1; min-width: 0; font-weight: 600; }
-.riga-tocco .testo .freccia { color: var(--ambra); font-weight: 400; }
+.riga-tocco .testo .freccia { color: var(--accento); font-weight: 400; }
 /* Il qualificatore c'è ogni volta che la riga non è una tratta pura: così
    l'assenza di etichetta non significa due cose diverse. */
 .riga-tocco .qualifica { color: var(--tenue); font-weight: 400; font-size: 13px; }
@@ -197,7 +203,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .principale {
   display: block; width: 100%;
   padding: 14px; border: 0; border-radius: var(--raggio);
-  background: var(--ambra); color: #10131a;
+  background: var(--accento); color: #10131a;
   font-weight: 650; font-size: 16px;
 }
 .principale:disabled { opacity: 0.45; }
@@ -205,7 +211,7 @@ ul { list-style: none; margin: 0; padding: 0; }
   .principale { color: #fff; }
 }
 
-.btn-testo { background: none; border: 0; color: var(--ambra); padding: 6px; font-size: 15px; }
+.btn-testo { background: none; border: 0; color: var(--accento); padding: 6px; font-size: 15px; }
 .btn-testo.piccolo { font-size: 13px; padding: 4px 2px; }
 
 /* ---------- elenco treni ---------- */
@@ -315,10 +321,10 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    più larga, quindi la colonna si allarga solo su queste righe, che è
    esattamente dove si vuole che l'occhio vada. */
 .binario.cambiato .num {
-  color: var(--ambra);
-  background: color-mix(in srgb, var(--ambra) 16%, var(--piano-alto));
+  color: var(--accento);
+  background: color-mix(in srgb, var(--accento) 16%, var(--piano-alto));
 }
-.binario.cambiato .cap { color: var(--ambra); font-weight: 650; }
+.binario.cambiato .cap { color: var(--accento); font-weight: 650; }
 
 .apri {
   color: var(--tenue); opacity: 0.5;
@@ -333,7 +339,7 @@ details[open] .apri { transform: rotate(90deg); }
 .avviso {
   grid-column: 1 / -1;
   padding-top: 8px; border-top: 1px dashed var(--bordo);
-  font-size: 12.5px; color: var(--ambra);
+  font-size: 12.5px; color: var(--accento);
 }
 
 .fermate {
@@ -347,7 +353,7 @@ details[open] .apri { transform: rotate(90deg); }
    una fermata alta due righe in una lista di venti si sente. */
 .fermate li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fermate li time { flex: none; }
-.fermate li.meta-scelta { color: var(--ambra); font-weight: 600; }
+.fermate li.meta-scelta { color: var(--accento); font-weight: 600; }
 .fermate li time { color: var(--tenue); }
 .fermate li.meta-scelta time { color: inherit; }
 
@@ -357,7 +363,7 @@ details[open] .apri { transform: rotate(90deg); }
 .fermate li.passata { color: var(--tenue); }
 .fermate li.passata time { color: var(--tenue); }
 .fermate li.passata time small { font-size: 11px; font-weight: 650; margin-left: 3px; }
-.fermate li.passata.meta-scelta { color: var(--ambra); }
+.fermate li.passata.meta-scelta { color: var(--accento); }
 
 /* Dove si trova il treno adesso: sta sopra le fermate perché è la risposta
    alla domanda per cui si è aperta la scheda. */
@@ -415,7 +421,7 @@ details[open] .apri { transform: rotate(90deg); }
   padding: 13px 16px; background: none; border: 0;
   border-bottom: 1px solid var(--bordo);
 }
-.elenco-scelta li button mark { background: none; color: var(--ambra); font-weight: 650; }
+.elenco-scelta li button mark { background: none; color: var(--accento); font-weight: 650; }
 .elenco-scelta .intestazione {
   padding: 14px 16px 6px; font-size: 11.5px; font-weight: 650;
   letter-spacing: 0.07em; text-transform: uppercase; color: var(--tenue);
