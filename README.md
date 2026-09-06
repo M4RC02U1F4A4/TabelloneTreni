@@ -16,10 +16,10 @@ con l'orario a cui ci arrivano.
 
 |  |  |
 |:--|:--|
-| <img width="330" src="docs/home.png" alt="La home con quattro tratte fra i preferiti e le due voci per il tabellone di una stazione"> | <img width="330" src="docs/tratta.png" alt="I treni da Milano Porta Garibaldi che fermano a Milano Rogoredo, con l'elenco fermate aperto"> |
-| **Le tratte salvate stanno in cima**, e si aprono con un tocco; sotto, il tabellone intero di una stazione, partenze o arrivi. | **Solo i treni che fermano dove vai**, con l'ora a cui ci arrivano. Toccando il treno si aprono le fermate, con la tua evidenziata. |
-| <img width="330" src="docs/tabellone.png" alt="Il tabellone completo delle partenze da Milano Porta Garibaldi, con i due ritardi affiancati su ogni treno"> | <img width="330" src="docs/ricerca.png" alt="La ricerca stazione con la corrispondenza evidenziata in mezzo al nome"> |
-| **Il tabellone completo**: binari, soppressioni, avvisi e i **due ritardi** affiancati — in cima, un treno che per RFI ne ha 70 e per ViaggiaTreno 95. | **La ricerca** cerca dentro il nome, non solo all'inizio, e non tocca la rete. |
+| <img width="330" src="docs/home.png" alt="La home con quattro tratte fra i preferiti e le due voci per il tabellone di una stazione"> | <img width="330" src="docs/tratta.png" alt="I treni da Roma Termini che fermano a Roma Tiburtina, con il viaggio di un treno aperto"> |
+| **Le tratte salvate stanno in cima**, e si aprono con un tocco; sotto, il tabellone intero di una stazione, partenze o arrivi. | **Solo i treni che fermano dove vai**. Toccando il treno si apre il suo viaggio: dov'è adesso, e a che ora è passato davvero dalle fermate già servite. |
+| <img width="330" src="docs/tabellone.png" alt="Il tabellone completo delle partenze da Roma Termini, con i due ritardi affiancati su ogni treno"> | <img width="330" src="docs/ricerca.png" alt="La ricerca stazione con la corrispondenza evidenziata in mezzo al nome"> |
+| **Il tabellone completo**: binari, soppressioni, avvisi e i **due ritardi** affiancati, ambra il tabellone e ciano la misura sul treno. | **La ricerca** cerca dentro il nome, non solo all'inizio, e non tocca la rete. |
 
 ## Come funziona
 
