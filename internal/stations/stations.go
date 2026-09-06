@@ -24,6 +24,10 @@ type Station struct {
 	// ViaggiaTreno non ha o che non si è riusciti ad accoppiare: lì il
 	// tabellone resta quello di RFI e basta.
 	VT string `json:"v,omitempty"`
+	// VTAlt sono gli altri codici ViaggiaTreno che servono lo *stesso*
+	// tabellone RFI. Non stanno nel catalogo su disco: si ricavano al
+	// caricamento, vedi collegaSotterranee.
+	VTAlt []string `json:"-"`
 
 	forme []string // Name e Aliases in forma canonica, pronti al confronto
 }
@@ -69,7 +73,53 @@ func Load(raw []byte) (*Catalogo, error) {
 		c.perID[s.ID] = s
 	}
 	sort.Slice(c.Elenco, func(i, j int) bool { return c.Elenco[i].Name < c.Elenco[j].Name })
+	c.collegaSotterranee()
 	return c, nil
+}
+
+// suffissoSotterranea è come RFI chiama il piano inferiore di una stazione che
+// ne ha due.
+const suffissoSotterranea = " SOTTERRANEA"
+
+// collegaSotterranee unisce i due livelli di una stazione che ne ha due.
+//
+// Serve perché le due fonti li trattano in modo opposto. Il tabellone RFI della
+// stazione "di sopra" è già la somma dei due: a Milano Porta Garibaldi porta
+// quaranta treni, diciassette dei quali partono da un binario "SOT".
+// ViaggiaTreno invece tiene due stazioni separate, e alla stazione di
+// superficie risponde con i soli treni di superficie.
+//
+// Senza questo collegamento tutti i treni del piano inferiore — cioè le linee
+// suburbane, cioè quelle che prende più gente — restano senza il ritardo
+// misurato e senza il binario cambiato, e il difetto si vede solo nelle ore in
+// cui quei treni ci sono.
+//
+// Il criterio è il nome, non una lista scritta a mano: sono due casi oggi
+// (Milano Porta Garibaldi e Genova Piazza Principe) ma il giorno che RFI ne
+// aggiunge un terzo funziona da solo. Un confronto più largo — "un nome che
+// comincia per quest'altro" — non andrebbe bene: catturerebbe ALBA e ALBA
+// ADRIATICA, che sono due paesi diversi.
+func (c *Catalogo) collegaSotterranee() {
+	perNome := make(map[string]*Station, len(c.Elenco))
+	for _, s := range c.Elenco {
+		perNome[Canon(s.Name)] = s
+	}
+	for _, s := range c.Elenco {
+		giu := perNome[Canon(s.Name+suffissoSotterranea)]
+		if giu == nil || giu.VT == "" || giu.VT == s.VT {
+			continue
+		}
+		s.VTAlt = append(s.VTAlt, giu.VT)
+	}
+}
+
+// CodiciVT sono tutti i codici ViaggiaTreno da interrogare per avere i treni
+// che questo tabellone mostra: il suo, più gli eventuali altri livelli.
+func (s *Station) CodiciVT() []string {
+	if s.VT == "" {
+		return nil
+	}
+	return append([]string{s.VT}, s.VTAlt...)
 }
 
 func (c *Catalogo) ByID(id int) *Station { return c.perID[id] }

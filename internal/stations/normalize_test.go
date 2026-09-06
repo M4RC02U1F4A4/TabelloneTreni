@@ -96,3 +96,49 @@ func TestCatalogoDefault(t *testing.T) {
 		t.Error("Matcher su una stazione inesistente dovrebbe dare nil")
 	}
 }
+
+// Una stazione con il piano sotterraneo porta con sé anche il codice
+// ViaggiaTreno di quel piano: il tabellone RFI è uno solo per tutti e due,
+// mentre ViaggiaTreno li tiene separati.
+func TestLivelliCollegati(t *testing.T) {
+	const (
+		portaGaribaldi            = 1715
+		portaGaribaldiSotterranea = 1714
+	)
+	sopra := Default.ByID(portaGaribaldi)
+	sotto := Default.ByID(portaGaribaldiSotterranea)
+	if sopra == nil || sotto == nil {
+		t.Fatal("stazioni di prova assenti dal catalogo")
+	}
+
+	codici := sopra.CodiciVT()
+	if len(codici) != 2 || codici[0] != sopra.VT || codici[1] != sotto.VT {
+		t.Fatalf("codici = %v, attesi [%s %s]", codici, sopra.VT, sotto.VT)
+	}
+	// Il piano di sotto non tira dentro quello di sopra: il suo tabellone RFI
+	// porta i soli treni sotterranei.
+	if got := sotto.CodiciVT(); len(got) != 1 {
+		t.Errorf("il piano inferiore ha codici %v, atteso solo il suo", got)
+	}
+}
+
+// Il collegamento guarda il nome esatto più "SOTTERRANEA", non un nome che
+// comincia per un altro: ALBA e ALBA ADRIATICA sono due paesi diversi, e
+// unirle vorrebbe dire mescolare i treni di due linee.
+func TestNomiCheSiSomiglianoNonSonoLivelli(t *testing.T) {
+	for _, nome := range []string{"ALBA", "ANCONA", "BERGAMO", "MILANO CENTRALE"} {
+		var s *Station
+		for _, cand := range Default.Elenco {
+			if cand.Name == nome {
+				s = cand
+				break
+			}
+		}
+		if s == nil {
+			t.Fatalf("%s non è nel catalogo", nome)
+		}
+		if len(s.VTAlt) != 0 {
+			t.Errorf("%s: livelli collegati %v, atteso nessuno", nome, s.VTAlt)
+		}
+	}
+}

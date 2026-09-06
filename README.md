@@ -81,6 +81,32 @@ servizi lenti), va nella stessa cache da 30 secondi, e se fallisce o se la
 stazione non ha un codice ViaggiaTreno il tabellone esce come prima, con il solo
 ritardo di RFI.
 
+#### Le stazioni a due piani
+
+Su questo le due fonti fanno il contrario l'una dell'altra, e va sistemato a
+mano.
+
+Il tabellone RFI della stazione "di sopra" è già la somma dei due livelli: a
+Milano Porta Garibaldi porta quaranta treni, diciotto dei quali partono da un
+binario `SOT`. ViaggiaTreno invece tiene due stazioni separate, `S01645` per la
+superficie e `S01647` per il sotterraneo, e a chi chiede la prima risponde con i
+soli treni di superficie.
+
+Interrogando un codice solo, quindi, **tutti i treni del piano inferiore
+restavano senza ritardo misurato e senza binario cambiato** — cioè le linee
+suburbane, cioè quelle che prende più gente. Il difetto si vedeva solo nelle ore
+in cui quei treni ci sono, il che spiega perché non era saltato fuori subito.
+
+I due codici si interrogano insieme e le risposte si fondono. Il collegamento lo
+fa il nome — la stazione `X` e la stazione `X SOTTERRANEA` — e non una lista
+scritta a mano: sono due casi oggi (Milano Porta Garibaldi e Genova Piazza
+Principe), ma il giorno che RFI ne aggiunge un terzo funziona da solo. Un
+criterio più largo, "un nome che comincia per quest'altro", catturerebbe invece
+`ALBA` e `ALBA ADRIATICA`, che sono due paesi diversi.
+
+Se uno dei due livelli non risponde restano i treni dell'altro: mezzo tabellone
+con i ritardi misurati è meglio di nessuno.
+
 ### Il binario cambiato
 
 RFI pubblica una casella sola per il binario, e dal numero che c'è dentro non si

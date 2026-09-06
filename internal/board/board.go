@@ -232,15 +232,51 @@ func (s *Service) leggiLive(ctx context.Context, placeID int, arrivi bool) <-cha
 		ch <- nil
 		return ch
 	}
-	go func() {
-		r, err := s.live.Treni(ctx, st.VT, arrivi)
-		if err != nil {
-			log.Printf("ViaggiaTreno per %s (%s): %v", st.Name, st.VT, err)
-			r = nil
-		}
-		ch <- r
-	}()
+	go func() { ch <- s.treniDa(ctx, st, arrivi) }()
 	return ch
+}
+
+// treniDa interroga tutti i livelli della stazione e ne fonde le risposte.
+//
+// Quasi sempre è un codice solo. Dove sono due — una stazione con il piano
+// sotterraneo — le due richieste partono insieme, perché in fila costerebbero
+// la somma di due servizi lenti, e se una fallisce restano i treni dell'altra:
+// mezzo tabellone con i ritardi misurati è meglio di nessuno.
+func (s *Service) treniDa(ctx context.Context, st *stations.Station, arrivi bool) map[string]vt.Treno {
+	codici := st.CodiciVT()
+	risposte := make([]map[string]vt.Treno, len(codici))
+
+	var wg sync.WaitGroup
+	for i, codice := range codici {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r, err := s.live.Treni(ctx, codice, arrivi)
+			if err != nil {
+				log.Printf("ViaggiaTreno per %s (%s): %v", st.Name, codice, err)
+				return
+			}
+			risposte[i] = r
+		}()
+	}
+	wg.Wait()
+
+	// Con un codice solo si restituisce la mappa com'è, senza ricopiarla.
+	if len(risposte) == 1 {
+		return risposte[0]
+	}
+	unione := map[string]vt.Treno{}
+	for _, r := range risposte {
+		for numero, t := range r {
+			// Il primo livello che porta un treno se lo tiene: lo stesso numero
+			// su due piani della stessa stazione sarebbe lo stesso treno, e non
+			// c'è motivo di preferire la seconda risposta alla prima.
+			if _, gia := unione[numero]; !gia {
+				unione[numero] = t
+			}
+		}
+	}
+	return unione
 }
 
 // unisci accoppia le due fonti sul numero di treno.

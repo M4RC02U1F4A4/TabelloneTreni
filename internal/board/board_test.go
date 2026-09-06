@@ -254,11 +254,16 @@ func TestConcorrenza(t *testing.T) {
 // liveFinta sta al posto di ViaggiaTreno: registra come è stata chiamata e
 // restituisce quello che le si dice.
 type liveFinta struct {
-	chiamate int
-	codice   string
-	arrivi   bool
-	misure   map[string]vt.Treno
-	err      error
+	// Una stazione a due livelli fa partire due richieste insieme: senza il
+	// lucchetto il contatore lo leggerebbero e scriverebbero in parallelo.
+	mu        sync.Mutex
+	chiamate  int
+	codice    string
+	chiesti   []string
+	arrivi    bool
+	misure    map[string]vt.Treno
+	perCodice map[string]map[string]vt.Treno
+	err       error
 
 	andamenti    int
 	chiestoPer   string
@@ -267,8 +272,14 @@ type liveFinta struct {
 }
 
 func (r *liveFinta) Treni(ctx context.Context, codice string, arrivi bool) (map[string]vt.Treno, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.chiamate++
 	r.codice, r.arrivi = codice, arrivi
+	r.chiesti = append(r.chiesti, codice)
+	if r.perCodice != nil {
+		return r.perCodice[codice], r.err
+	}
 	return r.misure, r.err
 }
 
@@ -314,8 +325,10 @@ func TestRitardiMisuratiSiAttaccanoAlTreno(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if live.chiamate != 1 {
-		t.Fatalf("chiamate a ViaggiaTreno = %d, attesa 1", live.chiamate)
+	// Porta Garibaldi ha due livelli, quindi due codici da interrogare.
+	livelli := len(stations.Default.ByID(garibaldi).CodiciVT())
+	if live.chiamate != livelli {
+		t.Fatalf("chiamate a ViaggiaTreno = %d, attese %d", live.chiamate, livelli)
 	}
 	if live.codice == "" {
 		t.Fatal("la stazione deve portare il codice ViaggiaTreno")
@@ -412,8 +425,9 @@ func TestLaCacheCopreEntrambeLeFonti(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if src.chiamate != 1 || live.chiamate != 1 {
-		t.Fatalf("chiamate: RFI=%d ViaggiaTreno=%d, attesa 1 e 1", src.chiamate, live.chiamate)
+	livelli := len(stations.Default.ByID(garibaldi).CodiciVT())
+	if src.chiamate != 1 || live.chiamate != livelli {
+		t.Fatalf("chiamate: RFI=%d ViaggiaTreno=%d, attese 1 e %d", src.chiamate, live.chiamate, livelli)
 	}
 }
 
@@ -624,5 +638,53 @@ func TestAndamentoAssenteNonEUnErrore(t *testing.T) {
 				t.Fatalf("andamento = %+v, atteso nessuno", a)
 			}
 		})
+	}
+}
+
+// I due piani di una stazione: RFI ne fa un tabellone solo, ViaggiaTreno tiene
+// due stazioni separate. Senza fondere le due risposte, i treni del piano
+// inferiore — le suburbane, quelle che prende più gente — resterebbero senza
+// ritardo misurato.
+func TestIDueLivelliFinisconoNelloStessoTabellone(t *testing.T) {
+	st := stations.Default.ByID(garibaldi)
+	codici := st.CodiciVT()
+	if len(codici) != 2 {
+		t.Fatalf("codici ViaggiaTreno = %v, attesi due livelli", codici)
+	}
+
+	live := &liveFinta{perCodice: map[string]map[string]vt.Treno{
+		codici[0]: {trenoA: {Ritardo: minuti(4)}},
+		codici[1]: {trenoB: {Ritardo: minuti(9)}},
+	}}
+	s, _ := servizioConLive("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ritardoDi(r, trenoA); got == nil || *got != 4 {
+		t.Errorf("treno del piano di sopra: ritardo = %v, atteso 4", got)
+	}
+	if got := ritardoDi(r, trenoB); got == nil || *got != 9 {
+		t.Errorf("treno del piano di sotto: ritardo = %v, atteso 9", got)
+	}
+}
+
+// Se un livello non risponde restano i treni dell'altro: mezzo tabellone con i
+// ritardi misurati è meglio di nessuno.
+func TestUnLivelloRottoNonAnnullaLAltro(t *testing.T) {
+	codici := stations.Default.ByID(garibaldi).CodiciVT()
+	live := &liveFinta{perCodice: map[string]map[string]vt.Treno{
+		codici[0]: {trenoA: {Ritardo: minuti(4)}},
+		// il secondo livello non risponde: la mappa manca del tutto
+	}}
+	s, _ := servizioConLive("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ritardoDi(r, trenoA); got == nil || *got != 4 {
+		t.Errorf("ritardo = %v, atteso 4", got)
 	}
 }
