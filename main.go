@@ -53,7 +53,7 @@ func main() {
 	svc := board.New(rfi.NewClient(), stations.Default).ConLive(vt.NewClient())
 	srv := &http.Server{
 		Addr:              indirizzo(),
-		Handler:           api.New(svc, stations.Default, statici).Handler(),
+		Handler:           api.New(svc, stations.Default, statici, versione).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

@@ -137,6 +137,7 @@ async function caricaTabellone() {
   disegna();
   try {
     const r = await fetch(API.tabellone(stato.da, stato.a, stato.arrivi));
+    if (controllaVersione(r)) return;              // la pagina si sta ricaricando
     if (mio !== richiestaInCorso) return;          // una richiesta più nuova ha già vinto
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
     stato.dati = await r.json();
@@ -151,6 +152,21 @@ async function caricaTabellone() {
       disegna();
     }
   }
+}
+
+/* Su iOS l'app installata non viene quasi mai chiusa davvero: resta sospesa in
+   background per giorni, e senza questo continuerebbe a girare con il codice
+   del rilascio precedente finché non la si termina a mano. Il server firma le
+   risposte, e quando la firma cambia la pagina si ricarica — il service worker
+   va sempre in rete per primo, quindi quello che arriva è il codice nuovo. */
+let versioneVista = null;
+
+function controllaVersione(r) {
+  const v = r.headers.get('X-Versione');
+  if (!v || v === versioneVista) return false;
+  if (!versioneVista) { versioneVista = v; return false; }
+  location.reload();
+  return true;
 }
 
 /* ---------------------------------------------------------------- ricerca */

@@ -29,7 +29,7 @@ func server() http.Handler {
 		"index.html":    {Data: []byte("<!doctype html><title>x</title>" + string(make([]byte, 2000)))},
 		"icona-180.png": {Data: []byte("\x89PNG\r\n\x1a\n" + string(make([]byte, 2000)))},
 	}
-	return New(board.New(sorgenteFinta{}, stations.Default), stations.Default, statici).Handler()
+	return New(board.New(sorgenteFinta{}, stations.Default), stations.Default, statici, "test").Handler()
 }
 
 func chiedi(t *testing.T, h http.Handler, percorso string, intestazioni map[string]string) *http.Response {
@@ -164,5 +164,16 @@ func TestTrenoParametriMancanti(t *testing.T) {
 				t.Fatalf("stato = %d, atteso 400", res.StatusCode)
 			}
 		})
+	}
+}
+
+// La pagina già aperta si accorge di un rilascio solo da questa intestazione:
+// se sparisse, l'app installata su iOS resterebbe indietro senza dirlo.
+func TestVersioneNelleIntestazioni(t *testing.T) {
+	h := server()
+	for _, p := range []string{"/api/board?from=1715", "/index.html"} {
+		if v := chiedi(t, h, p, nil).Header.Get("X-Versione"); v != "test" {
+			t.Errorf("%s: X-Versione = %q", p, v)
+		}
 	}
 }

@@ -25,14 +25,15 @@ type Server struct {
 	svc      *board.Service
 	catalogo *stations.Catalogo
 	statici  fs.FS
+	versione string
 
 	elencoUnaVolta sync.Once
 	elencoBody     []byte
 	elencoETag     string
 }
 
-func New(svc *board.Service, cat *stations.Catalogo, statici fs.FS) *Server {
-	return &Server{svc: svc, catalogo: cat, statici: statici}
+func New(svc *board.Service, cat *stations.Catalogo, statici fs.FS, versione string) *Server {
+	return &Server{svc: svc, catalogo: cat, statici: statici, versione: versione}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -44,7 +45,18 @@ func (s *Server) Handler() http.Handler {
 		w.Write([]byte("ok\n"))
 	})
 	mux.Handle("GET /", s.fileStatici())
-	return comprimi(mux)
+	return comprimi(s.dichiaraVersione(mux))
+}
+
+// dichiaraVersione firma ogni risposta con la versione del server. Serve alla
+// pagina già aperta: su iOS l'app installata resta viva in background per
+// giorni, e senza questo indizio continuerebbe a girare col codice di prima
+// anche molto dopo il rilascio.
+func (s *Server) dichiaraVersione(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Versione", s.versione)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // stazioni restituisce l'intero catalogo in un colpo solo, come coppie
