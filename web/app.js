@@ -458,6 +458,17 @@ function vaiAiRisultati() {
   location.hash = rottaDi(stato.da, stato.a, stato.arrivi);
 }
 
+/* Il codice arriva da una notifica, cioè da fuori: si confronta normalizzato e
+   senza spazi come fa il filtro, così `RE_13`, `re13` e `RE 13` finiscono tutti
+   sulla stessa riga. Uno che non esiste più non apre niente e resta il filtro. */
+function apriLineaDaRotta(codice) {
+  const q = canon(codice).replace(/ /g, '');
+  const l = (stato.linee || []).find((x) => canon(x.code).replace(/ /g, '') === q);
+  if (!l) return;
+  lineeAperte.add(l.code);
+  scaricaAvvisi(l.code);
+}
+
 async function cambiaRotta() {
   const r = leggiRotta();
   fermaTimer();
@@ -473,7 +484,13 @@ async function cambiaRotta() {
     // del primo tocco se il server può mandare notifiche, e quindi se ha senso
     // chiedere il permesso.
     await Promise.all([caricaLinee(), chiaveNotifiche().catch(() => {})]);
-    if (leggiRotta().vista === 'linee') disegna();
+    if (leggiRotta().vista !== 'linee') return;
+    // Chi arriva dalla notifica ha già scelto la linea: lasciare la riga chiusa
+    // gli chiederebbe un tocco in più per leggere il motivo per cui l'ha
+    // toccata. Va fatto qui, dopo il clear() qui sopra e dopo caricaLinee(),
+    // perché il codice della rotta va confrontato con quelli veri.
+    if (r.filtro) apriLineaDaRotta(r.filtro);
+    disegna();
     return;
   }
 
