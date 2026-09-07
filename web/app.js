@@ -11,6 +11,12 @@ const API = {
   treno: (da, numero, a, arrivi) =>
     `api/train?from=${da}&number=${encodeURIComponent(numero)}` +
     (a ? `&to=${a}` : '') + (arrivi ? '&arrivals=true' : ''),
+  // Il viaggio di un treno seguito si chiede con le coordinate di
+  // ViaggiaTreno invece che con il tabellone: chi segue un treno lo guarda
+  // quasi sempre quando ci è già sopra, e a quel punto un tabellone da cui
+  // ricavarle non c'è più.
+  viaggio: (t) =>
+    `api/journey?origin=${encodeURIComponent(t.o)}&number=${encodeURIComponent(t.n)}&date=${t.d}`,
   linee: 'api/lines',
   avvisiLinea: (codice) => `api/lines/notices?line=${encodeURIComponent(codice)}`,
   chiavePush: 'api/push/key',
@@ -58,6 +64,11 @@ const stato = {
    motivo — un ridisegno non deve rifare le richieste già fatte. */
 const aperti = new Set();
 const viaggi = new Map(); // numero treno -> { stato: 'attesa'|'ok'|'errore', dati }
+
+/* I viaggi dei treni seguiti, indicizzati sulle coordinate invece che sul
+   numero: lo stesso numero torna ogni giorno, e in home possono convivere il
+   treno di stasera e quello di domattina. */
+const viaggiSeguiti = new Map(); // "origine|numero|giorno" -> { stato, dati }
 
 // Con "Modifica" attivo le righe dei preferiti mostrano la ✕. Fuori da quella
 // modalità non c'è: una ✕ accanto a una riga tappabile mette la cancellazione a
@@ -129,6 +140,11 @@ const ICONE = {
   // il glifo "☆" del font stava tre quarti di pixel troppo in alto, e accanto
   // alla freccia ormai centrata la differenza si vedeva.
   stella: `<path d="M12 3.32L14.16 9.95L21.13 9.95L15.49 14.05L17.64 20.68L12 16.58L6.36 20.68L8.51 14.05L2.87 9.95L9.84 9.95Z"/>`,
+  // Il segnalibro dei treni seguiti. Non è la stella dei preferiti né la
+  // campana delle linee, e la differenza è vera: una tratta salvata resta lì
+  // per sempre, una linea seguita manda notifiche, un treno seguito è una cosa
+  // di stasera che si toglie da sola quando il treno arriva.
+  segnalibro: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
   // La campana e il suo battaglio sono due tracciati separati: da piena, il
   // riempimento deve prendere la campana e lasciare fuori il battaglio,
   // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
@@ -168,6 +184,59 @@ function alternaCampanella(codice) {
   const elenco = campanelle().filter((c) => c !== codice);
   if (elenco.length === campanelle().length) elenco.unshift(codice);
   scrivi('tt.campanelle', elenco);
+}
+
+/* I treni seguiti.
+
+   Si salvano le tre coordinate di ViaggiaTreno — stazione di origine, numero,
+   giorno di partenza — perché sono l'unico modo per richiedere il viaggio senza
+   un tabellone sotto, ed è proprio senza tabellone che serve: un treno seguito
+   lo si guarda da sopra il treno, quando dalle partenze della stazione da cui
+   è partito è sparito da un pezzo.
+
+   Insieme va l'etichetta con cui il tabellone lo chiamava, così la scheda in
+   home sa già dire di che treno si tratta prima che la rete risponda. */
+const seguiti = () => leggi('tt.seguiti', []);
+const chiaveTreno = (t) => `${t.o}|${t.n}|${t.d}`;
+const eSeguito = (t) => seguiti().some((x) => chiaveTreno(x) === chiaveTreno(t));
+
+function alternaSeguito(t) {
+  const k = chiaveTreno(t);
+  const elenco = seguiti().filter((x) => chiaveTreno(x) !== k);
+  if (elenco.length === seguiti().length) elenco.push(t);
+  scrivi('tt.seguiti', elenco);
+}
+
+/* Togliere il segnalibro non butta via il viaggio già scaricato: si può essere
+   fermi sulla sua scheda, e vederla svuotarsi sotto le dita sarebbe la risposta
+   tolta di mano proprio a chi la stava leggendo. La mappa vive quanto la
+   pagina; l'elenco che conta è quello salvato. */
+const smettiDiSeguire = (k) =>
+  scrivi('tt.seguiti', seguiti().filter((x) => chiaveTreno(x) !== k));
+
+// Le tre coordinate più l'etichetta con cui chiamarlo prima che la rete
+// risponda, presa dal viaggio stesso e non dal tabellone: così un treno seguito
+// si descrive da sé anche riaprendo l'app il giorno dopo.
+const daSeguire = (d) => ({
+  o: d.id.origin, n: d.id.number, d: d.id.date,
+  cat: d.category, capolinea: d.terminus,
+});
+
+/* Un treno seguito si toglie da sé, in due momenti.
+
+   Il primo lo dice il server con `ended`, mezz'ora dopo l'arrivo: prima no,
+   perché chi seguiva il treno è lì per vedere proprio che è arrivato, e una
+   scheda che sparisce nell'istante giusto è una risposta tolta di mano.
+
+   Il secondo è questo, ed è la rete di sicurezza per i viaggi di cui il server
+   non dirà mai più niente — ViaggiaTreno si dimentica i treni di ieri. Il
+   giorno di partenza è la mezzanotte di quel giorno, e un treno che parte alle
+   23:50 arriva il giorno dopo: trentasei ore coprono anche quello. */
+const DURATA_SEGUITO = 36 * 60 * 60_000;
+
+function potaSeguiti() {
+  const vivi = seguiti().filter((t) => Date.now() - t.d < DURATA_SEGUITO);
+  if (vivi.length !== seguiti().length) scrivi('tt.seguiti', vivi);
 }
 
 function ricorda(id) {
@@ -233,6 +302,43 @@ async function caricaLinee() {
     stato.linee = stato.linee || [];
     stato.lineeErrore = e.message;
   }
+}
+
+/* Il viaggio di un treno seguito.
+
+   Un tentativo andato bene non si butta per uno andato male: la rete di un
+   treno in corsa cade a tratti, e l'ultima posizione nota è più utile di una
+   scheda che si svuota ogni volta che si entra in galleria. */
+async function caricaViaggioSeguito(t, forza) {
+  const k = chiaveTreno(t);
+  const gia = viaggiSeguiti.get(k);
+  if (!forza && gia && gia.stato !== 'errore') return;
+  if (!gia) viaggiSeguiti.set(k, { stato: 'attesa' });
+  try {
+    const r = await fetch(API.viaggio(t), { signal: AbortSignal.timeout(15_000) });
+    if (controllaVersione(r)) return;
+    if (!r.ok) throw new Error(`errore ${r.status}`);
+    const d = await r.json();
+    viaggiSeguiti.set(k, { stato: 'ok', dati: d });
+    // Il segnalibro si toglie da solo mezz'ora dopo l'arrivo — è il server a
+    // dire quando — ma il viaggio resta in mano alla pagina: chi in quel
+    // momento lo sta guardando vede che il treno è arrivato, che è la cosa per
+    // cui lo seguiva.
+    if (d.ended) smettiDiSeguire(k);
+  } catch {
+    if (!gia || gia.stato !== 'ok') viaggiSeguiti.set(k, { stato: 'errore' });
+  }
+}
+
+/* Tutti i treni seguiti insieme. Sono pochi per definizione — si seguono i
+   treni che si prendono — e partono in parallelo: in fila la home aspetterebbe
+   la somma di altrettante letture su un servizio lento. */
+async function aggiornaSeguiti(forza) {
+  potaSeguiti();
+  const elenco = seguiti();
+  if (!elenco.length) return;
+  await Promise.all(elenco.map((t) => caricaViaggioSeguito(t, forza)));
+  stato.scaricatoIl = Date.now();
 }
 
 /* --------------------------------------------------------------- notifiche */
@@ -444,6 +550,17 @@ function leggiRotta() {
   // tocco su una notifica, che altrimenti scaricherebbe sessantacinque righe
   // addosso a chi ne stava cercando una.
   if (parti[0] === 'linee') return { vista: 'linee', filtro: decodeURIComponent(parti[1] || '') };
+  // #/t/S01700/2247/1788645600000 è un treno seguito. Nella rotta ci sono le
+  // stesse tre coordinate che si mandano al server, e non il tabellone da cui
+  // il treno veniva: quel tabellone, quando lo si riapre, non lo porta più.
+  if (parti[0] === 't') {
+    const t = {
+      o: decodeURIComponent(parti[1] || ''),
+      n: decodeURIComponent(parti[2] || ''),
+      d: Number(parti[3]),
+    };
+    return t.o && t.n && t.d ? { vista: 'treno', treno: t } : { vista: 'home' };
+  }
   if (parti[0] !== 'p' && parti[0] !== 'a') return { vista: 'home' };
   const da = Number(parti[1]);
   if (!da) return { vista: 'home' };
@@ -452,6 +569,8 @@ function leggiRotta() {
 
 const rottaDi = (da, a, arrivi) => `#/${arrivi ? 'a' : 'p'}/${da}` + (a && !arrivi ? `/${a}` : '');
 const ROTTA_LINEE = '#/linee';
+const rottaTreno = (t) =>
+  `#/t/${encodeURIComponent(t.o)}/${encodeURIComponent(t.n)}/${t.d}`;
 
 function vaiAiRisultati() {
   if (!stato.da) return;
@@ -494,6 +613,19 @@ async function cambiaRotta() {
     return;
   }
 
+  if (r.vista === 'treno') {
+    stato.errore = null;
+    disegna();
+    await caricaViaggioSeguito(r.treno, true);
+    if (leggiRotta().vista !== 'treno') return;
+    stato.scaricatoIl = Date.now();
+    disegna();
+    avviaTimer(() => caricaViaggioSeguito(r.treno, true).then(() => {
+      if (leggiRotta().vista === 'treno') { stato.scaricatoIl = Date.now(); disegna(); }
+    }));
+    return;
+  }
+
   if (r.vista === 'home') {
     stato.dati = null;
     stato.errore = null;
@@ -504,7 +636,20 @@ async function cambiaRotta() {
       app.innerHTML = `<p class="errore">${esc(e.message)}</p>`;
       return;
     }
+    // Le schede dei treni seguiti si disegnano subito con quello che c'è già,
+    // e la posizione ci si appoggia quando arriva: come i bollini, non devono
+    // far aspettare la home.
+    potaSeguiti();
     disegna();
+    if (seguiti().length) {
+      // Un treno in corsa si muove: la home smette di essere una pagina ferma
+      // e si aggiorna al minuto come un tabellone, ma solo quando c'è qualcosa
+      // da aggiornare.
+      avviaTimer(() => aggiornaSeguiti(true).then(() => {
+        if (leggiRotta().vista === 'home') disegna();
+      }));
+      aggiornaSeguiti(true).then(() => { if (leggiRotta().vista === 'home') disegna(); });
+    }
     // I bollini arrivano da un secondo servizio e non devono far aspettare la
     // home: si ridisegna quando ci sono, e solo se nel frattempo non si è
     // andati altrove.
@@ -524,15 +669,18 @@ async function cambiaRotta() {
   // il momento in cui si aprirà il selettore.
   caricaStazioni().catch(() => {});
   await caricaTabellone();
-  avviaTimer();
+  avviaTimer(caricaTabellone);
 }
 
 /* ------------------------------------------------------------------ timer */
 
-function avviaTimer() {
+/* Il ritmo è lo stesso ovunque — una volta al minuto, e fermo quando la pagina
+   non è in primo piano — mentre cosa si rilegge cambia da vista a vista: un
+   tabellone, un treno seguito, la manciata di treni in cima alla home. */
+function avviaTimer(rinfresca) {
   fermaTimer();
   timerRinfresco = setInterval(() => {
-    if (document.visibilityState === 'visible') caricaTabellone();
+    if (document.visibilityState === 'visible') rinfresca();
   }, RINFRESCO);
   // L'età del dato va aggiornata più spesso del dato stesso, altrimenti resta
   // scritto "1 minuto fa" per un minuto intero.
@@ -554,6 +702,20 @@ document.addEventListener('visibilitychange', () => {
   // cambiato niente.
   if (vista === 'home' || vista === 'linee') {
     caricaLinee().then(() => { if (leggiRotta().vista === vista) disegna(); });
+    // Un treno seguito è la cosa che invecchia più in fretta di tutte: chi
+    // riapre l'app dopo dieci minuti vuole sapere dov'è adesso, non dov'era
+    // quando l'ha chiusa.
+    if (vista === 'home') {
+      aggiornaSeguiti(true).then(() => { if (leggiRotta().vista === 'home') disegna(); });
+    }
+    return;
+  }
+
+  if (vista === 'treno') {
+    const t = leggiRotta().treno;
+    caricaViaggioSeguito(t, true).then(() => {
+      if (leggiRotta().vista === 'treno') { stato.scaricatoIl = Date.now(); disegna(); }
+    });
     return;
   }
 
@@ -584,6 +746,7 @@ function disegna() {
   const r = leggiRotta();
   if (r.vista === 'home') disegnaHome();
   else if (r.vista === 'linee') disegnaLinee();
+  else if (r.vista === 'treno') disegnaTreno(r.treno);
   else disegnaRisultati();
 }
 
@@ -596,6 +759,7 @@ function disegnaHome() {
   if (!fav.length) modificaPreferiti = false;
 
   app.innerHTML = `
+    ${sezioneSeguiti()}
     ${fav.length ? `
     <section class="sezione">
       <div class="testa-sezione">
@@ -642,6 +806,169 @@ function disegnaHome() {
     </section>
 
     ${sezioneLinee()}`;
+}
+
+/* I treni seguiti stanno sopra a tutto il resto, ed è l'unica sezione che si
+   muove da sola.
+
+   Sopra le tratte salvate perché non sono la stessa cosa: una tratta è un
+   posto dove si va spesso, un treno seguito è quello su cui si è adesso, e fra
+   le due chi apre l'app di corsa cerca la seconda. Nei giorni in cui non se ne
+   segue nessuno la sezione non c'è, e la home è quella di prima. */
+function sezioneSeguiti() {
+  const elenco = seguiti();
+  if (!elenco.length) return '';
+  return `<section class="sezione">
+    <div class="testa-sezione"><h2 class="etichetta-sezione">Treni seguiti</h2></div>
+    <ul>${elenco.map(schedaSeguito).join('')}</ul>
+  </section>`;
+}
+
+const etichettaTreno = (d) => {
+  const nome = esc([d.category, d.number].filter(Boolean).join(' ')) || 'treno';
+  return d.terminus ? `${nome} <span class="freccia">→</span> ${esc(d.terminus)}` : nome;
+};
+
+/* La prima fermata non ancora servita: è dove il treno sta andando adesso.
+   Si guarda l'orario reale delle fermate e non l'ultimo rilevamento, che può
+   benissimo essere un posto in cui il treno non ferma. */
+const prossimaFermata = (d) => (d.stops || []).find((f) => !f.passed) || null;
+
+/* Il numero grande della scheda, che è il ritardo — ma solo quando un ritardo
+   esiste.
+
+   Finché il treno non è stato rilevato da nessuna parte non esiste: è la stessa
+   regola della pastiglia ciano sul tabellone, e uno zero al suo posto sarebbe
+   una puntualità che nessuno ha visto. Lì al posto del ritardo va l'ora a cui
+   deve partire, che è l'unica cosa vera che si sappia di lui; a viaggio finito
+   va l'ora a cui è arrivato davvero, che è il motivo per cui lo si seguiva. */
+function numeroGrande(d) {
+  const fermate = d.stops || [];
+  if (d.arrived) {
+    const fine = fermate[fermate.length - 1] || {};
+    return { testo: fine.actual || fine.scheduled || '–', cap: 'arrivato' };
+  }
+  if (!d.tracked) {
+    const partenza = fermate[0] && fermate[0].scheduled;
+    return partenza ? { testo: partenza, cap: 'parte' } : { testo: '–', cap: '' };
+  }
+  const min = d.delay || 0;
+  return { testo: segnoRitardo(min), cap: 'ritardo', inRitardo: min > 0 };
+}
+
+/* Dov'è adesso, detto per esteso. Sta su una riga sua, sotto tutto il resto:
+   è una frase, non un dato incolonnato, e spezzata in mezzo agli altri campi
+   si leggerebbe peggio. */
+function doveAdesso(d) {
+  if (d.arrived) return d.terminus ? `arrivato a ${esc(d.terminus)}` : 'arrivato';
+  if (!d.tracked) return 'non ancora partito';
+  const l = d.lastSeen || {};
+  if (!l.station) return 'non ancora partito';
+  return `rilevato a ${esc(l.station)}${l.time ? ` alle ${esc(l.time)}` : ''}`;
+}
+
+/* Il corpo della scheda di un treno seguito: le tre cose che si vogliono
+   sapere da sopra il treno — di quanto è in ritardo, dov'è adesso, e a che
+   binario arriva alla prossima fermata. Sono le stesse in home e sulla scheda
+   aperta, quindi le compone una funzione sola. */
+function corpoSeguito(d) {
+  const n = numeroGrande(d);
+  const f = prossimaFermata(d);
+  const cambio = f && f.platformScheduled ? `era ${f.platformScheduled}` : '';
+  return `
+    <div class="orario">
+      <span class="ora">${esc(n.testo)}</span>
+      ${n.cap ? `<span class="cap">${esc(n.cap)}</span>` : ''}
+    </div>
+    <div class="dove">
+      <div class="destinazione">${etichettaTreno(d)}</div>
+      <span class="meta prossima">${f
+        ? `<span class="nome">prossima ${esc(f.name)}</span>${
+          f.scheduled ? `<span class="quando">· ${esc(f.scheduled)}</span>` : ''}`
+        : 'viaggio concluso'}</span>
+    </div>
+    <div class="binario${cambio ? ' cambiato' : ''}">
+      ${f && f.platform
+        ? `<span class="num">${esc(f.platform)}</span>
+           <span class="cap">${cambio ? esc(cambio) : 'BIN'}</span>`
+        : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
+    </div>
+    <div class="adesso">${doveAdesso(d)}</div>`;
+}
+
+function schedaSeguito(t) {
+  const v = viaggiSeguiti.get(chiaveTreno(t));
+  const d = v && v.stato === 'ok' ? v.dati : null;
+  const link = rottaTreno(t);
+
+  // Finché la posizione non è arrivata la scheda dice comunque di che treno si
+  // tratta: l'etichetta è quella con cui la si è salvata, e senza sarebbe una
+  // riga vuota proprio all'apertura dell'app.
+  if (!d) {
+    const nota = v && v.stato === 'errore'
+      ? 'posizione non disponibile adesso' : 'cerco dov\'è il treno…';
+    return `<li class="treno"><a class="riga-treno seguito" href="${link}">
+      <div class="orario"><span class="ora">–</span></div>
+      <div class="dove">
+        <div class="destinazione">${etichettaTreno({ category: t.cat, number: t.n, terminus: t.capolinea })}</div>
+        <span class="meta">${nota}</span>
+      </div>
+      <div class="binario"><span class="ignoto">–</span></div>
+      <span class="apri">${icona('gallone')}</span>
+    </a></li>`;
+  }
+
+  const classi = ['treno'];
+  if (numeroGrande(d).inRitardo) classi.push('in-ritardo');
+  if (d.arrived) classi.push('concluso');
+  return `<li class="${classi.join(' ')}">
+    <a class="riga-treno seguito" href="${link}">
+      ${corpoSeguito(d)}
+      <span class="apri">${icona('gallone')}</span>
+    </a>
+  </li>`;
+}
+
+/* La scheda di un treno seguito, aperta a tutta pagina: sopra le stesse tre
+   cose della riga in home, sotto il viaggio intero con gli orari a cui è
+   passato davvero e il binario di ogni fermata. */
+function disegnaTreno(t) {
+  const k = chiaveTreno(t);
+  const v = viaggiSeguiti.get(k);
+  const d = v && v.stato === 'ok' ? v.dati : null;
+  const salvato = eSeguito(t);
+  // Da seguire si prende il viaggio quando c'è, perché porta l'etichetta
+  // giusta; altrimenti quello che si era salvato, e in ultimo la sola rotta.
+  const oggetto = d ? daSeguire(d) : (seguiti().find((x) => chiaveTreno(x) === k) || t);
+
+  testa.innerHTML = `
+    <div class="testa-riga">
+      <a class="tasto" href="#/" aria-label="Torna alla home">${icona('indietro')}</a>
+      <h1 class="titolo">${etichettaTreno(d || { category: t.cat, number: t.n, terminus: t.capolinea })}</h1>
+      <button class="tasto" type="button" data-segui="${esc(JSON.stringify(oggetto))}"
+              aria-pressed="${salvato}"
+              aria-label="${salvato ? 'Smetti di seguire questo treno' : 'Segui questo treno'}"
+              >${icona('segnalibro', salvato)}</button>
+    </div>
+    <div class="sottotitolo">${d && d.origin ? `da ${esc(d.origin)} · ` : ''}<span class="vivo">aggiornato <span id="eta">${eta()}</span></span></div>`;
+
+  if (!d) {
+    app.innerHTML = v && v.stato === 'errore'
+      ? '<p class="errore">Il viaggio di questo treno non è disponibile adesso.</p>'
+      : `<ul>${scheletro().repeat(3)}</ul>`;
+    return;
+  }
+
+  const classi = ['treno'];
+  if (numeroGrande(d).inRitardo) classi.push('in-ritardo');
+  if (d.arrived) classi.push('concluso');
+  app.innerHTML = `
+    <div class="${classi.join(' ')}"><div class="riga-treno seguito senza-gallone">${corpoSeguito(d)}</div></div>
+    ${d.stops && d.stops.length
+      ? elencoFermate(d, 'aperta')
+      : '<p class="nota">ViaggiaTreno non pubblica le fermate di questo treno.</p>'}
+    ${salvato ? '' : `<p class="nota">Non stai seguendo questo treno: tocca il segnalibro
+      in alto per tenerlo in cima alla home.</p>`}`;
 }
 
 /* La sezione in home non elenca tutte e 65 le linee: mostra quelle seguite e
@@ -1095,7 +1422,8 @@ function rigaTreno(t, d, misure) {
 
 function fermate(t) {
   const viaggio = viaggi.get(t.number);
-  if (viaggio && viaggio.stato === 'ok' && viaggio.dati.stops?.length) return viaggioReale(t, viaggio.dati);
+  const d = viaggio && viaggio.stato === 'ok' ? viaggio.dati : null;
+  if (d && d.stops && d.stops.length) return viaggioReale(d) + bottoneSegui(d);
 
   // La fermata che interessa è quella su cui il filtro ha agganciato il treno:
   // la si riconosce dall'orario di arrivo, e va evidenziata una volta sola —
@@ -1114,7 +1442,30 @@ function fermate(t) {
     errore: 'viaggio non disponibile adesso',
   };
   const nota = viaggio ? `<p class="viaggio-nota">${note[viaggio.stato]}</p>` : '';
-  return `<ol class="fermate">${voci}</ol>${nota}`;
+  return `<ol class="fermate">${voci}</ol>${nota}${d ? bottoneSegui(d) : ''}`;
+}
+
+/* "Segui" sta qui dentro, nella scheda aperta, e non sulla riga chiusa del
+   tabellone.
+
+   Il motivo è che solo qui si sa se c'è qualcosa da seguire: le coordinate con
+   cui richiedere il viaggio le ha soltanto ViaggiaTreno, che su un tabellone
+   non conosce tutti i treni. Un pulsante su ogni riga sarebbe morto una volta
+   su due, e per scoprire quale volta bisognerebbe premerlo. Aprire la scheda,
+   che è il gesto con cui si va a vedere dov'è il treno, è anche quello che
+   scopre se si può seguire. */
+function bottoneSegui(d) {
+  if (!d.id || !d.id.origin) return '';
+  const t = daSeguire(d);
+  const gia = eSeguito(t);
+  // Le coordinate viaggiano nell'attributo come JSON: sono tre più
+  // l'etichetta, e cinque attributi separati sarebbero cinque cose da tenere
+  // allineate invece di una.
+  return `<p class="segui-riga">
+    <button class="btn-testo segui" type="button" data-segui="${esc(JSON.stringify(t))}"
+            aria-pressed="${gia}">${icona('segnalibro', gia)}${
+      gia ? 'Lo stai seguendo' : 'Segui questo treno'}</button>
+  </p>`;
 }
 
 /* Le fermate secondo ViaggiaTreno: quelle già servite portano l'ora a cui il
@@ -1124,7 +1475,15 @@ function fermate(t) {
    lo fa — lì lascia zero, che è un campo non compilato e non una previsione — e
    inventarlo qui vorrebbe dire stampare un orario che nessuno ha calcolato,
    con l'aria di essere un dato. */
-function viaggioReale(t, d) {
+function viaggioReale(d) {
+  const dove = d.tracked && d.lastSeen && d.lastSeen.station
+    ? `<p class="viaggio-nota">rilevato a ${esc(d.lastSeen.station)}${
+        d.lastSeen.time ? ` alle ${esc(d.lastSeen.time)}` : ''}</p>`
+    : '<p class="viaggio-nota">non ancora partito</p>';
+  return dove + elencoFermate(d);
+}
+
+function elencoFermate(d, classe) {
   const voci = d.stops.map((f) => {
     const classi = [];
     if (f.passed) classi.push('passata');
@@ -1132,14 +1491,23 @@ function viaggioReale(t, d) {
     const ora = f.passed && f.actual
       ? `${esc(f.actual)}${f.delay ? ` <small>${f.delay > 0 ? '+' : ''}${f.delay}</small>` : ''}`
       : esc(f.scheduled);
-    return `<li class="${classi.join(' ')}"><span>${esc(f.name)}</span><time>${ora}</time></li>`;
+    return `<li class="${classi.join(' ')}">
+      <span>${esc(f.name)}</span>${binarioFermata(f)}<time>${ora}</time></li>`;
   }).join('');
+  return `<ol class="fermate${classe ? ' ' + classe : ''}">${voci}</ol>`;
+}
 
-  const dove = d.tracked && d.lastSeen?.station
-    ? `<p class="viaggio-nota">rilevato a ${esc(d.lastSeen.station)}${
-        d.lastSeen.time ? ` alle ${esc(d.lastSeen.time)}` : ''}</p>`
-    : '<p class="viaggio-nota">non ancora partito</p>';
-  return `${dove}<ol class="fermate">${voci}</ol>`;
+/* Il binario di ogni fermata, che è la seconda cosa che si chiede da sopra un
+   treno dopo "quanto ritardo ho".
+
+   Quando è cambiato si scrive il previsto sbarrato accanto a quello nuovo,
+   invece di colorare il numero e basta: un numero acceso in mezzo a una lista
+   di numeri spenti dice che qualcosa è successo, non cosa, e sono due caratteri
+   in più su una riga che ci sta comoda. */
+function binarioFermata(f) {
+  if (!f.platform) return '';
+  return `<span class="bin-fermata${f.platformScheduled ? ' cambiato' : ''}">${
+    f.platformScheduled ? `<s>${esc(f.platformScheduled)}</s> ` : ''}${esc(f.platform)}</span>`;
 }
 
 /* Scarica il viaggio di un treno, una volta sola per treno.
@@ -1166,9 +1534,22 @@ async function scaricaViaggio(numero) {
 
 /* ------------------------------------------------------------------ eventi */
 
+/* Il segnalibro si tocca da due posti — la scheda aperta di un tabellone e la
+   scheda del treno stesso — e fa la stessa cosa da tutti e due. */
+function alternaSeguitoDa(el) {
+  const t = JSON.parse(el.dataset.segui);
+  alternaSeguito(t);
+  // Appena seguito, il viaggio si scarica subito: tornando in home la scheda
+  // dev'essere già piena, non ancora in attesa. Il server lo tiene in cache
+  // trenta secondi, quindi è la stessa lettura appena fatta.
+  if (eSeguito(t)) caricaViaggioSeguito(t).then(disegna);
+  disegna();
+}
+
 app.addEventListener('click', (e) => {
   const t = e.target;
-  if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
+  if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
+  else if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
   else if (t.closest('[data-scambia]')) { [stato.da, stato.a] = [stato.a, stato.da]; disegna(); }
   else if (t.closest('[data-modifica]')) { modificaPreferiti = !modificaPreferiti; disegna(); }
@@ -1217,6 +1598,8 @@ app.addEventListener('toggle', (e) => {
 }, true);
 
 testa.addEventListener('click', (e) => {
+  const segui = e.target.closest('[data-segui]');
+  if (segui) { alternaSeguitoDa(segui); return; }
   if (!e.target.closest('[data-preferito]')) return;
   alternaPreferito({ f: stato.da, t: stato.arrivi ? null : stato.a, a: stato.arrivi || undefined });
   disegnaRisultati();

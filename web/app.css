@@ -370,6 +370,41 @@ summary.riga-treno::-webkit-details-marker { display: none; }
   color: var(--tenue); font-size: 12.5px;
 }
 
+/* ---------- i treni seguiti ---------- */
+
+/* La scheda di un treno seguito è la stessa del tabellone, con una colonna in
+   più per il gallone e una riga in più sotto per dire dov'è. Riusare la scheda
+   e non inventarne una seconda è il punto: sono la stessa cosa — un treno, il
+   suo ritardo, il suo binario — guardata dalla stazione o da sopra il treno. */
+.riga-treno.seguito { grid-template-columns: auto 1fr auto auto; }
+.riga-treno.senza-gallone { grid-template-columns: auto 1fr auto; }
+
+/* Il numero grande qui non è un orario di partenza ma il ritardo, e da solo
+   non si spiega: la didascalia sotto dice di cosa è il numero, con la stessa
+   geometria del "BIN" nella colonna del binario. */
+.orario .cap {
+  display: block; margin-top: 1px;
+  font-size: 10px; color: var(--tenue); letter-spacing: 0.05em;
+}
+
+/* Dov'è adesso: una frase, non un dato incolonnato, quindi prende una riga
+   tutta sua sotto agli altri campi invece di spezzarsi in mezzo a loro. */
+.adesso {
+  grid-column: 1 / -1;
+  padding-top: 8px; border-top: 1px dashed var(--bordo);
+  font-size: 12.5px; color: var(--tenue);
+}
+
+/* Un viaggio finito non è più una cosa da fare: si smorza come un treno
+   soppresso, e mezz'ora dopo se ne va da solo. */
+.treno.concluso { opacity: 0.65; }
+
+/* Il segnalibro sotto le fermate. Sta in fondo alla scheda aperta e non sulla
+   riga chiusa: è lì che si scopre se c'è qualcosa da seguire. */
+.segui-riga { margin: 0 14px 10px 46px; }
+.btn-testo.segui { display: flex; align-items: center; gap: 6px; padding-left: 0; }
+.btn-testo.segui .icona { width: 15px; height: 15px; }
+
 /* La destinazione sta sopra: è la seconda cosa che si cerca dopo l'ora, e
    prima era sotto una riga di grigio piccolo che si leggeva per forza per
    prima senza servire a niente. */
@@ -397,6 +432,13 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 /* Nella vista per tratta è il dato che si è venuti a cercare, quindi risalta
    dentro la riga di dettaglio invece di occupare una riga propria. */
 .dove .meta .arrivo { color: var(--testo); font-weight: 650; }
+
+/* "prossima MILANO PORTA GARIBALDI · 20:47" non ci sta in una riga, e tagliato
+   in fondo perdeva l'ora — cioè la metà del dato: sapere dove va senza sapere
+   quando è la stessa cosa che non saperlo. Il nome si accorcia, l'ora resta. */
+.dove .meta.prossima { display: flex; }
+.dove .meta.prossima .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dove .meta.prossima .quando { flex: none; padding-left: 4px; }
 
 .binario { text-align: center; min-width: 30px; }
 .binario .num {
@@ -446,6 +488,21 @@ details[open] .apri { transform: rotate(90deg); }
    una fermata alta due righe in una lista di venti si sente. */
 .fermate li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fermate li time { flex: none; }
+/* Il binario di ogni fermata sta fra il nome e l'ora, cioè nell'ordine in cui
+   si leggono: dove, da che binario, a che ora. Non si stringe e non si taglia —
+   è di due caratteri — mentre a cedere spazio è il nome, che è l'unico campo
+   che un troncamento lascia ancora riconoscibile. */
+.fermate li .bin-fermata {
+  flex: none; min-width: 0;
+  color: var(--tenue); font-size: 12px;
+  padding: 0 5px; border-radius: 5px; background: var(--piano-alto);
+}
+.fermate li .bin-fermata.cambiato {
+  color: var(--accento);
+  background: color-mix(in srgb, var(--accento) 16%, var(--piano-alto));
+}
+.fermate li .bin-fermata s { opacity: 0.7; }
+.fermate li.passata .bin-fermata { background: none; padding: 0; }
 .fermate li.meta-scelta { color: var(--accento); font-weight: 600; }
 .fermate li time { color: var(--tenue); }
 .fermate li.meta-scelta time { color: inherit; }
@@ -457,6 +514,11 @@ details[open] .apri { transform: rotate(90deg); }
 .fermate li.passata time { color: var(--tenue); }
 .fermate li.passata time small { font-size: 11px; font-weight: 650; margin-left: 3px; }
 .fermate li.passata.meta-scelta { color: var(--accento); }
+
+/* Sulla scheda del treno seguito il viaggio è il contenuto della pagina, non
+   il dettaglio dentro una riga di tabellone: il rientro che lo teneva
+   allineato sotto la destinazione qui non ha niente sopra a cui allinearsi. */
+.fermate.aperta { margin: 4px 2px 0; font-size: 14.5px; }
 
 /* Dove si trova il treno adesso: sta sopra le fermate perché è la risposta
    alla domanda per cui si è aperta la scheda. */

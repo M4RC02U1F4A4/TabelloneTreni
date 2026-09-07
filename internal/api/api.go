@@ -21,6 +21,7 @@ import (
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
 
 type Server struct {
@@ -53,6 +54,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/stations", s.stazioni)
 	mux.HandleFunc("GET /api/board", s.tabellone)
 	mux.HandleFunc("GET /api/train", s.treno)
+	mux.HandleFunc("GET /api/journey", s.viaggio)
 	mux.HandleFunc("GET /api/lines", s.linee)
 	mux.HandleFunc("GET /api/lines/notices", s.avvisiLinea)
 	mux.HandleFunc("GET /api/push/key", s.inoltraPush("/push/chiave"))
@@ -161,14 +163,97 @@ type fermataJSON struct {
 	// nomi: le due fonti scrivono gli stessi posti in modi diversi, e un
 	// confronto sui nomi qui sbaglierebbe proprio dove serve non sbagliare.
 	Chosen bool `json:"chosen,omitempty"`
+	// Platform è il binario che conta per questa fermata; PlatformScheduled
+	// c'è solo quando è cambiato, perché è l'unico caso in cui il previsto è
+	// ancora un'informazione — altrimenti sarebbe lo stesso numero due volte.
+	Platform          string `json:"platform,omitempty"`
+	PlatformScheduled string `json:"platformScheduled,omitempty"`
+}
+
+// viaggioJSON è la forma in cui il viaggio di un treno arriva al client, la
+// stessa per la scheda aperta da un tabellone e per un treno seguito dalla
+// home. Sono lo stesso dato guardato da due porte, e una forma sola vuol dire
+// un renderer solo di là.
+//
+// Un treno che ViaggiaTreno non conosce o non traccia non è un errore: è la
+// normalità per metà del tabellone, e la risposta lo dice con `tracked: false`
+// invece che con un 404 che il client dovrebbe distinguere da un guasto.
+func viaggioJSON(a *vt.Andamento, codiceScelta string) map[string]any {
+	if a == nil {
+		return map[string]any{"tracked": false}
+	}
+	fermate := make([]fermataJSON, 0, len(a.Fermate))
+	for _, f := range a.Fermate {
+		voce := fermataJSON{
+			Code: f.Codice, Name: f.Nome,
+			Scheduled: orario(f.Programmata), Passed: f.Passata,
+			Platform: f.Binario(),
+		}
+		if f.BinarioCambiato() {
+			voce.PlatformScheduled = f.BinarioProgrammato
+		}
+		// Orario reale e ritardo hanno senso solo dove il treno è passato:
+		// sulle fermate future ViaggiaTreno lascia zero, che non è una
+		// previsione ma un campo non compilato.
+		if f.Passata {
+			voce.Actual, voce.Delay = orario(f.Effettiva), f.Ritardo
+		}
+		if codiceScelta != "" && f.Codice == codiceScelta {
+			voce.Chosen = true
+		}
+		fermate = append(fermate, voce)
+	}
+	return map[string]any{
+		"tracked": a.Stazione != "",
+		"delay":   a.Ritardo,
+		// Le coordinate con cui richiedere questo stesso viaggio. Sono quello
+		// che il telefono si salva per seguire il treno: da lì in poi non ha
+		// più un tabellone da cui ricavarle.
+		"id": map[string]any{
+			"origin": a.CodOrigine, "number": a.Numero, "date": a.DataPartenza,
+		},
+		// Come si chiama il treno. Al tabellone non serve — queste tre cose le
+		// ha già stampate — ma una scheda seguita nasce senza tabellone sotto.
+		"number":   a.Numero,
+		"category": a.Categoria,
+		"origin":   a.Origine,
+		"terminus": a.Destinazione,
+		"arrived":  a.Arrivato,
+		// Ended dice che il viaggio è finito da abbastanza tempo da poter
+		// smettere di seguirlo: è il segnale con cui la scheda si toglie da
+		// sola dalla home, senza che nessuno debba ricordarsi di farlo.
+		"ended": a.Concluso(time.Now()),
+		"lastSeen": map[string]any{
+			"station": a.Stazione,
+			"time":    orario(a.Ora),
+		},
+		"stops": fermate,
+	}
+}
+
+// fermataScelta traduce il PlaceId RFI della stazione dove si scende nel codice
+// con cui la stessa stazione compare fra le fermate di ViaggiaTreno. Vuoto se
+// la richiesta non la nomina o se le due fonti non si accoppiano lì.
+func (s *Server) fermataScelta(v string) string {
+	if v == "" {
+		return ""
+	}
+	to, err := strconv.Atoi(v)
+	if err != nil || to <= 0 {
+		return ""
+	}
+	if st := s.catalogo.ByID(to); st != nil {
+		return st.VT
+	}
+	return ""
 }
 
 // treno restituisce il viaggio di un treno del tabellone: dove si trova adesso
 // e a che ora è passato dalle fermate che ha già servito.
 //
-// Un treno che ViaggiaTreno non conosce o non traccia non è un errore: è la
-// normalità per metà del tabellone, e la risposta lo dice con `tracked: false`
-// invece che con un 404 che il client dovrebbe distinguere da un guasto.
+// Il treno si identifica con il tabellone da cui lo si è aperto, e non con le
+// coordinate di ViaggiaTreno: quelle il tabellone le ha già lette, e chiederle
+// al client vorrebbe dire fidarsi di quello che rimanda indietro.
 func (s *Server) treno(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	from, err := strconv.Atoi(q.Get("from"))
@@ -183,54 +268,71 @@ func (s *Server) treno(w http.ResponseWriter, r *http.Request) {
 	}
 	arrivals := q.Get("arrivals") == "true"
 
-	// La fermata dove si scende, se la richiesta la nomina: si confronta il
-	// codice ViaggiaTreno, che è lo stesso identificatore su entrambi i lati.
-	var codiceScelta string
-	if v := q.Get("to"); v != "" {
-		if to, err := strconv.Atoi(v); err == nil && to > 0 {
-			if st := s.catalogo.ByID(to); st != nil {
-				codiceScelta = st.VT
-			}
-		}
-	}
-
 	a, err := s.svc.Andamento(r.Context(), from, arrivals, numero)
 	if err != nil {
 		log.Printf("andamento treno %s da %d: %v", numero, from, err)
 		errore(w, http.StatusBadGateway, "andamento non disponibile")
 		return
 	}
+	rispondiViaggio(w, r, viaggioJSON(a, s.fermataScelta(q.Get("to"))))
+}
 
-	risposta := map[string]any{"tracked": false}
-	if a != nil {
-		fermate := make([]fermataJSON, 0, len(a.Fermate))
-		for _, f := range a.Fermate {
-			voce := fermataJSON{
-				Code: f.Codice, Name: f.Nome,
-				Scheduled: orario(f.Programmata), Passed: f.Passata,
-			}
-			// Orario reale e ritardo hanno senso solo dove il treno è passato:
-			// sulle fermate future ViaggiaTreno lascia zero, che non è una
-			// previsione ma un campo non compilato.
-			if f.Passata {
-				voce.Actual, voce.Delay = orario(f.Effettiva), f.Ritardo
-			}
-			if codiceScelta != "" && f.Codice == codiceScelta {
-				voce.Chosen = true
-			}
-			fermate = append(fermate, voce)
-		}
-		risposta = map[string]any{
-			"tracked": a.Stazione != "",
-			"delay":   a.Ritardo,
-			"lastSeen": map[string]any{
-				"station": a.Stazione,
-				"time":    orario(a.Ora),
-			},
-			"stops": fermate,
-		}
+// Cosa si accetta come coordinate di un treno seguito.
+//
+// I codici stazione di ViaggiaTreno sono una lettera e cinque cifre ("S01700");
+// il margine in più copre le origini estere, che hanno un prefisso diverso e
+// che nessuno qui ha mai enumerato. I numeri di treno sono cifre, con qualche
+// suffisso di lettera in giro.
+var (
+	codiceVT   = regexp.MustCompile(`^[A-Z]{1,2}[0-9]{4,6}$`)
+	numeroTren = regexp.MustCompile(`^[0-9A-Za-z]{1,10}$`)
+)
+
+// giorniAmmessi è quanto può distare il giorno di partenza dichiarato. Un treno
+// seguito è di oggi, al massimo di ieri sera; il margine sta largo perché il
+// telefono può avere l'orologio storto, ma resta un margine.
+const giorniAmmessi = 3 * 24 * time.Hour
+
+// viaggio restituisce il viaggio di un treno seguito, che si identifica con le
+// coordinate di ViaggiaTreno e non con un tabellone.
+//
+// È l'eccezione alla regola dell'handler qui sopra, e ha un motivo: chi segue
+// un treno lo guarda quasi sempre mentre ci è sopra, cioè quando il treno è
+// partito e dal tabellone della stazione di partenza è sparito. Ricavare lì le
+// coordinate non funzionerebbe proprio nel momento per cui la funzione esiste,
+// quindi le tiene il telefono e qui se ne controlla la forma.
+//
+// Il controllo non serve a stabilire che il treno esista — a quello risponde
+// ViaggiaTreno con un corpo vuoto — ma a fare in modo che quello che arriva da
+// fuori non possa comporre un indirizzo diverso da quello previsto.
+func (s *Server) viaggio(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	origine := strings.ToUpper(strings.TrimSpace(q.Get("origin")))
+	numero := strings.TrimSpace(q.Get("number"))
+	if !codiceVT.MatchString(origine) || !numeroTren.MatchString(numero) {
+		errore(w, http.StatusBadRequest, "treno non valido")
+		return
+	}
+	data, err := strconv.ParseInt(q.Get("date"), 10, 64)
+	if err != nil {
+		errore(w, http.StatusBadRequest, "parametro 'date' mancante o non valido")
+		return
+	}
+	if scarto := time.Since(time.UnixMilli(data)); scarto > giorniAmmessi || scarto < -giorniAmmessi {
+		errore(w, http.StatusBadRequest, "giorno di partenza fuori intervallo")
+		return
 	}
 
+	a, err := s.svc.Viaggio(r.Context(), origine, numero, data)
+	if err != nil {
+		log.Printf("viaggio treno %s da %s del %d: %v", numero, origine, data, err)
+		errore(w, http.StatusBadGateway, "andamento non disponibile")
+		return
+	}
+	rispondiViaggio(w, r, viaggioJSON(a, s.fermataScelta(q.Get("to"))))
+}
+
+func rispondiViaggio(w http.ResponseWriter, r *http.Request, risposta map[string]any) {
 	body, err := json.Marshal(risposta)
 	if err != nil {
 		errore(w, http.StatusInternalServerError, "errore interno")

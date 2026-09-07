@@ -688,3 +688,60 @@ func TestUnLivelloRottoNonAnnullaLAltro(t *testing.T) {
 		t.Errorf("ritardo = %v, atteso 4", got)
 	}
 }
+
+// Un treno seguito si chiede con le sue coordinate e senza nessun tabellone
+// alle spalle: è il caso per cui la funzione esiste, perché chi segue un treno
+// lo guarda quasi sempre quando è già partito e dal tabellone è sparito.
+func TestViaggioSenzaTabellone(t *testing.T) {
+	live := &liveFinta{viaggio: viaggioFinto()}
+	s, src := servizioConLive("partenze-1715.html", live)
+
+	a, err := s.Viaggio(context.Background(), "S01700", "2247", 1788645600000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == nil || a.Stazione != "MILANO LAMBRATE" {
+		t.Fatalf("viaggio = %+v", a)
+	}
+	if atteso := "S01700|2247|1788645600000"; live.chiestoPer != atteso {
+		t.Errorf("chiesto per %q, atteso %q", live.chiestoPer, atteso)
+	}
+	// Nessun tabellone è stato letto: seguire un treno non costa una richiesta
+	// a RFI, che è il punto di tenere le coordinate sul telefono.
+	if src.chiamate != 0 {
+		t.Errorf("letture del tabellone = %d, attese 0", src.chiamate)
+	}
+}
+
+// La cache dei viaggi è una sola: un treno aperto dal tabellone e lo stesso
+// treno seguito dalla home non devono costare due letture a un servizio lento.
+func TestViaggioSeguitoEApertoCondividonoLaCache(t *testing.T) {
+	live := &liveFinta{
+		misure:  map[string]vt.Treno{trenoA: {CodOrigine: "S01700", DataPartenza: 1788645600000}},
+		viaggio: viaggioFinto(),
+	}
+	s, _ := servizioConLive("partenze-1715.html", live)
+	if _, err := s.Get(context.Background(), garibaldi, false, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Andamento(context.Background(), garibaldi, false, trenoA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Viaggio(context.Background(), "S01700", trenoA, 1788645600000); err != nil {
+		t.Fatal(err)
+	}
+	if live.andamenti != 1 {
+		t.Fatalf("chiamate = %d, attesa 1", live.andamenti)
+	}
+}
+
+// Senza seconda fonte non c'è niente da seguire, e non è un errore: è lo stesso
+// silenzio con cui esce la scheda aperta da un tabellone.
+func TestViaggioSenzaSecondaFonte(t *testing.T) {
+	s, _ := servizio("partenze-1715.html")
+	a, err := s.Viaggio(context.Background(), "S01700", "2247", 1788645600000)
+	if err != nil || a != nil {
+		t.Fatalf("viaggio = %+v, err = %v", a, err)
+	}
+}

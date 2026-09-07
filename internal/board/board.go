@@ -341,8 +341,25 @@ func (s *Service) Andamento(ctx context.Context, placeID int, arrivals bool, num
 	if !ok || t.CodOrigine == "" || t.DataPartenza == 0 {
 		return nil, nil
 	}
+	return s.Viaggio(ctx, t.CodOrigine, numero, t.DataPartenza)
+}
 
-	k := fmt.Sprintf("%s|%s|%d", t.CodOrigine, numero, t.DataPartenza)
+// Viaggio è lo stesso andamento, chiesto con le coordinate invece che con il
+// tabellone da cui il treno viene.
+//
+// Esiste per i treni seguiti, che è il caso in cui un tabellone non c'è: chi
+// segue un treno lo guarda dalla home, e più spesso lo guarda mentre ci è
+// sopra, quando il treno è già partito e dal tabellone della stazione di
+// partenza è sparito da un pezzo. Le coordinate quindi le tiene il telefono, e
+// il server le prende per buone dopo averne controllato la forma — vedi
+// l'handler, che è dove arrivano da fuori.
+func (s *Service) Viaggio(ctx context.Context, codOrigine, numero string, data int64) (*vt.Andamento, error) {
+	if s.live == nil {
+		return nil, nil
+	}
+	numero = strings.TrimSpace(numero)
+
+	k := fmt.Sprintf("%s|%s|%d", codOrigine, numero, data)
 	s.muAnd.Lock()
 	if c := s.viaggi[k]; c != nil && time.Now().Before(c.scadeIl) {
 		s.muAnd.Unlock()
@@ -350,7 +367,7 @@ func (s *Service) Andamento(ctx context.Context, placeID int, arrivals bool, num
 	}
 	s.muAnd.Unlock()
 
-	a, err := s.live.Andamento(ctx, t.CodOrigine, numero, t.DataPartenza)
+	a, err := s.live.Andamento(ctx, codOrigine, numero, data)
 	if err != nil {
 		return nil, err
 	}

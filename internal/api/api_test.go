@@ -7,9 +7,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
@@ -343,5 +345,55 @@ func TestAvvisiLineaCodiceRifiutato(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("%q: stato = %d, atteso 400", caso, resp.StatusCode)
 		}
+	}
+}
+
+// Un treno seguito non ha più un tabellone da cui ricavare le coordinate: le
+// manda il telefono, e qui se ne controlla la forma. Il controllo non stabilisce
+// che il treno esista — a quello risponde ViaggiaTreno — ma che quello che
+// arriva da fuori non possa comporre un indirizzo diverso da quello previsto.
+func TestViaggioCoordinateRifiutate(t *testing.T) {
+	oggi := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	casi := []struct {
+		nome     string
+		percorso string
+	}{
+		{"senza origine", "/api/journey?number=2247&date=" + oggi},
+		{"origine con una barra", "/api/journey?origin=S01700%2F..%2Fx&number=2247&date=" + oggi},
+		{"origine troppo lunga", "/api/journey?origin=S0170012345&number=2247&date=" + oggi},
+		{"origine con punti", "/api/journey?origin=..&number=2247&date=" + oggi},
+		{"senza numero", "/api/journey?origin=S01700&date=" + oggi},
+		{"numero con punteggiatura", "/api/journey?origin=S01700&number=22%2F47&date=" + oggi},
+		{"senza giorno", "/api/journey?origin=S01700&number=2247"},
+		{"giorno non numerico", "/api/journey?origin=S01700&number=2247&date=ieri"},
+		{"giorno della settimana scorsa", "/api/journey?origin=S01700&number=2247&date=1"},
+	}
+	for _, caso := range casi {
+		t.Run(caso.nome, func(t *testing.T) {
+			res := chiedi(t, server(), caso.percorso, nil)
+			defer res.Body.Close()
+			if res.StatusCode != http.StatusBadRequest {
+				t.Fatalf("stato = %d, atteso 400", res.StatusCode)
+			}
+		})
+	}
+}
+
+// Coordinate in ordine passano, e un treno che nessuno segue esce con la stessa
+// risposta della scheda aperta da un tabellone: non è un errore, è un silenzio.
+func TestViaggioCoordinateAccettate(t *testing.T) {
+	oggi := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	res := chiedi(t, server(), "/api/journey?origin=S01700&number=2247&date="+oggi, nil)
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("stato = %d, atteso 200", res.StatusCode)
+	}
+	var d map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	if d["tracked"] != false {
+		t.Errorf("tracked = %v, atteso false", d["tracked"])
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -16,6 +17,20 @@ import (
 // che ci si fa davvero quando il numero è grosso e ci si chiede se il treno
 // arriverà mai.
 type Andamento struct {
+	// Le tre coordinate con cui questo viaggio si richiede di nuovo. Le porta
+	// con sé perché chi segue un treno non ha più il tabellone da cui
+	// ricavarle: la scheda in home è tutto quello che resta.
+	CodOrigine   string
+	Numero       string
+	DataPartenza int64
+
+	// Come si chiama il treno. Il tabellone queste cose le sa già, ma una
+	// scheda seguita nasce senza tabellone sotto e deve poter dire da sé di
+	// che treno si tratta.
+	Categoria    string
+	Origine      string
+	Destinazione string
+
 	// Ritardo all'ultimo rilevamento, in minuti.
 	Ritardo int
 	// Dove e quando il treno è stato visto l'ultima volta. Stazione è vuota
@@ -23,6 +38,10 @@ type Andamento struct {
 	// scrive "--", che non è il nome di nessun posto.
 	Stazione string
 	Ora      time.Time
+	// Arrivato dice che il treno ha raggiunto il capolinea. Lo dichiara
+	// ViaggiaTreno: dedurlo dall'ultima fermata servita vorrebbe dire chiamare
+	// arrivato anche un treno fermo da un'ora a due stazioni dalla fine.
+	Arrivato bool
 	Fermate  []Fermata
 }
 
@@ -39,9 +58,59 @@ type Fermata struct {
 	// compilato.
 	Ritardo int
 	Passata bool
+	// I due binari di questa fermata, come li dichiara ViaggiaTreno: il
+	// previsto e quello assegnato davvero. Sulle fermate lontane ci sono
+	// entrambi vuoti, e più spesso c'è il solo previsto.
+	BinarioProgrammato string
+	BinarioEffettivo   string
+}
+
+// Binario è il numero da mostrare per questa fermata: quello assegnato davvero
+// quando c'è, altrimenti quello previsto. Vuoto quando non ce n'è nessuno, che
+// è la norma sulle fermate ancora lontane.
+func (f Fermata) Binario() string {
+	if f.BinarioEffettivo != "" {
+		return f.BinarioEffettivo
+	}
+	return f.BinarioProgrammato
+}
+
+// BinarioCambiato dice se il treno passa da un binario diverso da quello
+// previsto. Come sul tabellone, serve che ci siano tutti e due: con un valore
+// solo non si sta confrontando niente, e un "cambiato" annunciato per un campo
+// mancante manderebbe qualcuno a cercare un binario che non è cambiato affatto.
+func (f Fermata) BinarioCambiato() bool {
+	return f.BinarioProgrammato != "" && f.BinarioEffettivo != "" &&
+		f.BinarioProgrammato != f.BinarioEffettivo
+}
+
+// Concluso dice che il viaggio è finito da abbastanza tempo da poter smettere
+// di seguirlo.
+//
+// Non basta che il treno sia arrivato: chi lo seguiva vuole vedere che è
+// arrivato, e una scheda che sparisce nell'istante in cui la si guarda è una
+// risposta tolta di mano. Passata la mezz'ora, invece, è solo una riga vecchia
+// in cima alla home.
+func (a *Andamento) Concluso(adesso time.Time) bool {
+	if !a.Arrivato {
+		return false
+	}
+	for i := len(a.Fermate) - 1; i >= 0; i-- {
+		if t := a.Fermate[i].Effettiva; !t.IsZero() {
+			return adesso.Sub(t) > 30*time.Minute
+		}
+	}
+	// Arrivato senza un solo orario reale non dovrebbe capitare; se capita,
+	// tenersi la scheda costa meno che buttarla per una deduzione fragile.
+	return false
 }
 
 type andamento struct {
+	NumeroTreno               int       `json:"numeroTreno"`
+	Categoria                 string    `json:"categoria"`
+	Origine                   string    `json:"origine"`
+	Destinazione              string    `json:"destinazione"`
+	Arrivato                  bool      `json:"arrivato"`
 	Ritardo                   float64   `json:"ritardo"`
 	StazioneUltimoRilevamento string    `json:"stazioneUltimoRilevamento"`
 	OraUltimoRilevamento      int64     `json:"oraUltimoRilevamento"`
@@ -54,6 +123,24 @@ type fermata struct {
 	Programmata int64   `json:"programmata"`
 	Effettiva   int64   `json:"effettiva"`
 	Ritardo     float64 `json:"ritardo"`
+
+	BinarioProgrammatoArrivo   string `json:"binarioProgrammatoArrivoDescrizione"`
+	BinarioEffettivoArrivo     string `json:"binarioEffettivoArrivoDescrizione"`
+	BinarioProgrammatoPartenza string `json:"binarioProgrammatoPartenzaDescrizione"`
+	BinarioEffettivoPartenza   string `json:"binarioEffettivoPartenzaDescrizione"`
+}
+
+// binari sceglie quale coppia di binari conta per una fermata.
+//
+// È quella di arrivo: il binario che serve è dove il treno entra, ed è quello
+// stampato sul tabellone della stazione in cui lo si aspetta. Sulla stazione di
+// origine un arrivo non c'è — quei due campi restano vuoti — e allora vale la
+// coppia di partenza, che è l'unica che quella fermata abbia.
+func binari(f fermata) (programmato, effettivo string) {
+	if f.BinarioProgrammatoArrivo != "" || f.BinarioEffettivoArrivo != "" {
+		return f.BinarioProgrammatoArrivo, f.BinarioEffettivoArrivo
+	}
+	return f.BinarioProgrammatoPartenza, f.BinarioEffettivoPartenza
 }
 
 // Andamento legge il viaggio di un singolo treno.
@@ -91,12 +178,31 @@ func (c *Client) Andamento(ctx context.Context, codOrigine, numero string, data 
 	}
 
 	out := &Andamento{
+		// Le coordinate sono quelle con cui si è chiesto, non quelle della
+		// risposta: nel corpo `codOrigine` arriva null, e il viaggio deve
+		// restare richiedibile con la stessa terna che ha appena funzionato.
+		CodOrigine:   codOrigine,
+		Numero:       numero,
+		DataPartenza: data,
+
+		Categoria:    a.Categoria,
+		Origine:      a.Origine,
+		Destinazione: a.Destinazione,
+
 		Ritardo:  int(math.Round(a.Ritardo)),
 		Stazione: nomeStazione(a.StazioneUltimoRilevamento),
 		Ora:      quando(a.OraUltimoRilevamento),
+		Arrivato: a.Arrivato,
 		Fermate:  make([]Fermata, 0, len(a.Fermate)),
 	}
+	// Il numero della risposta ha la precedenza su quello chiesto solo se c'è:
+	// è la forma in cui ViaggiaTreno lo scrive, e la richiesta poteva portarlo
+	// con degli zeri davanti.
+	if a.NumeroTreno != 0 {
+		out.Numero = strconv.Itoa(a.NumeroTreno)
+	}
 	for _, f := range a.Fermate {
+		programmato, effettivo := binari(f)
 		out.Fermate = append(out.Fermate, Fermata{
 			Codice:      f.ID,
 			Nome:        f.Stazione,
@@ -106,7 +212,9 @@ func (c *Client) Andamento(ctx context.Context, codOrigine, numero string, data 
 			// La fermata è servita quando ha un orario reale. È il solo segnale
 			// che non richiede di indovinare: il ritardo per fermata resta a
 			// zero su tutte quelle ancora da fare.
-			Passata: f.Effettiva != 0,
+			Passata:            f.Effettiva != 0,
+			BinarioProgrammato: programmato,
+			BinarioEffettivo:   effettivo,
 		})
 	}
 	return out, nil

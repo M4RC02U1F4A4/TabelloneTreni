@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 )
 
 // Il 2247 è stato catturato in corsa: due fermate servite e quattro ancora da
@@ -110,5 +111,123 @@ func TestSegnapostoDellUltimoRilevamento(t *testing.T) {
 	}
 	if !a.Ora.IsZero() {
 		t.Errorf("ora = %v, attesa vuota", a.Ora)
+	}
+}
+
+// Il binario che serve è quello dove il treno entra, cioè quello di arrivo.
+// Sulla stazione di origine un arrivo non c'è, e lì vale quello di partenza:
+// senza questa deroga la prima fermata resterebbe l'unica senza binario,
+// proprio quella dove si è in piedi ad aspettare.
+func TestBinarioDiArrivoConDerogaSullOrigine(t *testing.T) {
+	corpo := fixtureAndamento(t)
+	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
+
+	a, err := c.Andamento(context.Background(), "S01700", "2247", 1788645600000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attesi := map[string]string{
+		"MILANO CENTRALE":  "12", // origine: nessun arrivo, vale la partenza
+		"MILANO LAMBRATE":  "7",
+		"PIOLTELLO LIMITO": "1", // arrivo effettivo 1, previsto 3
+		"BERGAMO":          "1 Tronco OVEST",
+	}
+	for _, f := range a.Fermate {
+		atteso, cercata := attesi[f.Nome]
+		if !cercata {
+			continue
+		}
+		if f.Binario() != atteso {
+			t.Errorf("%s: binario = %q, atteso %q", f.Nome, f.Binario(), atteso)
+		}
+		delete(attesi, f.Nome)
+	}
+	if len(attesi) != 0 {
+		t.Errorf("fermate non trovate nella risposta: %v", attesi)
+	}
+}
+
+// Il binario cambiato vale come sul tabellone: serve che ci siano tutti e due i
+// valori, altrimenti non si sta confrontando niente. A Pioltello ci sono
+// entrambi e differiscono; alle altre fermate manca l'effettivo.
+func TestBinarioCambiatoSoloConEntrambiIValori(t *testing.T) {
+	corpo := fixtureAndamento(t)
+	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
+
+	a, err := c.Andamento(context.Background(), "S01700", "2247", 1788645600000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range a.Fermate {
+		atteso := f.Nome == "PIOLTELLO LIMITO"
+		if f.BinarioCambiato() != atteso {
+			t.Errorf("%s: cambiato = %v, atteso %v (previsto %q, effettivo %q)",
+				f.Nome, f.BinarioCambiato(), atteso, f.BinarioProgrammato, f.BinarioEffettivo)
+		}
+	}
+}
+
+// Un treno seguito non ha più un tabellone sotto: le coordinate per richiederlo
+// deve portarsele il viaggio stesso. Nel corpo di ViaggiaTreno `codOrigine`
+// arriva null, quindi vanno tenute quelle con cui si è chiesto.
+func TestIlViaggioPortaLeProprieCoordinate(t *testing.T) {
+	corpo := fixtureAndamento(t)
+	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
+
+	a, err := c.Andamento(context.Background(), "S01700", "2247", 1788645600000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.CodOrigine != "S01700" || a.Numero != "2247" || a.DataPartenza != 1788645600000 {
+		t.Errorf("coordinate = %q %q %d", a.CodOrigine, a.Numero, a.DataPartenza)
+	}
+	if a.Categoria != "REG" || a.Destinazione != "BERGAMO" || a.Origine != "MILANO CENTRALE" {
+		t.Errorf("identità = %q %q → %q", a.Categoria, a.Origine, a.Destinazione)
+	}
+	if a.Arrivato {
+		t.Error("dato per arrivato un treno ancora in corsa")
+	}
+}
+
+// La scheda di un treno seguito si toglie da sola, ma non nell'istante in cui
+// il treno arriva: chi lo seguiva è lì per vedere proprio quello.
+func TestUnViaggioSiConcludeMezzOraDopoLArrivo(t *testing.T) {
+	arrivo := time.Date(2026, 9, 7, 20, 41, 0, 0, time.UTC)
+	casi := []struct {
+		nome     string
+		a        Andamento
+		adesso   time.Time
+		concluso bool
+	}{
+		{
+			nome:   "in corsa",
+			a:      Andamento{Fermate: []Fermata{{Effettiva: arrivo}}},
+			adesso: arrivo.Add(3 * time.Hour),
+		},
+		{
+			nome:   "appena arrivato",
+			a:      Andamento{Arrivato: true, Fermate: []Fermata{{Effettiva: arrivo}}},
+			adesso: arrivo.Add(5 * time.Minute),
+		},
+		{
+			nome:     "arrivato da un pezzo",
+			a:        Andamento{Arrivato: true, Fermate: []Fermata{{Effettiva: arrivo}}},
+			adesso:   arrivo.Add(45 * time.Minute),
+			concluso: true,
+		},
+		{
+			// Non dovrebbe capitare; se capita, tenersi la scheda costa meno
+			// che buttarla per una deduzione che non regge.
+			nome:   "arrivato senza nemmeno un orario reale",
+			a:      Andamento{Arrivato: true, Fermate: []Fermata{{}}},
+			adesso: arrivo.Add(3 * time.Hour),
+		},
+	}
+	for _, caso := range casi {
+		t.Run(caso.nome, func(t *testing.T) {
+			if got := caso.a.Concluso(caso.adesso); got != caso.concluso {
+				t.Errorf("concluso = %v, atteso %v", got, caso.concluso)
+			}
+		})
 	}
 }
