@@ -674,16 +674,10 @@ function rigaLinea(l, query) {
   const nome = `<span class="segno"><span class="bollino ${st.classe}"></span></span>
     <span class="testo">${evidenzia(l.name, query)}<span class="qualifica"> · ${st.etichetta}</span></span>`;
 
-  // Il conteggio si mostra solo quando si sa: prima di aprire, di una linea che
-  // nessuno segue non sappiamo ancora se ha comunicazioni.
-  const noto = avvisiLinea.get(l.code);
-  const quante = noto && noto.stato === 'ok' ? noto.dati.length : null;
-
   return `<li class="riga con-avvisi">
     <details class="avvisi-linea" data-linea="${esc(l.code)}"${lineeAperte.has(l.code) ? ' open' : ''}>
       <summary class="riga-tocco">
         ${nome}
-        ${quante !== null ? `<span class="conta-avvisi">${quante}</span>` : ''}
         <span class="chevron">${icona('gallone')}</span>
       </summary>
       ${corpoAvvisi(l.code)}
@@ -709,16 +703,29 @@ function corpoAvvisi(codice) {
 /* Le comunicazioni si chiedono quando si apre una riga, non per tutte e 65: il
    dettaglio di una linea pesa più di cento KB, e di righe se ne apre una. */
 async function scaricaAvvisi(codice) {
-  if (avvisiLinea.has(codice)) return;
+  const gia = avvisiLinea.get(codice);
+  // Un tentativo andato male si può rifare chiudendo e riaprendo: uno riuscito
+  // no, che è il punto di tenerselo.
+  if (gia && gia.stato !== 'errore') return;
   avvisiLinea.set(codice, { stato: 'attesa' });
   try {
-    const r = await fetch(API.avvisiLinea(codice));
+    // Senza un tetto, una rete che non risponde lascia "Cerco le
+    // comunicazioni…" davanti a chi ha aperto la riga finché non ricarica. Il
+    // tabellone rinuncia dopo dieci secondi, quindi quindici qui sono il caso
+    // in cui non risponde nemmeno lui.
+    const r = await fetch(API.avvisiLinea(codice), { signal: AbortSignal.timeout(15_000) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
     avvisiLinea.set(codice, { stato: 'ok', dati: (await r.json()).notices || [] });
   } catch (e) {
-    avvisiLinea.set(codice, { stato: 'errore', dati: e.message });
+    avvisiLinea.set(codice, {
+      stato: 'errore',
+      dati: e.name === 'TimeoutError' ? 'Comunicazioni non raggiungibili.' : e.message,
+    });
   }
-  if (leggiRotta().vista === 'linee') disegnaElencoLinee();
+  // Le righe delle linee stanno anche in home, non solo nell'elenco completo:
+  // ridisegnando solo l'elenco, chi apriva una riga dalla home restava con
+  // "Cerco le comunicazioni…" davanti per sempre.
+  aggiornaVista();
 }
 
 /* Il testo arriva da Trenord e va messo con esc(): sono comunicazioni scritte a
