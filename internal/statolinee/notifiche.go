@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -71,7 +72,7 @@ func (n *Notificatore) Avvisa(ctx context.Context, cambi []Cambio) {
 		corpo, err := json.Marshal(messaggio{
 			Titolo: c.Linea.Nome,
 			Corpo:  testoCambio(c),
-			URL:    "./#/linee",
+			URL:    destinazione(c.Linea.Codice),
 			Tag:    "linea-" + c.Linea.Codice,
 		})
 		if err != nil {
@@ -81,6 +82,12 @@ func (n *Notificatore) Avvisa(ctx context.Context, cambi []Cambio) {
 			n.manda(ctx, ab, corpo)
 		}
 	}
+}
+
+// destinazione porta dritto sulla linea invece che sull'elenco: chi tocca la
+// notifica sta cercando quella riga, non le altre sessantaquattro.
+func destinazione(codice string) string {
+	return "./#/linee/" + url.PathEscape(codice)
 }
 
 // testoCambio dice il verso, non solo lo stato di arrivo: "torna regolare" e

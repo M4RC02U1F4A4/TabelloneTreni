@@ -240,3 +240,15 @@ func TestChiaviRovinate(t *testing.T) {
 		}
 	}
 }
+
+// La notifica deve portare sulla linea, non sull'elenco intero: chi la tocca
+// sta cercando quella riga, non le altre sessantaquattro.
+func TestNotificaPortaSullaLinea(t *testing.T) {
+	for _, codice := range []string{"S2", "RE_13", "R16"} {
+		got := destinazione(codice)
+		atteso := "./#/linee/" + codice
+		if got != atteso {
+			t.Errorf("%s: %q, atteso %q", codice, got, atteso)
+		}
+	}
+}

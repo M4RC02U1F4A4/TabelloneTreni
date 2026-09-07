@@ -198,6 +198,10 @@ ul { list-style: none; margin: 0; padding: 0; }
   background: none; border: 0; color: var(--tenue);
 }
 .campanella.accesa { color: var(--accento); }
+/* Come nella ricerca stazioni: il giallo di default di <mark> non c'entra
+   niente con questa tavolozza, e nel tema chiaro è pure illeggibile sopra il
+   testo scuro. */
+.riga-tocco .testo mark { background: none; color: var(--accento); font-weight: 650; }
 
 /* Il campo che filtra le linee riusa l'aspetto di quello del selettore
    stazione, ma lì sta in una riga accanto ad "Annulla" e qui è da solo. */
@@ -329,7 +333,18 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    prima era sotto una riga di grigio piccolo che si leggeva per forza per
    prima senza servire a niente. */
 .dove { min-width: 0; }
-.destinazione { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Dove va il treno è l'informazione principale del tabellone, e su un telefono
+   in verticale "FIUMICINO AEROPORTO" non ci sta in una riga: veniva tagliato a
+   "FIUMICINO AERO…", cioè proprio il pezzo che si è venuti a leggere. Va a capo
+   fino a due righe, e solo oltre si taglia — un nome più lungo di così non
+   esiste, e intanto le schede restano alte uguali quasi sempre.
+   La riga sotto, che porta categoria e numero, resta su una riga sola: è
+   dettaglio, e farla andare a capo alzerebbe ogni scheda per niente. */
+.destinazione {
+  font-weight: 600;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden;
+}
 /* Sugli arrivi la colonna porta la provenienza, non la destinazione: senza
    dirlo, due tabelloni identici significherebbero il contrario l'uno dell'altro. */
 .destinazione .da { color: var(--tenue); font-weight: 400; }

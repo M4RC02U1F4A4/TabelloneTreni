@@ -428,7 +428,10 @@ document.addEventListener('keydown', (e) => {
 
 function leggiRotta() {
   const parti = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  if (parti[0] === 'linee') return { vista: 'linee' };
+  // #/linee/S2 apre l'elenco già filtrato su quella linea: è dove porta il
+  // tocco su una notifica, che altrimenti scaricherebbe sessantacinque righe
+  // addosso a chi ne stava cercando una.
+  if (parti[0] === 'linee') return { vista: 'linee', filtro: decodeURIComponent(parti[1] || '') };
   if (parti[0] !== 'p' && parti[0] !== 'a') return { vista: 'home' };
   const da = Number(parti[1]);
   if (!da) return { vista: 'home' };
@@ -449,8 +452,9 @@ async function cambiaRotta() {
 
   if (r.vista === 'linee') {
     // Il filtro non sopravvive all'uscita: tornandoci si vuole l'elenco
-    // intero, non quello che si stava cercando mezz'ora fa.
-    filtroLinee = '';
+    // intero, non quello che si stava cercando mezz'ora fa. A meno che non lo
+    // porti la rotta, che è il caso della notifica.
+    filtroLinee = r.filtro || '';
     disegna();
     // La chiave si chiede subito, insieme alle linee: serve a sapere già prima
     // del primo tocco se il server può mandare notifiche, e quindi se ha senso
@@ -662,12 +666,15 @@ function rigaLinea(l, query) {
   </li>`;
 }
 
+/* Lo scheletro tiene anche il posto della campanella: senza, all'arrivo dei
+   dati la colonna di destra compariva di colpo e la lista sussultava. */
 function rigaLineaScheletro() {
   return `<li class="riga scheletro">
     <span class="riga-tocco statica">
       <span class="segno"><span class="bollino"></span></span>
       <span class="testo"><span class="barra b-dest"></span></span>
     </span>
+    <span class="campanella" aria-hidden="true">${icona('campana')}</span>
   </li>`;
 }
 
@@ -678,7 +685,8 @@ function disegnaLinee() {
       <h1 class="titolo">Stato linee</h1>
     </div>
     <div class="sottotitolo">Circolazione Trenord${
-      stato.lineeAggiornate ? ` · letto ${esc(oraDi(stato.lineeAggiornate))}` : ''}</div>`;
+      stato.lineeAggiornate ? ` · <span class="${lineeFerme() ? 'fermo' : 'vivo'}">letto ${
+        esc(oraDi(stato.lineeAggiornate))}</span>` : ''}</div>`;
 
   if (stato.linee === null) {
     app.innerHTML = `<ul class="lista">${rigaLineaScheletro().repeat(8)}</ul>`;
@@ -764,6 +772,15 @@ function notaNotifiche() {
         ? `Ti avvisiamo quando cambia il bollino ${quante === 1 ? 'della linea seguita' : 'di una delle linee seguite'}.`
         : 'Accendi una campanella per essere avvisato quando cambia il bollino di una linea.';
   }
+}
+
+/* Il servizio rilegge Trenord ogni cinque minuti: passati i dodici, di letture
+   ne sono saltate almeno due e quello che si sta guardando non è più lo stato
+   della circolazione ma il ricordo di com'era. Un semaforo fermo che non lo
+   dice è peggio di un semaforo spento. */
+function lineeFerme() {
+  const t = Date.parse(stato.lineeAggiornate);
+  return !isNaN(t) && Date.now() - t > 12 * 60_000;
 }
 
 /* L'orario di lettura arriva in UTC dal servizio; qui si mostra nell'ora del
