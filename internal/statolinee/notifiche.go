@@ -60,29 +60,52 @@ type messaggio struct {
 	Tag string `json:"tag"`
 }
 
-// Avvisa manda una notifica per ogni cambio a chi segue quella linea.
-func (n *Notificatore) Avvisa(ctx context.Context, cambi []Cambio) {
-	if n == nil {
+// Annuncia manda a chi segue la linea quello che è cambiato.
+//
+// Il bollino che si muove e una comunicazione nuova sono due notizie diverse e
+// vanno tutte e due, ma quando arrivano insieme è una notifica sola: sono la
+// stessa cosa vista da due lati, e mandarne due per lo stesso guasto è il modo
+// più rapido per far spegnere le notifiche.
+func (n *Notificatore) Annuncia(ctx context.Context, v Novita) {
+	if n == nil || (v.Cambio == nil && len(v.Avvisi) == 0) {
 		return
 	}
-	for _, c := range cambi {
-		destinatari := n.abbonati.PerLinea(c.Linea.Codice)
-		if len(destinatari) == 0 {
-			continue
-		}
-		corpo, err := json.Marshal(messaggio{
-			Titolo: c.Linea.Nome,
-			Corpo:  testoCambio(c),
-			URL:    destinazione(c.Linea.Codice),
-			Tag:    "linea-" + c.Linea.Codice,
-		})
-		if err != nil {
-			continue
-		}
-		for _, ab := range destinatari {
-			n.manda(ctx, ab, corpo)
-		}
+	codice, nome := v.codiceNome()
+	destinatari := n.abbonati.PerLinea(codice)
+	if len(destinatari) == 0 {
+		return
 	}
+
+	m := messaggio{
+		Titolo: nome,
+		URL:    destinazione(codice),
+		Tag:    "linea-" + codice,
+	}
+	switch {
+	case v.Cambio != nil && len(v.Avvisi) > 0:
+		// Il cambio dice cosa è successo, l'avviso perché: insieme sono la
+		// notifica che serve davvero.
+		m.Corpo = testoCambio(*v.Cambio) + " · " + taglia(v.Avvisi[0].Testo, 150)
+	case v.Cambio != nil:
+		m.Corpo = testoCambio(*v.Cambio)
+	default:
+		m.Corpo = taglia(v.Avvisi[0].Testo, 180)
+	}
+
+	corpo, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	for _, ab := range destinatari {
+		n.manda(ctx, ab, corpo)
+	}
+}
+
+func (v Novita) codiceNome() (string, string) {
+	if v.Cambio != nil {
+		return v.Cambio.Linea.Codice, v.Cambio.Linea.Nome
+	}
+	return v.codice, v.nome
 }
 
 // destinazione porta dritto sulla linea invece che sull'elenco: chi tocca la
@@ -196,35 +219,6 @@ func ApriChiavi(percorso string) (pubblica, privata string, err error) {
 		return "", "", err
 	}
 	return pubblica, privata, nil
-}
-
-// AvvisaComunicazione manda una notifica per un avviso nuovo su una linea.
-//
-// È la ragione per cui gli scioperi non hanno bisogno di una fonte propria:
-// Trenord li pubblica come comunicazioni sulle linee interessate, giorni
-// prima, ed è esattamente quando serve saperlo.
-func (n *Notificatore) AvvisaComunicazione(ctx context.Context, l trenord.Linea, a trenord.Avviso) {
-	if n == nil {
-		return
-	}
-	destinatari := n.abbonati.PerLinea(l.Codice)
-	if len(destinatari) == 0 {
-		return
-	}
-	corpo, err := json.Marshal(messaggio{
-		Titolo: l.Nome,
-		Corpo:  taglia(a.Testo, 180),
-		URL:    destinazione(l.Codice),
-		// Tag diverso da quello del bollino: un avviso non sostituisce un
-		// cambio di stato, sono due notizie e servono tutte e due.
-		Tag: "avviso-" + l.Codice,
-	})
-	if err != nil {
-		return
-	}
-	for _, ab := range destinatari {
-		n.manda(ctx, ab, corpo)
-	}
 }
 
 // taglia accorcia il testo per la schermata di blocco, dove oltre un paio di

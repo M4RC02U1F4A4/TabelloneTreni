@@ -104,53 +104,109 @@ func avviso(testo string) trenord.Avviso {
 	return trenord.Avviso{Data: quando, Testo: testo}
 }
 
-// Come per i bollini, la prima lettura non è una notizia: altrimenti ogni
-// riavvio riannuncerebbe i lavori annunciati ad agosto.
-func TestPrimaLetturaAvvisiNonProduceNiente(t *testing.T) {
+func dettaglio(stato trenord.Stato, aggiornato time.Time, testi ...string) *trenord.Dettaglio {
+	d := &trenord.Dettaglio{Stato: stato, Aggiornato: aggiornato}
+	for _, t := range testi {
+		d.Avvisi = append(d.Avvisi, avviso(t))
+	}
+	return d
+}
+
+// Il primo sguardo a una linea non e' una notizia: altrimenti ogni riavvio
+// riannuncerebbe i lavori annunciati ad agosto e lo stato in cui la linea si
+// trova in quel momento.
+func TestPrimoDettaglioNonProduceNiente(t *testing.T) {
 	r := NuovoRegistro()
-	if n := r.MettiAvvisi("S2", []trenord.Avviso{avviso("lavori"), avviso("sciopero")}); len(n) != 0 {
-		t.Fatalf("nuovi = %+v, atteso nessuno", n)
+	n := r.MettiDettaglio("S2", "Seveso", dettaglio(trenord.Critico, quando, "lavori", "sciopero"))
+	if n.Cambio != nil || len(n.Avvisi) != 0 {
+		t.Fatalf("novita = %+v, attesa nessuna", n)
 	}
 	if len(r.AvvisiDi("S2")) != 2 {
 		t.Fatalf("conservati = %+v", r.AvvisiDi("S2"))
 	}
 }
 
-func TestAvvisiNuovi(t *testing.T) {
+// La ragione per cui esiste tutto questo: lo stesso indirizzo, interrogato due
+// volte, risponde da backend che non concordano. Una risposta piu' vecchia di
+// quella che si ha gia' non deve muovere niente, altrimenti un quarto delle
+// linee sembra cambiare stato ogni pochi minuti.
+func TestRispostaVecchiaScartata(t *testing.T) {
 	r := NuovoRegistro()
-	r.MettiAvvisi("S2", []trenord.Avviso{avviso("lavori")})
+	r.MettiDettaglio("S2", "Seveso", dettaglio(trenord.Regolare, quando, "lavori"))
 
-	nuovi := r.MettiAvvisi("S2", []trenord.Avviso{avviso("lavori"), avviso("sciopero l'8")})
-	if len(nuovi) != 1 || nuovi[0].Testo != "sciopero l'8" {
-		t.Fatalf("nuovi = %+v", nuovi)
+	// Il backend rimasto indietro: dice un'altra cosa, ma e' vecchio.
+	vecchia := r.MettiDettaglio("S2", "Seveso",
+		dettaglio(trenord.Critico, quando.Add(-30*time.Minute), "lavori", "un avviso vecchio"))
+	if vecchia.Cambio != nil || len(vecchia.Avvisi) != 0 {
+		t.Fatalf("novita da una risposta vecchia = %+v", vecchia)
 	}
-	// Il giro dopo non è più nuovo.
-	if n := r.MettiAvvisi("S2", []trenord.Avviso{avviso("lavori"), avviso("sciopero l'8")}); len(n) != 0 {
-		t.Fatalf("riannunciato: %+v", n)
+	if st, _ := r.StatoNoto("S2"); st != trenord.Regolare {
+		t.Errorf("stato = %v, doveva restare regolare", st)
+	}
+	if len(r.AvvisiDi("S2")) != 1 {
+		t.Errorf("gli avvisi vecchi hanno sovrascritto: %+v", r.AvvisiDi("S2"))
+	}
+
+	// Una risposta piu' fresca invece vale.
+	fresca := r.MettiDettaglio("S2", "Seveso", dettaglio(trenord.Critico, quando.Add(time.Minute), "lavori"))
+	if fresca.Cambio == nil || fresca.Cambio.Prima != trenord.Regolare {
+		t.Fatalf("novita = %+v, atteso il cambio", fresca)
 	}
 }
 
-// Trenord ripubblica lo stesso avviso con l'ora aggiornata quando lo ritocca.
-// Se il confronto fosse sulla data, ogni ritocco sarebbe una notifica, e due
-// notifiche per la stessa cosa sono il modo più rapido per farle spegnere.
-func TestStessoAvvisoConDataNuovaNonRiavvisa(t *testing.T) {
+// L'alternanza vera, come la si e' misurata: due varianti che si scambiano a
+// ogni richiesta. Alla fine deve essere annunciato un cambio solo, quello vero.
+func TestAlternanzaFraBackend(t *testing.T) {
 	r := NuovoRegistro()
-	r.MettiAvvisi("S2", []trenord.Avviso{avviso("sciopero l'8")})
+	fresco, stantio := quando.Add(10*time.Minute), quando
 
-	ritoccato := trenord.Avviso{Data: quando.Add(3 * time.Hour), Testo: "sciopero l'8"}
-	if n := r.MettiAvvisi("S2", []trenord.Avviso{ritoccato}); len(n) != 0 {
-		t.Fatalf("riannunciato: %+v", n)
+	r.MettiDettaglio("S2", "Seveso", dettaglio(trenord.Regolare, stantio))
+	annunci := 0
+	for i, d := range []*trenord.Dettaglio{
+		dettaglio(trenord.Critico, fresco),   // il backend aggiornato
+		dettaglio(trenord.Regolare, stantio), // quello indietro
+		dettaglio(trenord.Critico, fresco),
+		dettaglio(trenord.Regolare, stantio),
+		dettaglio(trenord.Critico, fresco),
+	} {
+		if n := r.MettiDettaglio("S2", "Seveso", d); n.Cambio != nil {
+			annunci++
+			if n.Cambio.Linea.Stato != trenord.Critico {
+				t.Errorf("giro %d: annunciato %v", i, n.Cambio.Linea.Stato)
+			}
+		}
+	}
+	if annunci != 1 {
+		t.Fatalf("annunci = %d, atteso 1: l'alternanza e' passata", annunci)
+	}
+}
+
+// Un avviso nuovo e' una notizia, lo stesso avviso ripubblicato con l'ora
+// aggiornata no: Trenord lo ritocca, e due notifiche per la stessa cosa sono il
+// modo piu' rapido per farle spegnere.
+func TestAvvisiNuovi(t *testing.T) {
+	r := NuovoRegistro()
+	t0 := quando
+	r.MettiDettaglio("S2", "Seveso", dettaglio(trenord.Regolare, t0, "lavori"))
+
+	n := r.MettiDettaglio("S2", "Seveso", dettaglio(trenord.Regolare, t0.Add(time.Minute), "lavori", "sciopero l'8"))
+	if len(n.Avvisi) != 1 || n.Avvisi[0].Testo != "sciopero l'8" {
+		t.Fatalf("avvisi nuovi = %+v", n.Avvisi)
+	}
+	n = r.MettiDettaglio("S2", "Seveso", dettaglio(trenord.Regolare, t0.Add(2*time.Minute), "lavori", "sciopero l'8"))
+	if len(n.Avvisi) != 0 {
+		t.Fatalf("riannunciato: %+v", n.Avvisi)
 	}
 }
 
 // Gli avvisi di una linea non devono comparire su un'altra.
 func TestAvvisiNonSiMescolano(t *testing.T) {
 	r := NuovoRegistro()
-	r.MettiAvvisi("S2", []trenord.Avviso{avviso("guasto a Seveso")})
-	r.MettiAvvisi("R16", []trenord.Avviso{avviso("lavori ad Asso")})
+	r.MettiDettaglio("S2", "Seveso", dettaglio(trenord.Regolare, quando, "guasto a Seveso"))
+	r.MettiDettaglio("R16", "Asso", dettaglio(trenord.Regolare, quando, "lavori ad Asso"))
 
-	if len(r.AvvisiDi("S2")) != 1 || r.AvvisiDi("S2")[0].Testo != "guasto a Seveso" {
-		t.Errorf("S2 = %+v", r.AvvisiDi("S2"))
+	if a := r.AvvisiDi("S2"); len(a) != 1 || a[0].Testo != "guasto a Seveso" {
+		t.Errorf("S2 = %+v", a)
 	}
 	if len(r.AvvisiDi("S99")) != 0 {
 		t.Errorf("S99 = %+v, atteso nessuno", r.AvvisiDi("S99"))
@@ -191,7 +247,7 @@ func (s *sorgenteAvvisiFinta) Fetch(ctx context.Context) ([]trenord.Linea, error
 	return linee("S2", trenord.Regolare), nil
 }
 
-func (s *sorgenteAvvisiFinta) Avvisi(ctx context.Context, codice string) ([]trenord.Avviso, error) {
+func (s *sorgenteAvvisiFinta) Dettaglio(ctx context.Context, codice string) (*trenord.Dettaglio, error) {
 	s.mu.Lock()
 	s.letture++
 	s.mu.Unlock()
@@ -202,7 +258,7 @@ func (s *sorgenteAvvisiFinta) Avvisi(ctx context.Context, codice string) ([]tren
 			return nil, ctx.Err()
 		}
 	}
-	return s.avvisi, nil
+	return &trenord.Dettaglio{Aggiornato: quando, Avvisi: s.avvisi}, nil
 }
 
 func (s *sorgenteAvvisiFinta) quante() int {
@@ -223,7 +279,7 @@ func TestAvvisiChiestiUnaVoltaSola(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := svc.ChiediAvvisi(context.Background(), "S2"); err != nil {
+			if _, err := svc.ChiediDettaglio(context.Background(), "S2"); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -234,7 +290,7 @@ func TestAvvisiChiestiUnaVoltaSola(t *testing.T) {
 		t.Fatalf("letture = %d, attesa 1", n)
 	}
 	// E la richiesta successiva viene ancora dalla cache.
-	svc.ChiediAvvisi(context.Background(), "S2")
+	svc.ChiediDettaglio(context.Background(), "S2")
 	if n := fonte.quante(); n != 1 {
 		t.Fatalf("letture = %d dopo la cache, attesa 1", n)
 	}
@@ -249,7 +305,7 @@ func TestChiRinunciaNonButtaIlLavoro(t *testing.T) {
 	ctx, annulla := context.WithCancel(context.Background())
 	annulla() // il telefono se n'è andato prima ancora di cominciare
 
-	if _, err := svc.ChiediAvvisi(ctx, "S2"); err != nil {
+	if _, err := svc.ChiediDettaglio(ctx, "S2"); err != nil {
 		t.Fatalf("la lettura doveva completare comunque: %v", err)
 	}
 	if a := svc.registro.AvvisiDi("S2"); len(a) != 1 {

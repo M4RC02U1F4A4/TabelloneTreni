@@ -30,10 +30,22 @@ type Registro struct {
 	precedente map[string]trenord.Stato
 	aggiornato time.Time
 	avvisi     map[string][]trenord.Avviso
+
+	// Quello che si sa dal dettaglio di una linea, che è l'unica fonte con un
+	// orario e quindi l'unica su cui si possano mandare notifiche.
+	dettagli map[string]*dettaglioNoto
+}
+
+type dettaglioNoto struct {
+	stato      trenord.Stato
+	aggiornato time.Time
 }
 
 func NuovoRegistro() *Registro {
-	return &Registro{avvisi: map[string][]trenord.Avviso{}}
+	return &Registro{
+		avvisi:   map[string][]trenord.Avviso{},
+		dettagli: map[string]*dettaglioNoto{},
+	}
 }
 
 // Aggiorna sostituisce lo stato e restituisce i bollini cambiati.
@@ -73,16 +85,66 @@ func (r *Registro) Linee() ([]trenord.Linea, time.Time) {
 	return r.linee, r.aggiornato
 }
 
-// MettiAvvisi sostituisce le comunicazioni di una linea e restituisce quelle
-// che prima non c'erano.
+// Novita è quello che è cambiato su una linea da quando la si è guardata
+// l'ultima volta, e su cui vale la pena avvisare qualcuno.
+type Novita struct {
+	Cambio *Cambio          // nil se il bollino non si è mosso
+	Avvisi []trenord.Avviso // le comunicazioni che prima non c'erano
+
+	codice string
+	nome   string
+}
+
+// MettiDettaglio registra quello che dice la pagina di una linea e restituisce
+// le novità.
+//
+// Scarta le risposte vecchie. Serve perché lo stesso indirizzo, interrogato due
+// volte di fila, risponde da backend che non concordano: misurato, dieci
+// richieste consecutive danno due varianti a caso, e differiscono su una
+// dozzina di linee. Prendendole per buone tutte, un quarto delle linee sembra
+// cambiare stato ogni pochi minuti, e chi ha la campanella accesa riceve
+// notifiche per movimenti che non esistono. L'orario di aggiornamento dice
+// quale delle due risposte è quella di adesso, e indietro non si torna.
+func (r *Registro) MettiDettaglio(codice string, nome string, d *trenord.Dettaglio) Novita {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	noto := r.dettagli[codice]
+	if noto != nil && !d.Aggiornato.IsZero() && d.Aggiornato.Before(noto.aggiornato) {
+		// Risposta dal backend rimasto indietro: non dice niente di nuovo, e
+		// quello che dice è vecchio.
+		return Novita{}
+	}
+
+	n := Novita{codice: codice, nome: nome}
+	if noto != nil && noto.stato != d.Stato {
+		n.Cambio = &Cambio{
+			Linea: trenord.Linea{Codice: codice, Nome: nome, Stato: d.Stato},
+			Prima: noto.stato,
+		}
+	}
+	r.dettagli[codice] = &dettaglioNoto{stato: d.Stato, aggiornato: d.Aggiornato}
+	n.Avvisi = r.mettiAvvisi(codice, d.Avvisi)
+	return n
+}
+
+// StatoNoto dice cosa il dettaglio ha detto per ultimo su una linea. Il
+// secondo valore è falso se la linea non è mai stata guardata da vicino.
+func (r *Registro) StatoNoto(codice string) (trenord.Stato, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if d := r.dettagli[codice]; d != nil {
+		return d.stato, true
+	}
+	return trenord.Regolare, false
+}
+
+// mettiAvvisi va chiamata con il lock preso.
 //
 // Il confronto è sul testo e non sulla data: Trenord ripubblica lo stesso
 // avviso con l'ora aggiornata quando lo ritocca, e avvisare due volte della
 // stessa cosa è il modo più rapido per far spegnere le notifiche.
-func (r *Registro) MettiAvvisi(codice string, nuovi []trenord.Avviso) []trenord.Avviso {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+func (r *Registro) mettiAvvisi(codice string, nuovi []trenord.Avviso) []trenord.Avviso {
 	vecchi, cera := r.avvisi[codice]
 	r.avvisi[codice] = nuovi
 	// Prima lettura: niente è "nuovo", come per i bollini. Altrimenti ogni

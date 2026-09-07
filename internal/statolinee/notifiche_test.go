@@ -101,7 +101,8 @@ func TestNotificaSoloAChiSegue(t *testing.T) {
 	}
 
 	n := notificatoreDiProva(t, ab, srv.Client())
-	n.Avvisa(context.Background(), []Cambio{cambio("S2", trenord.Regolare, trenord.Critico)})
+	c := cambio("S2", trenord.Regolare, trenord.Critico)
+	n.Annuncia(context.Background(), Novita{Cambio: &c})
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -138,7 +139,8 @@ func TestAbbonamentoScadutoVieneTolto(t *testing.T) {
 	})
 
 	n := notificatoreDiProva(t, ab, srv.Client())
-	n.Avvisa(context.Background(), []Cambio{cambio("S2", trenord.Regolare, trenord.Critico)})
+	c := cambio("S2", trenord.Regolare, trenord.Critico)
+	n.Annuncia(context.Background(), Novita{Cambio: &c})
 
 	if ab.Quanti() != 0 {
 		t.Fatalf("abbonamenti = %d, atteso nessuno", ab.Quanti())
@@ -155,7 +157,8 @@ func TestSenzaChiaviNonNotifica(t *testing.T) {
 	}
 	// Deve reggere la chiamata su nil senza esplodere: e' il caso normale di
 	// un'installazione senza notifiche configurate.
-	n.Avvisa(context.Background(), []Cambio{cambio("S2", trenord.Regolare, trenord.Critico)})
+	c := cambio("S2", trenord.Regolare, trenord.Critico)
+	n.Annuncia(context.Background(), Novita{Cambio: &c})
 	if n.ChiavePubblica() != "" {
 		t.Error("chiave pubblica non vuota")
 	}
@@ -250,5 +253,49 @@ func TestNotificaPortaSullaLinea(t *testing.T) {
 		if got != atteso {
 			t.Errorf("%s: %q, atteso %q", codice, got, atteso)
 		}
+	}
+}
+
+// Il bollino che si muove e la comunicazione che lo spiega arrivano insieme:
+// devono essere una notifica sola, con dentro il perche'. Due notifiche per lo
+// stesso guasto sono il modo piu' rapido per farle spegnere.
+func TestCambioEAvvisoFannoUnaNotificaSola(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+
+	ab, _ := ApriAbbonati("")
+	ab.Registra(Abbonamento{
+		Sottoscrizione: webpush.Subscription{Endpoint: srv.URL + "/uno", Keys: chiaviFinte(t)},
+		Linee:          []string{"S2"},
+	})
+	n := notificatoreDiProva(t, ab, srv.Client())
+
+	c := cambio("S2", trenord.Regolare, trenord.Critico)
+	n.Annuncia(context.Background(), Novita{
+		Cambio: &c,
+		Avvisi: []trenord.Avviso{{Testo: "Guasto agli impianti a Seveso."}},
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(*viste) != 1 {
+		t.Fatalf("richieste = %d, attesa 1", len(*viste))
+	}
+}
+
+// Senza niente di nuovo non parte niente: e' il caso di gran lunga piu'
+// frequente, una lettura ogni cinque minuti in cui non e' successo nulla.
+func TestNienteDaDireNienteNotifica(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+	ab, _ := ApriAbbonati("")
+	ab.Registra(Abbonamento{
+		Sottoscrizione: webpush.Subscription{Endpoint: srv.URL + "/uno", Keys: chiaviFinte(t)},
+		Linee:          []string{"S2"},
+	})
+	notificatoreDiProva(t, ab, srv.Client()).Annuncia(context.Background(), Novita{})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(*viste) != 0 {
+		t.Fatalf("richieste = %d, attesa nessuna", len(*viste))
 	}
 }

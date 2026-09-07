@@ -28,7 +28,7 @@ type Sorgente interface {
 // una linea non è regolare. Sta a parte perché il servizio funziona lo stesso
 // senza, e i test del ciclo di lettura non hanno motivo di implementarla.
 type SorgenteAvvisi interface {
-	Avvisi(ctx context.Context, codice string) ([]trenord.Avviso, error)
+	Dettaglio(ctx context.Context, codice string) (*trenord.Dettaglio, error)
 }
 
 // MaxAvvisiPerGiro è l'ultima difesa sul numero di linee interrogate a ogni
@@ -93,17 +93,15 @@ func (s *Servizio) leggi(ctx context.Context) {
 		log.Printf("lettura da Trenord: %v", err)
 		return
 	}
-	cambi := s.registro.Aggiorna(linee, time.Now())
-	for _, c := range cambi {
-		log.Printf("%s %s: %s -> %s", c.Linea.Codice, c.Linea.Nome, c.Prima, c.Linea.Stato)
+	// L'elenco serve ai pallini, non alle notifiche. Lo stesso indirizzo
+	// risponde da backend che non concordano, e senza un orario non c'è modo di
+	// sapere quale delle due risposte sia quella di adesso: un pallino sbagliato
+	// per cinque minuti non fa danno, una notifica sbagliata sì. Le notifiche
+	// nascono dal dettaglio della linea, che l'orario ce l'ha.
+	for _, c := range s.registro.Aggiorna(linee, time.Now()) {
+		log.Printf("elenco: %s %s: %s -> %s", c.Linea.Codice, c.Linea.Nome, c.Prima, c.Linea.Stato)
 	}
-	// Le notifiche partono fuori dal giro di lettura: sono una richiesta di
-	// rete per destinatario verso un servizio altrui, e farle aspettare qui
-	// ritarderebbe la lettura successiva senza motivo.
-	if s.notificatore != nil && len(cambi) > 0 {
-		go s.notificatore.Avvisa(context.WithoutCancel(ctx), cambi)
-	}
-	s.leggiAvvisi(ctx, linee)
+	s.leggiDettagli(ctx, linee)
 }
 
 // daInterrogare sceglie di quali linee chiedere le comunicazioni: solo quelle
@@ -135,21 +133,22 @@ func (s *Servizio) daInterrogare(linee []trenord.Linea) []trenord.Linea {
 	return scelte
 }
 
-func (s *Servizio) leggiAvvisi(ctx context.Context, linee []trenord.Linea) {
+func (s *Servizio) leggiDettagli(ctx context.Context, linee []trenord.Linea) {
 	for _, l := range s.daInterrogare(linee) {
-		if _, err := s.ChiediAvvisi(ctx, l.Codice); err != nil {
-			log.Printf("avvisi di %s: %v", l.Codice, err)
+		if _, err := s.ChiediDettaglio(ctx, l.Codice); err != nil {
+			log.Printf("dettaglio di %s: %v", l.Codice, err)
 		}
 	}
 }
 
-// ChiediAvvisi restituisce le comunicazioni di una linea, andandole a prendere
-// se quelle che abbiamo sono scadute.
+// ChiediDettaglio restituisce le comunicazioni di una linea, andandole a
+// prendere se quelle che abbiamo sono scadute, e per strada aggiorna quello che
+// si sa del suo stato.
 //
 // Le comunicazioni le scrive una persona e cambiano di rado: tenerle per un
 // giro di lettura è abbastanza per non chiedere due volte la stessa cosa, e
 // abbastanza poco perché chi apre una riga veda quello che c'è adesso.
-func (s *Servizio) ChiediAvvisi(ctx context.Context, codice string) ([]trenord.Avviso, error) {
+func (s *Servizio) ChiediDettaglio(ctx context.Context, codice string) ([]trenord.Avviso, error) {
 	fonte, ok := s.sorgente.(SorgenteAvvisi)
 	if !ok {
 		return nil, nil
@@ -177,7 +176,7 @@ func (s *Servizio) ChiediAvvisi(ctx context.Context, codice string) ([]trenord.A
 	// invece di ricominciare da capo.
 	c, annulla := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer annulla()
-	avvisi, err := fonte.Avvisi(c, codice)
+	d, err := fonte.Dettaglio(c, codice)
 	if err != nil {
 		// Fallita la lettura si serve quello che c'è, se c'è: un avviso di
 		// mezz'ora fa è meglio di un errore in faccia a chi ha aperto la riga.
@@ -188,14 +187,20 @@ func (s *Servizio) ChiediAvvisi(ctx context.Context, codice string) ([]trenord.A
 	}
 	r.scadeIl = time.Now().Add(Intervallo)
 
-	for _, a := range s.registro.MettiAvvisi(codice, avvisi) {
-		log.Printf("%s avviso nuovo: %.80s", codice, a.Testo)
-		if s.notificatore != nil {
-			l := trenord.Linea{Codice: codice, Nome: s.nomeDi(codice)}
-			go s.notificatore.AvvisaComunicazione(context.WithoutCancel(ctx), l, a)
-		}
+	novita := s.registro.MettiDettaglio(codice, s.nomeDi(codice), d)
+	if s.notificatore != nil {
+		// Le notifiche partono fuori dal giro: sono una richiesta di rete per
+		// destinatario verso un servizio altrui.
+		go s.notificatore.Annuncia(context.WithoutCancel(ctx), novita)
 	}
-	return avvisi, nil
+	if novita.Cambio != nil {
+		c := novita.Cambio
+		log.Printf("%s %s: %s -> %s", codice, c.Linea.Nome, c.Prima, c.Linea.Stato)
+	}
+	for _, a := range novita.Avvisi {
+		log.Printf("%s avviso nuovo: %.80s", codice, a.Testo)
+	}
+	return d.Avvisi, nil
 }
 
 // nomeDi ritrova il nome per esteso di una linea, che è quello che finisce nel
@@ -239,7 +244,7 @@ func (s *Servizio) avvisiLinea(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"linea non valida"}`, http.StatusBadRequest)
 		return
 	}
-	avvisi, err := s.ChiediAvvisi(r.Context(), codice)
+	avvisi, err := s.ChiediDettaglio(r.Context(), codice)
 	if err != nil {
 		log.Printf("avvisi di %s: %v", codice, err)
 		http.Error(w, `{"error":"avvisi non disponibili"}`, http.StatusBadGateway)

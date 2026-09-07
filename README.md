@@ -295,6 +295,40 @@ spegnere le notifiche. Come per i bollini, la prima lettura dopo un avvio non
 annuncia niente, altrimenti ogni rilascio riannuncerebbe i lavori annunciati ad
 agosto.
 
+Quando il bollino si muove e insieme arriva una comunicazione, la notifica è
+**una sola**: sono la stessa cosa vista da due lati, e il testo dice il perché
+accanto al cosa — "Circolazione peggiorata: criticità · Il treno 2528 viaggia
+in ritardo per un guasto al sistema di chiusura delle porte".
+
+#### La fonte risponde due cose diverse
+
+**Lo stesso indirizzo, interrogato due volte di fila, risponde da backend che
+non concordano.** Misurato: dieci richieste consecutive nel giro di secondi
+danno due varianti a caso — sei volte una, quattro l'altra — che differiscono
+su una dozzina di linee. Campionando ogni minuto si vedono quelle dodici linee
+ribaltarsi tutte insieme, nello stesso istante, in direzioni opposte. Non è la
+circolazione che cambia: dodici linee non guariscono allo stesso secondo.
+
+Preso per buono così, un quarto delle linee sembra cambiare stato ogni pochi
+minuti, e chi ha una campanella accesa riceve notifiche per movimenti che non
+esistono.
+
+L'elenco delle 65 linee non porta nessun orario, quindi non c'è modo di
+riconoscere la risposta vecchia: resta la fonte dei pallini, dove sbagliare per
+cinque minuti non fa danno. **Le notifiche nascono invece dal dettaglio della
+linea, che un orario ce l'ha** — e fra le due varianti quella con l'orario più
+recente è sempre risultata la giusta, anche sulla gravità:
+
+| linea | variante vecchia | variante fresca |
+| --- | --- | --- |
+| S8 | criticità, 16:58 | regolare, 17:09 |
+| S13 | regolare, 16:35 | criticità, 17:18 |
+| R4 | criticità, 15:38 | **gravi** criticità, 17:31 |
+
+Una risposta più vecchia dell'ultima vista viene quindi scartata, e indietro non
+si torna. Un cambio di stato arriva così al più tardi alla lettura successiva,
+invece di arrivare quattro volte e tre delle quali per sbaglio.
+
 #### Perché è un servizio a parte
 
 `statolinee` è un secondo processo, non un pezzo del tabellone, per tre motivi:

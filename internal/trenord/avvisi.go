@@ -26,12 +26,27 @@ type Avviso struct {
 
 const dettaglioURL = "https://www.trenord.it/rest/render/line-details"
 
-// Avvisi scarica le comunicazioni di una linea.
+// Dettaglio è quello che Trenord dice di una linea sulla sua pagina.
 //
-// Costa una richiesta da oltre 130 KB per linea, quasi tutta elenco delle
-// stazioni: si chiede solo per le linee che qualcuno segue davvero, che sono
-// due o tre e non sessantacinque.
-func (c *Client) Avvisi(ctx context.Context, codice string) ([]Avviso, error) {
+// Porta il proprio orario di aggiornamento, ed è l'unica cosa in tutta questa
+// fonte che permetta di riconoscere una risposta vecchia. Serve: lo stesso
+// indirizzo, interrogato due volte di fila, risponde da backend diversi che non
+// concordano — misurato, dieci richieste consecutive danno due risposte a caso,
+// e le due varianti differiscono su una dozzina di linee. Senza il timestamp
+// non c'è modo di sapere quale delle due sia quella di adesso.
+type Dettaglio struct {
+	Stato Stato `json:"status"`
+	// Aggiornato non ha fuso dichiarato: si legge come UTC e si confronta solo
+	// con altre letture dello stesso campo, che è tutto quello che serve.
+	Aggiornato time.Time `json:"updated"`
+	Avvisi     []Avviso  `json:"notices"`
+}
+
+// Dettaglio scarica la pagina di una linea.
+//
+// Costa una richiesta da oltre 130 KB, quasi tutta elenco delle stazioni: si
+// chiede solo per le linee che qualcuno segue o che qualcuno sta guardando.
+func (c *Client) Dettaglio(ctx context.Context, codice string) (*Dettaglio, error) {
 	q := url.Values{"code": {strings.ToUpper(codice)}, "L": {"0"}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dettaglioURL+"?"+q.Encode(), nil)
 	if err != nil {
@@ -49,15 +64,15 @@ func (c *Client) Avvisi(ctx context.Context, codice string) ([]Avviso, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Trenord ha risposto %s", resp.Status)
 	}
-	return ParseAvvisi(resp.Body)
+	return ParseDettaglio(resp.Body)
 }
 
-// ParseAvvisi legge le comunicazioni dalla risposta del dettaglio linea.
+// ParseDettaglio legge la pagina di una linea.
 //
 // Stessa forma dell'elenco: un JSON che incarta un frammento HTML. Gli avvisi
 // stanno nel carosello, un blocco per avviso, ciascuno con la propria data e il
 // proprio testo.
-func ParseAvvisi(r io.Reader) ([]Avviso, error) {
+func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 	var risp risposta
 	if err := json.NewDecoder(r).Decode(&risp); err != nil {
 		return nil, err
@@ -65,6 +80,24 @@ func ParseAvvisi(r io.Reader) ([]Avviso, error) {
 	doc, err := html.Parse(strings.NewReader(risp.Message))
 	if err != nil {
 		return nil, err
+	}
+	d := &Dettaglio{}
+
+	// Lo stato e l'orario stanno nell'intestazione, non nel carosello: il
+	// carosello porta lo stato di ogni singola comunicazione, che è un'altra
+	// cosa e vale il giorno in cui è stata scritta.
+	if t := trova(doc, func(n *html.Node) bool { return haClasse(n, "title-icon") }); t != nil {
+		if s, ok := statoDi(t); ok {
+			d.Stato = s
+		}
+		if u := trova(t, func(n *html.Node) bool { return haClasse(n, "update-line") }); u != nil {
+			// "Ultimo aggiornamento 07/09/26 16:50"
+			campi := strings.Fields(pulisci(testo(u)))
+			if len(campi) >= 2 {
+				d.Aggiornato, _ = time.Parse("02/01/06 15:04",
+					campi[len(campi)-2]+" "+campi[len(campi)-1])
+			}
+		}
 	}
 
 	// Una pagina senza carosello non è una linea senza avvisi: è una risposta
@@ -96,7 +129,8 @@ func ParseAvvisi(r io.Reader) ([]Avviso, error) {
 		}
 		avvisi = append(avvisi, a)
 	}
-	return avvisi, nil
+	d.Avvisi = avvisi
+	return d, nil
 }
 
 // trova restituisce il primo nodo che soddisfa la condizione.
