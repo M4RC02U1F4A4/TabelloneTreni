@@ -26,9 +26,11 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  // Un tabellone vecchio è peggio di nessun tabellone: questa richiesta non
-  // viene mai servita dalla cache, e se la rete manca l'app lo dice.
-  if (url.pathname.endsWith('/api/board')) return;
+  // Un tabellone vecchio è peggio di nessun tabellone, e lo stesso vale per la
+  // posizione di un treno: queste richieste non vengono mai servite dalla
+  // cache, e se la rete manca l'app lo dice. L'elenco delle stazioni invece
+  // resta, perché cambia solo quando cambia l'immagine.
+  if (url.pathname.endsWith('/api/board') || url.pathname.endsWith('/api/train')) return;
 
   e.respondWith(caches.open(CACHE).then(async (cache) => {
     try {
