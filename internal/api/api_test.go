@@ -304,3 +304,44 @@ func TestPushServizioGiu(t *testing.T) {
 		t.Fatalf("stato = %d, atteso 502", resp.StatusCode)
 	}
 }
+
+// Le comunicazioni di una linea si chiedono a richiesta, quando qualcuno apre
+// la riga: il tabellone fa da tramite e passa il codice al servizio.
+func TestAvvisiLineaInoltrati(t *testing.T) {
+	var visto string
+	monte := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		visto = r.URL.String()
+		io.WriteString(w, `{"notices":[{"date":"2026-09-01T16:29:27Z","text":"sciopero"}]}`)
+	}))
+	defer monte.Close()
+
+	resp := chiedi(t, serverCon(monte.URL), "/api/lines/notices?line=RE_13", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stato = %d", resp.StatusCode)
+	}
+	if visto != "/avvisi?linea=RE_13" {
+		t.Errorf("richiesto %q", visto)
+	}
+	if resp.Header.Get("ETag") == "" {
+		t.Error("senza ETag: il corpo si ritrasferirebbe a ogni apertura")
+	}
+}
+
+// Il codice arriva da fuori e finisce in una richiesta verso Trenord: quello
+// che non è un codice di linea non deve nemmeno partire.
+func TestAvvisiLineaCodiceRifiutato(t *testing.T) {
+	monte := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("non doveva essere chiamato: %s", r.URL)
+	}))
+	defer monte.Close()
+	h := serverCon(monte.URL)
+
+	for _, caso := range []string{"", "S2%20OR%201=1", "../../etc", "S2/../altro", strings.Repeat("S", 30)} {
+		resp := chiedi(t, h, "/api/lines/notices?line="+caso, nil)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%q: stato = %d, atteso 400", caso, resp.StatusCode)
+		}
+	}
+}

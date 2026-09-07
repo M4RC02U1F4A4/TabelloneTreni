@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
+	"sync"
 	"time"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/trenord"
@@ -40,10 +42,22 @@ type Servizio struct {
 	registro     *Registro
 	abbonati     *Abbonati
 	notificatore *Notificatore
+
+	// Le comunicazioni si chiedono anche a richiesta, quando qualcuno apre una
+	// riga. Una voce per linea con il suo lucchetto, come fa il tabellone con
+	// RFI: dieci persone che aprono la stessa linea nello stesso momento
+	// producono una sola richiesta a Trenord.
+	muRichieste sync.Mutex
+	richieste   map[string]*richiestaAvvisi
+}
+
+type richiestaAvvisi struct {
+	mu      sync.Mutex
+	scadeIl time.Time
 }
 
 func Nuovo(s Sorgente) *Servizio {
-	return &Servizio{sorgente: s, registro: NuovoRegistro()}
+	return &Servizio{sorgente: s, registro: NuovoRegistro(), richieste: map[string]*richiestaAvvisi{}}
 }
 
 // ConNotifiche accende le notifiche push. Senza, il servizio fa tutto il resto
@@ -122,30 +136,84 @@ func (s *Servizio) daInterrogare(linee []trenord.Linea) []trenord.Linea {
 }
 
 func (s *Servizio) leggiAvvisi(ctx context.Context, linee []trenord.Linea) {
+	for _, l := range s.daInterrogare(linee) {
+		if _, err := s.ChiediAvvisi(ctx, l.Codice); err != nil {
+			log.Printf("avvisi di %s: %v", l.Codice, err)
+		}
+	}
+}
+
+// ChiediAvvisi restituisce le comunicazioni di una linea, andandole a prendere
+// se quelle che abbiamo sono scadute.
+//
+// Le comunicazioni le scrive una persona e cambiano di rado: tenerle per un
+// giro di lettura è abbastanza per non chiedere due volte la stessa cosa, e
+// abbastanza poco perché chi apre una riga veda quello che c'è adesso.
+func (s *Servizio) ChiediAvvisi(ctx context.Context, codice string) ([]trenord.Avviso, error) {
 	fonte, ok := s.sorgente.(SorgenteAvvisi)
 	if !ok {
-		return
+		return nil, nil
 	}
-	for _, l := range s.daInterrogare(linee) {
-		c, annulla := context.WithTimeout(ctx, 30*time.Second)
-		avvisi, err := fonte.Avvisi(c, l.Codice)
-		annulla()
-		if err != nil {
-			log.Printf("avvisi di %s: %v", l.Codice, err)
-			continue
+
+	s.muRichieste.Lock()
+	r := s.richieste[codice]
+	if r == nil {
+		r = &richiestaAvvisi{}
+		s.richieste[codice] = r
+	}
+	s.muRichieste.Unlock()
+
+	// Il lucchetto è sulla singola linea: chi chiede la stessa aspetta, chi ne
+	// chiede un'altra va per conto suo.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if time.Now().Before(r.scadeIl) {
+		return s.registro.AvvisiDi(codice), nil
+	}
+
+	// La lettura non è appesa a chi l'ha chiesta: se il telefono rinuncia — o
+	// se rinuncia il tabellone, che aspetta meno di noi — il lavoro quasi
+	// finito finisce comunque in cache, e il tocco successivo è immediato
+	// invece di ricominciare da capo.
+	c, annulla := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer annulla()
+	avvisi, err := fonte.Avvisi(c, codice)
+	if err != nil {
+		// Fallita la lettura si serve quello che c'è, se c'è: un avviso di
+		// mezz'ora fa è meglio di un errore in faccia a chi ha aperto la riga.
+		if vecchi := s.registro.AvvisiDi(codice); vecchi != nil {
+			return vecchi, nil
 		}
-		for _, a := range s.registro.MettiAvvisi(l.Codice, avvisi) {
-			log.Printf("%s avviso nuovo: %.80s", l.Codice, a.Testo)
-			if s.notificatore != nil {
-				go s.notificatore.AvvisaComunicazione(context.WithoutCancel(ctx), l, a)
-			}
+		return nil, err
+	}
+	r.scadeIl = time.Now().Add(Intervallo)
+
+	for _, a := range s.registro.MettiAvvisi(codice, avvisi) {
+		log.Printf("%s avviso nuovo: %.80s", codice, a.Testo)
+		if s.notificatore != nil {
+			l := trenord.Linea{Codice: codice, Nome: s.nomeDi(codice)}
+			go s.notificatore.AvvisaComunicazione(context.WithoutCancel(ctx), l, a)
 		}
 	}
+	return avvisi, nil
+}
+
+// nomeDi ritrova il nome per esteso di una linea, che è quello che finisce nel
+// titolo della notifica: il codice da solo non dice niente a nessuno.
+func (s *Servizio) nomeDi(codice string) string {
+	linee, _ := s.registro.Linee()
+	for _, l := range linee {
+		if l.Codice == codice {
+			return l.Nome
+		}
+	}
+	return codice
 }
 
 func (s *Servizio) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /linee", s.linee)
+	mux.HandleFunc("GET /avvisi", s.avvisiLinea)
 	mux.HandleFunc("GET /push/chiave", s.chiavePush)
 	mux.HandleFunc("POST /push/abbonamenti", s.abbonamento)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +226,30 @@ func (s *Servizio) Handler() http.Handler {
 		w.Write([]byte("ok\n"))
 	})
 	return mux
+}
+
+// codiceLinea limita quello che si accetta come nome di linea: la stringa
+// finisce in una richiesta verso Trenord, e i codici veri sono lettere, cifre e
+// underscore ("S2", "RE_13", "R16").
+var codiceLinea = regexp.MustCompile(`^[A-Za-z0-9_]{1,10}$`)
+
+func (s *Servizio) avvisiLinea(w http.ResponseWriter, r *http.Request) {
+	codice := r.URL.Query().Get("linea")
+	if !codiceLinea.MatchString(codice) {
+		http.Error(w, `{"error":"linea non valida"}`, http.StatusBadRequest)
+		return
+	}
+	avvisi, err := s.ChiediAvvisi(r.Context(), codice)
+	if err != nil {
+		log.Printf("avvisi di %s: %v", codice, err)
+		http.Error(w, `{"error":"avvisi non disponibili"}`, http.StatusBadGateway)
+		return
+	}
+	if avvisi == nil {
+		avvisi = []trenord.Avviso{}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]any{"notices": avvisi})
 }
 
 // chiavePush dà al telefono la chiave pubblica VAPID, che gli serve per

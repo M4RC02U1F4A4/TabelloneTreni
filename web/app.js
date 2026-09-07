@@ -12,6 +12,7 @@ const API = {
     `api/train?from=${da}&number=${encodeURIComponent(numero)}` +
     (a ? `&to=${a}` : '') + (arrivi ? '&arrivals=true' : ''),
   linee: 'api/lines',
+  avvisiLinea: (codice) => `api/lines/notices?line=${encodeURIComponent(codice)}`,
   chiavePush: 'api/push/key',
   abbonamento: 'api/push/subscribe',
 };
@@ -65,6 +66,11 @@ let modificaPreferiti = false;
 // Quello che si sta cercando nell'elenco delle linee. Sta qui e non nel campo
 // perché il campo sparisce a ogni ridisegno della pagina, e il filtro no.
 let filtroLinee = '';
+/* Le comunicazioni di ogni linea e quali righe sono aperte. Valgono come per le
+   schede treno: un ridisegno non deve richiudere quello che si stava leggendo
+   né rifare una richiesta già fatta. */
+const avvisiLinea = new Map(); // codice -> { stato: 'attesa'|'ok'|'errore', dati }
+const lineeAperte = new Set();
 let timerRinfresco = null;
 let timerEta = null;
 let richiestaInCorso = 0;
@@ -215,6 +221,12 @@ async function caricaLinee() {
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
     const d = await r.json();
     stato.linee = d.lines || [];
+    // Le linee seguite arrivano con le comunicazioni già dentro: sono quelle
+    // che il servizio interroga da sé per poter mandare le notifiche, e
+    // richiederle sarebbe chiedere due volte la stessa cosa.
+    for (const l of stato.linee) {
+      if (l.notices) avvisiLinea.set(l.code, { stato: 'ok', dati: l.notices });
+    }
     stato.lineeAggiornate = d.updated || '';
     stato.lineeErrore = null;
   } catch (e) {
@@ -455,6 +467,7 @@ async function cambiaRotta() {
     // intero, non quello che si stava cercando mezz'ora fa. A meno che non lo
     // porti la rotta, che è il caso della notifica.
     filtroLinee = r.filtro || '';
+    lineeAperte.clear();
     disegna();
     // La chiave si chiede subito, insieme alle linee: serve a sapere già prima
     // del primo tocco se il server può mandare notifiche, e quindi se ha senso
@@ -654,7 +667,6 @@ function sezioneLinee() {
 function rigaLinea(l, query) {
   const st = statoLinea(l.status);
   const accesa = seguita(l.code);
-  const avvisi = l.notices || [];
   const campanella = `<button class="campanella${accesa ? ' accesa' : ''}" type="button"
       data-campanella="${esc(l.code)}" aria-pressed="${accesa}"
       aria-label="${accesa ? 'Smetti di seguire' : 'Segui'} ${esc(l.name)}"
@@ -662,25 +674,51 @@ function rigaLinea(l, query) {
   const nome = `<span class="segno"><span class="bollino ${st.classe}"></span></span>
     <span class="testo">${evidenzia(l.name, query)}<span class="qualifica"> · ${st.etichetta}</span></span>`;
 
-  // Senza comunicazioni la riga resta quella di prima: un <details> che non ha
-  // niente da aprire è un invito a toccare che non porta da nessuna parte.
-  if (!avvisi.length) {
-    return `<li class="riga">
-      <span class="riga-tocco statica">${nome}</span>
-      ${campanella}
-    </li>`;
-  }
+  // Il conteggio si mostra solo quando si sa: prima di aprire, di una linea che
+  // nessuno segue non sappiamo ancora se ha comunicazioni.
+  const noto = avvisiLinea.get(l.code);
+  const quante = noto && noto.stato === 'ok' ? noto.dati.length : null;
+
   return `<li class="riga con-avvisi">
-    <details class="avvisi-linea">
+    <details class="avvisi-linea" data-linea="${esc(l.code)}"${lineeAperte.has(l.code) ? ' open' : ''}>
       <summary class="riga-tocco">
         ${nome}
-        <span class="conta-avvisi">${avvisi.length}</span>
+        ${quante !== null ? `<span class="conta-avvisi">${quante}</span>` : ''}
         <span class="chevron">${icona('gallone')}</span>
       </summary>
-      <ol class="avvisi">${avvisi.map(vociAvviso).join('')}</ol>
+      ${corpoAvvisi(l.code)}
     </details>
     ${campanella}
   </li>`;
+}
+
+function corpoAvvisi(codice) {
+  const v = avvisiLinea.get(codice);
+  if (!v || v.stato === 'attesa') {
+    return '<p class="avvisi-attesa">Cerco le comunicazioni…</p>';
+  }
+  if (v.stato === 'errore') {
+    return `<p class="avvisi-attesa">${esc(v.dati)}</p>`;
+  }
+  if (!v.dati.length) {
+    return '<p class="avvisi-attesa">Nessuna comunicazione su questa linea.</p>';
+  }
+  return `<ol class="avvisi">${v.dati.map(vociAvviso).join('')}</ol>`;
+}
+
+/* Le comunicazioni si chiedono quando si apre una riga, non per tutte e 65: il
+   dettaglio di una linea pesa più di cento KB, e di righe se ne apre una. */
+async function scaricaAvvisi(codice) {
+  if (avvisiLinea.has(codice)) return;
+  avvisiLinea.set(codice, { stato: 'attesa' });
+  try {
+    const r = await fetch(API.avvisiLinea(codice));
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
+    avvisiLinea.set(codice, { stato: 'ok', dati: (await r.json()).notices || [] });
+  } catch (e) {
+    avvisiLinea.set(codice, { stato: 'errore', dati: e.message });
+  }
+  if (leggiRotta().vista === 'linee') disegnaElencoLinee();
 }
 
 /* Il testo arriva da Trenord e va messo con esc(): sono comunicazioni scritte a
@@ -1138,6 +1176,12 @@ app.addEventListener('input', (e) => {
 // `toggle` non fa bubbling: si ascolta in fase di cattura sul contenitore.
 app.addEventListener('toggle', (e) => {
   const d = e.target;
+  if (d instanceof HTMLDetailsElement && d.dataset.linea) {
+    const codice = d.dataset.linea;
+    if (d.open) { lineeAperte.add(codice); scaricaAvvisi(codice); }
+    else lineeAperte.delete(codice);
+    return;
+  }
   if (!(d instanceof HTMLDetailsElement) || !d.dataset.treno) return;
   const numero = d.dataset.treno;
   if (d.open) {

@@ -266,12 +266,22 @@ della linea, a `/rest/render/line-details`, nella stessa forma dell'elenco: un
 JSON che incarta un frammento HTML, con un blocco per comunicazione, ciascuno
 con la propria data.
 
-**Si chiede solo per le linee che qualcuno segue davvero.** Il dettaglio pesa
-oltre 130 KB, quasi tutto elenco di stazioni: prenderle tutte, o anche solo
-tutte quelle non regolari — un giorno storto ne ha una dozzina — vorrebbe dire
-chiedere a Trenord megabyte ogni cinque minuti per un testo che in quel momento
-non sta leggendo nessuno. Con questa regola il costo è proporzionale a quanto la
-cosa serve: nessun abbonato, nessuna richiesta.
+Il dettaglio pesa oltre 130 KB, quasi tutto elenco di stazioni, quindi non si
+prende mai per tutte e 65 le linee. Si prende in due momenti, ed è la stessa
+regola vista da due lati — **si paga solo quello che qualcuno guarda davvero**:
+
+- **a ogni lettura, per le linee seguite da qualcuno.** Servono al servizio per
+  accorgersi degli avvisi nuovi e mandare le notifiche. Nessun abbonato,
+  nessuna richiesta.
+- **a richiesta, quando si apre una riga.** Ogni linea si apre, anche quelle che
+  non segue nessuno, e le comunicazioni arrivano al momento. Restano valide per
+  un giro di lettura, e le richieste sulla stessa linea si mettono in fila
+  dietro una sola: dieci persone che aprono la stessa riga insieme producono una
+  lettura sola verso Trenord.
+
+Una lettura non è appesa a chi l'ha chiesta: se il telefono rinuncia, o rinuncia
+il tabellone che aspetta meno, quello che si è già letto finisce comunque in
+cache e il tocco successivo è immediato invece di ricominciare da capo.
 
 **Gli scioperi arrivano da qui**, e non da una fonte propria: Trenord li
 pubblica come comunicazioni sulle linee interessate, giorni prima. Che siano
@@ -365,6 +375,7 @@ Il tabellone:
 | rotta | |
 |---|---|
 | `GET /linee` | stato di tutte le linee, con gli avvisi di quelle seguite e l'orario dell'ultima lettura riuscita |
+| `GET /avvisi?linea=S2` | le comunicazioni di una linea, prese al momento se quelle che si hanno sono scadute |
 | `GET /push/chiave` | la chiave pubblica VAPID; vuota se le notifiche non sono configurate |
 | `POST /push/abbonamenti` | registra chi seguire; un elenco di linee vuoto cancella l'abbonamento |
 | `GET /healthz` | 503 finché non è riuscita una lettura: appena avviato non deve ricevere traffico |
@@ -410,10 +421,6 @@ go run ./cmd/genstations
 - **Le notifiche su iOS vogliono l'app installata.** Web Push su iPhone
   funziona solo dalla schermata Home, non da una scheda di Safari. L'app lo
   dice, e lì la campanella serve solo a tenere la linea in cima.
-- **Gli avvisi ci sono solo per le linee seguite da qualcuno.** Sono le
-  campanelle a decidere cosa si scarica. Su iOS aperto come pagina in Safari,
-  dove le notifiche non esistono, non si crea nessun abbonamento e quindi non
-  arrivano nemmeno gli avvisi: lì la campanella resta il solo segnalibro.
 - **I bollini coprono la sola Lombardia.** Sono le linee di Trenord: un treno
   RFI fuori regione non ha nessuno stato di linea associato.
 

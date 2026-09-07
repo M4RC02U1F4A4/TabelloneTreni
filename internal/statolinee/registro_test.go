@@ -1,6 +1,8 @@
 package statolinee
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -174,5 +176,83 @@ func TestSiInterroganoSoloLeLineeSeguite(t *testing.T) {
 	// Solo S1: S2 e R16 non sono regolari, ma non le segue nessuno.
 	if len(scelte) != 1 || scelte[0].Codice != "S1" {
 		t.Fatalf("scelte = %+v, attesa la sola S1", scelte)
+	}
+}
+
+// sorgenteAvvisiFinta conta le letture e può fingersi lenta.
+type sorgenteAvvisiFinta struct {
+	mu      sync.Mutex
+	letture int
+	ritardo time.Duration
+	avvisi  []trenord.Avviso
+}
+
+func (s *sorgenteAvvisiFinta) Fetch(ctx context.Context) ([]trenord.Linea, error) {
+	return linee("S2", trenord.Regolare), nil
+}
+
+func (s *sorgenteAvvisiFinta) Avvisi(ctx context.Context, codice string) ([]trenord.Avviso, error) {
+	s.mu.Lock()
+	s.letture++
+	s.mu.Unlock()
+	if s.ritardo > 0 {
+		select {
+		case <-time.After(s.ritardo):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return s.avvisi, nil
+}
+
+func (s *sorgenteAvvisiFinta) quante() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.letture
+}
+
+// Il dettaglio di una linea pesa oltre 130 KB: chi apre la stessa riga due
+// volte, o dieci persone che la aprono insieme, devono produrre una lettura
+// sola.
+func TestAvvisiChiestiUnaVoltaSola(t *testing.T) {
+	fonte := &sorgenteAvvisiFinta{avvisi: []trenord.Avviso{avviso("lavori")}, ritardo: 50 * time.Millisecond}
+	svc := Nuovo(fonte)
+
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := svc.ChiediAvvisi(context.Background(), "S2"); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if n := fonte.quante(); n != 1 {
+		t.Fatalf("letture = %d, attesa 1", n)
+	}
+	// E la richiesta successiva viene ancora dalla cache.
+	svc.ChiediAvvisi(context.Background(), "S2")
+	if n := fonte.quante(); n != 1 {
+		t.Fatalf("letture = %d dopo la cache, attesa 1", n)
+	}
+}
+
+// Se chi ha chiesto rinuncia, il lavoro non si butta: quello che si è letto
+// resta, e il tocco dopo è immediato invece di ricominciare.
+func TestChiRinunciaNonButtaIlLavoro(t *testing.T) {
+	fonte := &sorgenteAvvisiFinta{avvisi: []trenord.Avviso{avviso("sciopero")}, ritardo: 150 * time.Millisecond}
+	svc := Nuovo(fonte)
+
+	ctx, annulla := context.WithCancel(context.Background())
+	annulla() // il telefono se n'è andato prima ancora di cominciare
+
+	if _, err := svc.ChiediAvvisi(ctx, "S2"); err != nil {
+		t.Fatalf("la lettura doveva completare comunque: %v", err)
+	}
+	if a := svc.registro.AvvisiDi("S2"); len(a) != 1 {
+		t.Fatalf("in cache = %+v, atteso l'avviso letto", a)
 	}
 }

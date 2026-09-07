@@ -11,7 +11,9 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,6 +54,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/board", s.tabellone)
 	mux.HandleFunc("GET /api/train", s.treno)
 	mux.HandleFunc("GET /api/lines", s.linee)
+	mux.HandleFunc("GET /api/lines/notices", s.avvisiLinea)
 	mux.HandleFunc("GET /api/push/key", s.inoltraPush("/push/chiave"))
 	mux.HandleFunc("POST /api/push/subscribe", s.inoltraPush("/push/abbonamenti"))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -268,6 +271,47 @@ func (s *Server) linee(w http.ResponseWriter, r *http.Request) {
 	// I bollini li muove una persona in sala operativa: cambiano di rado, ma
 	// quando cambiano vanno visti subito, quindi si richiede sempre e si
 	// risparmia solo il corpo.
+	w.Header().Set("Cache-Control", "no-cache")
+	scriviJSON(w, r, body, etag(body))
+}
+
+// codiceLinea limita quello che si accetta come nome di linea prima di
+// rilanciarlo al servizio: i codici veri sono lettere, cifre e underscore.
+var codiceLinea = regexp.MustCompile(`^[A-Za-z0-9_]{1,10}$`)
+
+// avvisiLinea chiede al servizio le comunicazioni di una linea. Le si prende a
+// richiesta e non insieme all'elenco perché il dettaglio pesa, e chi apre una
+// riga ne apre una, non sessantacinque.
+func (s *Server) avvisiLinea(w http.ResponseWriter, r *http.Request) {
+	linea := r.URL.Query().Get("line")
+	if !codiceLinea.MatchString(linea) {
+		errore(w, http.StatusBadRequest, "parametro 'line' mancante o non valido")
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		s.statoLinee+"/avvisi?linea="+url.QueryEscape(linea), nil)
+	if err != nil {
+		errore(w, http.StatusInternalServerError, "errore interno")
+		return
+	}
+	resp, err := s.clientHTTP.Do(req)
+	if err != nil {
+		log.Printf("avvisi linea %s: %v", linea, err)
+		errore(w, http.StatusBadGateway, "avvisi non disponibili")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		errore(w, http.StatusBadGateway, "avvisi non disponibili")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		errore(w, http.StatusBadGateway, "avvisi non disponibili")
+		return
+	}
+	// Le comunicazioni cambiano di rado ma quando cambiano contano: si chiede
+	// sempre, e l'ETag risparmia il corpo quando sono le stesse.
 	w.Header().Set("Cache-Control", "no-cache")
 	scriviJSON(w, r, body, etag(body))
 }
