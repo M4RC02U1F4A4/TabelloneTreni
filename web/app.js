@@ -12,6 +12,8 @@ const API = {
     `api/train?from=${da}&number=${encodeURIComponent(numero)}` +
     (a ? `&to=${a}` : '') + (arrivi ? '&arrivals=true' : ''),
   linee: 'api/lines',
+  chiavePush: 'api/push/key',
+  abbonamento: 'api/push/subscribe',
 };
 
 /* Gli stati di circolazione, nell'ordine in cui li manda il server. L'indice è
@@ -204,6 +206,80 @@ async function caricaLinee() {
     stato.linee = stato.linee || [];
     stato.lineeErrore = e.message;
   }
+}
+
+/* --------------------------------------------------------------- notifiche */
+
+/* Lo stato del permesso, che decide sia cosa si può fare sia cosa si scrive
+   nella nota in cima all'elenco.
+
+   Su iOS l'oggetto Notification esiste solo dentro l'app aggiunta alla
+   schermata Home: aperta come pagina in Safari non c'è proprio, ed è il caso
+   più comune di tutti. Meglio dirlo che lasciare una campanella che sembra
+   funzionare e non suona mai. */
+function statoNotifiche() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    return 'da-installare';
+  }
+  if (Notification.permission === 'denied') return 'negato';
+  if (Notification.permission === 'default') return 'da-chiedere';
+  return 'concesso';
+}
+
+let chiavePubblica = null;
+let notificheErrore = null;
+
+/* La chiave pubblica VAPID arriva dal server come base64url, ma `subscribe`
+   vuole dei byte. Vuota significa che le notifiche non sono configurate. */
+async function chiaveNotifiche() {
+  if (chiavePubblica !== null) return chiavePubblica;
+  const r = await fetch(API.chiavePush);
+  if (!r.ok) throw new Error('notifiche non disponibili');
+  chiavePubblica = (await r.json()).key || '';
+  return chiavePubblica;
+}
+
+function byteDaBase64url(s) {
+  const b64 = (s + '='.repeat((4 - (s.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+/* Manda al server l'elenco aggiornato delle linee seguite. Un elenco vuoto
+   cancella l'abbonamento: è lo stesso gesto visto dall'altra parte.
+
+   `permesso` è la promessa di Notification.requestPermission(), che il gestore
+   del tocco ha già lanciato: su iOS quella chiamata vale solo dentro il gesto,
+   quindi si fa lì e si aspetta qui. */
+async function sincronizzaNotifiche(permesso) {
+  if (permesso) { try { await permesso; } catch { /* prompt chiuso */ } }
+  if (statoNotifiche() !== 'concesso') { disegna(); return; }
+
+  const linee = campanelle();
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let abbonamento = await reg.pushManager.getSubscription();
+    if (!abbonamento) {
+      // Senza campanelle accese non c'è niente da registrare, e non è il caso
+      // di prendersi un abbonamento per poi cancellarlo subito.
+      if (!linee.length) { notificheErrore = null; disegna(); return; }
+      const chiave = await chiaveNotifiche();
+      if (!chiave) throw new Error('notifiche non configurate sul server');
+      abbonamento = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: byteDaBase64url(chiave),
+      });
+    }
+    const r = await fetch(API.abbonamento, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription: abbonamento, lines: linee }),
+    });
+    if (!r.ok) throw new Error(`il server ha risposto ${r.status}`);
+    notificheErrore = null;
+  } catch (e) {
+    notificheErrore = e.message;
+  }
+  disegna();
 }
 
 /* Su iOS l'app installata non viene quasi mai chiusa davvero: resta sospesa in
@@ -587,13 +663,32 @@ function disegnaLinee() {
   }
 
   app.innerHTML = `
-    <p class="nota">La campanella tiene la linea in cima alla home. Le notifiche
-    non ci sono ancora.</p>
+    <p class="nota${notificheErrore ? ' guasta' : ''}">${esc(notaNotifiche())}</p>
     ${gruppi.map((g) => `
       <section class="sezione">
         <h2 class="etichetta-sezione">${esc(g.nome)}</h2>
         <ul class="lista">${g.linee.map(rigaLinea).join('')}</ul>
       </section>`).join('')}`;
+}
+
+/* Cosa succede quando accendi una campanella, detto prima di accenderla. Una
+   campanella che non suona è una promessa mancata, e il posto per dirlo è
+   questo, non la schermata di blocco alle sette di sera. */
+function notaNotifiche() {
+  if (notificheErrore) return `Notifiche non attivate: ${notificheErrore}.`;
+  const quante = campanelle().length;
+  switch (statoNotifiche()) {
+    case 'da-installare':
+      return 'Le notifiche funzionano solo con l\'app aggiunta alla schermata Home del telefono. La campanella intanto tiene la linea in cima alla home.';
+    case 'negato':
+      return 'Le notifiche sono bloccate per questo sito: si riattivano dalle impostazioni del telefono. La campanella tiene comunque la linea in cima alla home.';
+    case 'da-chiedere':
+      return 'La prima campanella accesa chiede il permesso di mandarti le notifiche.';
+    default:
+      return quante
+        ? `Ti avvisiamo quando cambia il bollino ${quante === 1 ? 'della linea seguita' : 'di una delle linee seguite'}.`
+        : 'Accendi una campanella per essere avvisato quando cambia il bollino di una linea.';
+  }
 }
 
 /* L'orario di lettura arriva in UTC dal servizio; qui si mostra nell'ora del
@@ -895,8 +990,16 @@ app.addEventListener('click', (e) => {
   else if (t.closest('[data-scambia]')) { [stato.da, stato.a] = [stato.a, stato.da]; disegna(); }
   else if (t.closest('[data-modifica]')) { modificaPreferiti = !modificaPreferiti; disegna(); }
   else if (t.closest('[data-campanella]')) {
-    alternaCampanella(t.closest('[data-campanella]').dataset.campanella);
+    const codice = t.closest('[data-campanella]').dataset.campanella;
+    const accendo = !seguita(codice);
+    alternaCampanella(codice);
+    // Il permesso si chiede qui e non dentro sincronizzaNotifiche: su iOS
+    // vale solo se la chiamata parte durante il tocco, e dopo un await il
+    // tocco non c'è più. La promessa la si aspetta di là.
+    const permesso = accendo && statoNotifiche() === 'da-chiedere'
+      ? Notification.requestPermission() : null;
     disegna();
+    sincronizzaNotifiche(permesso);
   }
   else if (t.closest('[data-togli]')) {
     const k = t.closest('[data-togli]').dataset.togli;
@@ -928,5 +1031,10 @@ window.addEventListener('hashchange', cambiaRotta);
 cambiaRotta();
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // Riallinea l'abbonamento a ogni avvio: il servizio potrebbe averlo perso,
+    // e chi ha una campanella accesa non deve accorgersene.
+    if (campanelle().length) sincronizzaNotifiche();
+  });
 }

@@ -20,7 +20,30 @@ services:
     image: ghcr.io/m4rc02u1f4a4/tabellonetreni:latest
     entrypoint: ["/statolinee"]
     restart: unless-stopped
+    environment:
+      # Gli abbonamenti alle notifiche devono sopravvivere ai riavvii, che qui
+      # sono uno per rilascio. Senza DATI il servizio parte lo stesso e li tiene
+      # in memoria: va bene per provare, non in produzione.
+      DATI: /dati
+      # Le chiavi si generano una volta sola con `statolinee -chiavi`. Se
+      # cambiano, tutti gli abbonamenti presi diventano inservibili. Senza, le
+      # notifiche restano spente e i bollini si vedono lo stesso.
+      VAPID_PUBLIC: ${VAPID_PUBLIC:-}
+      VAPID_PRIVATE: ${VAPID_PRIVATE:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+    volumes:
+      - abbonamenti:/dati
+    # L'immagine gira come nonroot (uid 65532) e un volume Docker appena creato
+    # appartiene a root: la prima volta va ceduto, altrimenti il servizio parte
+    # e fallisce solo quando qualcuno accende una campanella. Il chown lo deve
+    # fare un'altra immagine, perche' questa e' distroless e non ha una shell:
+    #   docker run --rm -v tabellonetreni_abbonamenti:/dati alpine \
+    #     chown -R 65532:65532 /dati
+    # In Kubernetes non serve: lo fa fsGroup.
     # Nessuna porta pubblicata: ci parla solo il tabellone, dalla rete interna.
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+
+volumes:
+  abbonamenti:

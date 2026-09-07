@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -242,5 +243,64 @@ func TestLineeServizioGiu(t *testing.T) {
 	// Il resto del tabellone continua a funzionare.
 	if r := chiedi(t, serverCon(monte.URL), "/api/board?from=1715", nil); r.StatusCode != 200 {
 		t.Errorf("tabellone = %d", r.StatusCode)
+	}
+}
+
+// Le due richieste delle notifiche passano dal tabellone perché il telefono
+// parla con una sola origine. Qui conta che arrivino al percorso giusto del
+// servizio, che il corpo passi intatto e che la risposta non finisca in
+// nessuna cache: un abbonamento servito da una cache è un abbonamento mai
+// arrivato.
+func TestPushInoltrata(t *testing.T) {
+	var visti []string
+	var corpi []string
+	monte := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		visti = append(visti, r.Method+" "+r.URL.Path)
+		b, _ := io.ReadAll(r.Body)
+		corpi = append(corpi, string(b))
+		if r.URL.Path == "/push/chiave" {
+			io.WriteString(w, `{"key":"BLzNaPs"}`)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer monte.Close()
+	h := serverCon(monte.URL)
+
+	chiave := chiedi(t, h, "/api/push/key", nil)
+	defer chiave.Body.Close()
+	if chiave.StatusCode != http.StatusOK {
+		t.Fatalf("chiave: stato = %d", chiave.StatusCode)
+	}
+	if c := chiave.Header.Get("Cache-Control"); c != "no-store" {
+		t.Errorf("Cache-Control = %q, atteso no-store", c)
+	}
+
+	const abbonamento = `{"subscription":{"endpoint":"https://push.example/x"},"lines":["S2"]}`
+	r := httptest.NewRequest(http.MethodPost, "/api/push/subscribe", strings.NewReader(abbonamento))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("abbonamento: stato = %d", w.Code)
+	}
+
+	if len(visti) != 2 || visti[0] != "GET /push/chiave" || visti[1] != "POST /push/abbonamenti" {
+		t.Fatalf("richieste al servizio = %v", visti)
+	}
+	if corpi[1] != abbonamento {
+		t.Errorf("corpo alterato:\n  ho  %s\n  atteso %s", corpi[1], abbonamento)
+	}
+}
+
+// Se il servizio delle linee è giù, abbonarsi deve fallire in modo leggibile
+// invece di sembrare riuscito.
+func TestPushServizioGiu(t *testing.T) {
+	monte := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	monte.Close()
+
+	resp := chiedi(t, serverCon(monte.URL), "/api/push/key", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("stato = %d, atteso 502", resp.StatusCode)
 	}
 }

@@ -52,6 +52,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/board", s.tabellone)
 	mux.HandleFunc("GET /api/train", s.treno)
 	mux.HandleFunc("GET /api/lines", s.linee)
+	mux.HandleFunc("GET /api/push/key", s.inoltraPush("/push/chiave"))
+	mux.HandleFunc("POST /api/push/subscribe", s.inoltraPush("/push/abbonamenti"))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))
 	})
@@ -268,6 +270,41 @@ func (s *Server) linee(w http.ResponseWriter, r *http.Request) {
 	// risparmia solo il corpo.
 	w.Header().Set("Cache-Control", "no-cache")
 	scriviJSON(w, r, body, etag(body))
+}
+
+// inoltraPush passa al servizio delle linee le due richieste che riguardano le
+// notifiche. Il telefono parla con una sola origine — la stessa ragione per cui
+// questo server esiste — e il servizio resta senza porte pubblicate.
+func (s *Server) inoltraPush(percorso string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Il corpo di chi si abbona contiene le sue chiavi push: si limita a
+		// una misura ragionevole prima di rilanciarlo, non dopo.
+		var corpo io.Reader
+		if r.Body != nil {
+			corpo = io.LimitReader(r.Body, 64<<10)
+		}
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, s.statoLinee+percorso, corpo)
+		if err != nil {
+			errore(w, http.StatusInternalServerError, "errore interno")
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := s.clientHTTP.Do(req)
+		if err != nil {
+			log.Printf("notifiche %s: %v", percorso, err)
+			errore(w, http.StatusBadGateway, "notifiche non disponibili")
+			return
+		}
+		defer resp.Body.Close()
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		// Le notifiche non si mettono mai in cache da nessuna parte: la chiave
+		// cambia solo con la configurazione, ma un abbonamento servito da una
+		// cache sarebbe un abbonamento mai arrivato.
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+	}
 }
 
 func (s *Server) fileStatici() http.Handler {

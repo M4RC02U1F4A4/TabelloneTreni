@@ -8,7 +8,7 @@ con l'orario a cui ci arrivano.
 - **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
 - **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
 - **toccando un treno si vede dov'è adesso**, con gli orari reali delle fermate che ha già servito
-- **lo stato delle linee Trenord**, con la campanella per tenere in cima quelle che ti riguardano
+- **lo stato delle linee Trenord**, con la **notifica sul telefono** quando il bollino di una linea seguita cambia
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
@@ -209,6 +209,50 @@ si riempie quando i dati arrivano. Se il servizio non risponde, al suo posto
 c'è una riga sottovoce — che manchino i semafori non deve sembrare che sia
 rotto il tabellone, che è l'unica cosa per cui l'app si apre di corsa.
 
+#### Le notifiche
+
+Accendere una campanella chiede il permesso e registra un abbonamento Web Push.
+Quando un bollino cambia, chi segue quella linea riceve la notifica **anche con
+l'app chiusa**: è il motivo per cui la spedizione sta sul server e non nel
+telefono — una PWA sospesa non esegue niente, e su iOS resta sospesa per giorni.
+
+Il testo dice il **verso**, non solo lo stato d'arrivo: "circolazione
+peggiorata", "tornata regolare". Sulla schermata di blocco si legge solo quella
+riga, e "criticità" da sola non distingue una linea che peggiora da una che si
+sta riprendendo.
+
+Su iOS le notifiche web funzionano **solo con l'app aggiunta alla schermata
+Home**: aperta come pagina in Safari, l'oggetto `Notification` non esiste
+proprio. L'interfaccia lo dice invece di lasciare una campanella che sembra
+funzionare e non suona mai — e in quel caso la campanella resta comunque utile,
+perché tiene la linea in cima alla home.
+
+Il permesso si chiede **dentro il tocco**: `Notification.requestPermission()`
+parte nel gestore del click e la sua promessa si aspetta dopo, perché su iOS una
+chiamata fatta dopo un `await` non conta più come gesto dell'utente.
+
+Gli abbonamenti stanno in un file JSON sul volume del servizio, riscritto per
+intero a ogni modifica e con un rename atomico: sono decine, e un database qui
+costerebbe più di quanto risolve, ma un file troncato a metà da un riavvio
+perderebbe tutti gli abbonati insieme. Quando il servizio push risponde 404 o
+410 l'abbonamento viene tolto: l'app è stata disinstallata o il permesso
+revocato, e insistere è solo traffico.
+
+La cifratura è quella di RFC 8291 con la firma VAPID di RFC 8292, e la fa
+[webpush-go](https://github.com/SherClockHolmes/webpush-go). È l'unica
+dipendenza aggiunta oltre a `golang.org/x/net`, ed è aggiunta apposta: ECDH più
+HKDF più AES-GCM più un JWT ES256 non è codice da scrivere in casa per
+risparmiare una riga in `go.mod`.
+
+**Senza chiavi VAPID il servizio parte lo stesso**, con le notifiche spente e i
+bollini che si vedono comunque. Si generano una volta sola:
+
+```sh
+statolinee -chiavi
+```
+
+Se cambiano, tutti gli abbonamenti già presi diventano inservibili.
+
 #### Perché è un servizio a parte
 
 `statolinee` è un secondo processo, non un pezzo del tabellone, per tre motivi:
@@ -284,11 +328,22 @@ Il tabellone:
 |---|---|---|
 | `PORT` | `8081` | porta di ascolto |
 | `ADDR` | `:8081` | indirizzo completo, ha la precedenza su `PORT` |
+| `DATI` | *(vuoto)* | cartella dove tenere gli abbonamenti; vuoto significa solo in memoria, e si perdono a ogni riavvio |
+| `VAPID_PUBLIC` | *(vuoto)* | chiave pubblica VAPID; senza, le notifiche restano spente |
+| `VAPID_PRIVATE` | *(vuoto)* | chiave privata VAPID |
+| `VAPID_SUBJECT` | l'URL del progetto | `mailto:` o URL di chi manda, come chiede RFC 8292 |
 
 | rotta | |
 |---|---|
 | `GET /linee` | stato di tutte le linee, con l'orario dell'ultima lettura riuscita |
+| `GET /push/chiave` | la chiave pubblica VAPID; vuota se le notifiche non sono configurate |
+| `POST /push/abbonamenti` | registra chi seguire; un elenco di linee vuoto cancella l'abbonamento |
 | `GET /healthz` | 503 finché non è riuscita una lettura: appena avviato non deve ricevere traffico |
+
+Il volume va ceduto all'utente `nonroot` (uid 65532) la prima volta, perché
+l'immagine non gira da root e un volume nuovo appartiene a root. In Kubernetes
+lo fa `fsGroup`; con Docker serve un giro da un'altra immagine, visto che questa
+è distroless e non ha una shell — il comando sta in `compose.yaml`.
 
 ## Aggiornare il catalogo delle stazioni
 
@@ -323,6 +378,9 @@ go run ./cmd/genstations
   Manager che a uno User-Agent onesto risponde 403 su quell'endpoint. È l'unico
   header che conta — Referer e `X-Requested-With` non cambiano nulla, provati
   uno per uno — ed è isolato in una variabile sola, `trenord.UserAgent`.
+- **Le notifiche su iOS vogliono l'app installata.** Web Push su iPhone
+  funziona solo dalla schermata Home, non da una scheda di Safari. L'app lo
+  dice, e lì la campanella serve solo a tenere la linea in cima.
 - **I bollini coprono la sola Lombardia.** Sono le linee di Trenord: un treno
   RFI fuori regione non ha nessuno stato di linea associato.
 

@@ -419,6 +419,12 @@ details[open] .apri { transform: rotate(90deg); }
   padding: 10px 12px; margin-bottom: 12px; border-radius: var(--raggio);
   background: var(--piano-alto); color: var(--tenue); font-size: 13px;
 }
+/* Una nota che dice "non ha funzionato" non può avere l'aria della nota che
+   spiega come funziona. */
+.nota.guasta {
+  background: color-mix(in srgb, var(--rosso) 12%, transparent);
+  color: var(--testo);
+}
 /* Lo scheletro deve leggersi come "sto caricando", non come una scheda senza
    contenuto: un rettangolo vuoto della stessa forma di una scheda è
    indistinguibile da un treno andato storto. Le barre dentro lo dicono. */
