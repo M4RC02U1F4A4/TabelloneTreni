@@ -11,7 +11,18 @@ const API = {
   treno: (da, numero, a, arrivi) =>
     `api/train?from=${da}&number=${encodeURIComponent(numero)}` +
     (a ? `&to=${a}` : '') + (arrivi ? '&arrivals=true' : ''),
+  linee: 'api/lines',
 };
+
+/* Gli stati di circolazione, nell'ordine in cui li manda il server. L'indice è
+   il valore numerico del campo `status`: è quello che arriva, e tradurlo in
+   parola qui evita di spargere dei numeri per il resto del file. */
+const STATI = [
+  { classe: 'regolare', etichetta: 'regolare' },
+  { classe: 'critico', etichetta: 'criticità' },
+  { classe: 'grave', etichetta: 'gravi criticità' },
+];
+const statoLinea = (n) => STATI[n] || { classe: 'ignoto', etichetta: 'stato ignoto' };
 
 const RINFRESCO = 60_000;   // come chiesto: una volta al minuto
 const RISULTATI_MAX = 60;   // oltre, la lista diventa inutile da scorrere
@@ -27,6 +38,13 @@ const stato = {
   scaricatoIl: 0,
   errore: null,
   caricamento: false,
+  // Le linee Trenord arrivano da un servizio a parte e sono facoltative in
+  // ogni punto: null vuol dire "non ancora chieste", e se la richiesta va male
+  // la home si disegna lo stesso — i tabelloni sono la ragione per cui l'app
+  // esiste, i bollini un di più.
+  linee: null,
+  lineeAggiornate: '',
+  lineeErrore: null,
 };
 
 /* Le schede aperte e i viaggi già scaricati.
@@ -88,6 +106,11 @@ const ICONE = {
   // il glifo "☆" del font stava tre quarti di pixel troppo in alto, e accanto
   // alla freccia ormai centrata la differenza si vedeva.
   stella: `<path d="M12 3.32L14.16 9.95L21.13 9.95L15.49 14.05L17.64 20.68L12 16.58L6.36 20.68L8.51 14.05L2.87 9.95L9.84 9.95Z"/>`,
+  // La campana e il suo battaglio sono due tracciati separati: da piena, il
+  // riempimento deve prendere la campana e lasciare fuori il battaglio,
+  // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
+  campana: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>' +
+    '<path fill="none" d="M13.73 21a2 2 0 0 1-3.46 0"/>',
 };
 
 const icona = (nome, piena) => `<svg class="icona" viewBox="0 0 24 24" fill="${piena ? 'currentColor' : 'none'}"
@@ -112,6 +135,17 @@ function alternaPreferito(p) {
   scrivi('tt.preferiti', elenco);
 }
 const ePreferito = (p) => preferiti().some((x) => chiaveTratta(x) === chiaveTratta(p));
+
+/* Le linee seguite. Si salva il codice ("S2", "R16") e non il nome, che cambia
+   quando Trenord cambia un capolinea: la preferenza sopravvive al cambio. */
+const campanelle = () => leggi('tt.campanelle', []);
+const seguita = (codice) => campanelle().includes(codice);
+
+function alternaCampanella(codice) {
+  const elenco = campanelle().filter((c) => c !== codice);
+  if (elenco.length === campanelle().length) elenco.unshift(codice);
+  scrivi('tt.campanelle', elenco);
+}
 
 function ricorda(id) {
   const r = leggi('tt.recenti', []).filter((x) => x !== id);
@@ -151,6 +185,24 @@ async function caricaTabellone() {
       stato.caricamento = false;
       disegna();
     }
+  }
+}
+
+/* Le linee non bloccano mai il disegno di quello che le sta intorno: la home
+   compare subito e i bollini ci si appoggiano quando arrivano. Se il servizio
+   non risponde si tiene da parte il motivo e si va avanti. */
+async function caricaLinee() {
+  try {
+    const r = await fetch(API.linee);
+    if (controllaVersione(r)) return;
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
+    const d = await r.json();
+    stato.linee = d.lines || [];
+    stato.lineeAggiornate = d.updated || '';
+    stato.lineeErrore = null;
+  } catch (e) {
+    stato.linee = stato.linee || [];
+    stato.lineeErrore = e.message;
   }
 }
 
@@ -270,6 +322,7 @@ document.addEventListener('keydown', (e) => {
 
 function leggiRotta() {
   const parti = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (parti[0] === 'linee') return { vista: 'linee' };
   if (parti[0] !== 'p' && parti[0] !== 'a') return { vista: 'home' };
   const da = Number(parti[1]);
   if (!da) return { vista: 'home' };
@@ -277,6 +330,7 @@ function leggiRotta() {
 }
 
 const rottaDi = (da, a, arrivi) => `#/${arrivi ? 'a' : 'p'}/${da}` + (a && !arrivi ? `/${a}` : '');
+const ROTTA_LINEE = '#/linee';
 
 function vaiAiRisultati() {
   if (!stato.da) return;
@@ -286,6 +340,13 @@ function vaiAiRisultati() {
 async function cambiaRotta() {
   const r = leggiRotta();
   fermaTimer();
+
+  if (r.vista === 'linee') {
+    disegna();
+    await caricaLinee();
+    if (leggiRotta().vista === 'linee') disegna();
+    return;
+  }
 
   if (r.vista === 'home') {
     stato.dati = null;
@@ -298,6 +359,10 @@ async function cambiaRotta() {
       return;
     }
     disegna();
+    // I bollini arrivano da un secondo servizio e non devono far aspettare la
+    // home: si ridisegna quando ci sono, e solo se nel frattempo non si è
+    // andati altrove.
+    caricaLinee().then(() => { if (leggiRotta().vista === 'home') disegna(); });
     return;
   }
 
@@ -333,7 +398,19 @@ function fermaTimer() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || leggiRotta().vista !== 'risultati') return;
+  if (document.visibilityState !== 'visible') return;
+  const vista = leggiRotta().vista;
+
+  // I bollini non hanno un timer che gira: senza questo, riaprendo l'app si
+  // vedrebbe lo stato di quando la si è chiusa, che per un semaforo è peggio
+  // che non vederlo. L'ETag rende la richiesta quasi gratis quando non è
+  // cambiato niente.
+  if (vista === 'home' || vista === 'linee') {
+    caricaLinee().then(() => { if (leggiRotta().vista === vista) disegna(); });
+    return;
+  }
+
+  if (vista !== 'risultati') return;
   // Tornando sull'app dopo un po', il tabellone è vecchio: si aggiorna subito
   // invece di aspettare il prossimo giro.
   if (Date.now() - stato.scaricatoIl > RINFRESCO / 2) caricaTabellone();
@@ -358,7 +435,9 @@ function aggiornaEta() {
 
 function disegna() {
   const r = leggiRotta();
-  if (r.vista === 'home') disegnaHome(); else disegnaRisultati();
+  if (r.vista === 'home') disegnaHome();
+  else if (r.vista === 'linee') disegnaLinee();
+  else disegnaRisultati();
 }
 
 function disegnaHome() {
@@ -413,7 +492,115 @@ function disegnaHome() {
           </button>
         </li>
       </ul>
-    </section>`;
+    </section>
+
+    ${sezioneLinee()}`;
+}
+
+/* La sezione in home non elenca tutte e 65 le linee: mostra quelle seguite e
+   quelle che in questo momento hanno un problema. In una giornata normale sono
+   zero righe, ed è l'informazione giusta — la lista intera sta a un tocco. */
+function sezioneLinee() {
+  const testa = `
+    <div class="testa-sezione">
+      <h2 class="etichetta-sezione">Stato linee</h2>
+      <a class="btn-testo piccolo" href="${ROTTA_LINEE}">Tutte</a>
+    </div>`;
+
+  if (stato.linee === null) {
+    return `<section class="sezione">${testa}<ul class="lista">${rigaLineaScheletro()}</ul></section>`;
+  }
+  if (stato.lineeErrore) {
+    // Sottovoce: che manchino i bollini non deve sembrare che sia rotto il
+    // tabellone, che è l'unica cosa per cui l'app si apre di corsa.
+    return `<section class="sezione">${testa}
+      <p class="nota">Stato delle linee non disponibile.</p></section>`;
+  }
+
+  const mie = stato.linee.filter((l) => seguita(l.code));
+  const guai = stato.linee.filter((l) => l.status > 0 && !seguita(l.code));
+  const righe = [...mie, ...guai];
+
+  if (!righe.length) {
+    return `<section class="sezione">${testa}
+      <ul class="lista"><li class="riga">
+        <span class="riga-tocco statica">
+          <span class="segno"><span class="bollino regolare"></span></span>
+          <span class="testo">Tutte le linee sono regolari</span>
+        </span>
+      </li></ul></section>`;
+  }
+  return `<section class="sezione">${testa}
+    <ul class="lista">${righe.map(rigaLinea).join('')}</ul></section>`;
+}
+
+function rigaLinea(l) {
+  const st = statoLinea(l.status);
+  const accesa = seguita(l.code);
+  return `<li class="riga">
+    <span class="riga-tocco statica">
+      <span class="segno"><span class="bollino ${st.classe}"></span></span>
+      <span class="testo">${esc(l.name)}<span class="qualifica"> · ${st.etichetta}</span></span>
+    </span>
+    <button class="campanella${accesa ? ' accesa' : ''}" type="button"
+            data-campanella="${esc(l.code)}" aria-pressed="${accesa}"
+            aria-label="${accesa ? 'Smetti di seguire' : 'Segui'} ${esc(l.name)}"
+            >${icona('campana', accesa)}</button>
+  </li>`;
+}
+
+function rigaLineaScheletro() {
+  return `<li class="riga scheletro">
+    <span class="riga-tocco statica">
+      <span class="segno"><span class="bollino"></span></span>
+      <span class="testo"><span class="barra b-dest"></span></span>
+    </span>
+  </li>`;
+}
+
+function disegnaLinee() {
+  testa.innerHTML = `
+    <div class="testa-riga">
+      <a class="tasto" href="#/" aria-label="Torna alla home">${icona('indietro')}</a>
+      <h1 class="titolo">Stato linee</h1>
+    </div>
+    <div class="sottotitolo">Circolazione Trenord${
+      stato.lineeAggiornate ? ` · letto ${esc(oraDi(stato.lineeAggiornate))}` : ''}</div>`;
+
+  if (stato.linee === null) {
+    app.innerHTML = `<ul class="lista">${rigaLineaScheletro().repeat(8)}</ul>`;
+    return;
+  }
+  if (stato.lineeErrore) {
+    app.innerHTML = `<p class="errore">${esc(stato.lineeErrore)}</p>`;
+    return;
+  }
+
+  // I gruppi si prendono nell'ordine in cui arrivano invece di ordinarli:
+  // è quello in cui Trenord li pubblica, e chi conosce le proprie linee le
+  // cerca dove è abituato a trovarle.
+  const gruppi = [];
+  for (const l of stato.linee) {
+    const ultimo = gruppi[gruppi.length - 1];
+    if (ultimo && ultimo.nome === l.group) ultimo.linee.push(l);
+    else gruppi.push({ nome: l.group, linee: [l] });
+  }
+
+  app.innerHTML = `
+    <p class="nota">La campanella tiene la linea in cima alla home. Le notifiche
+    non ci sono ancora.</p>
+    ${gruppi.map((g) => `
+      <section class="sezione">
+        <h2 class="etichetta-sezione">${esc(g.nome)}</h2>
+        <ul class="lista">${g.linee.map(rigaLinea).join('')}</ul>
+      </section>`).join('')}`;
+}
+
+/* L'orario di lettura arriva in UTC dal servizio; qui si mostra nell'ora del
+   telefono, che per un dato aggiornato pochi minuti fa è quello che serve. */
+function oraDi(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 }
 
 function campoStazione(quale, sigla, id, vuoto) {
@@ -707,6 +894,10 @@ app.addEventListener('click', (e) => {
   else if (t.closest('[data-vai]')) vaiAiRisultati();
   else if (t.closest('[data-scambia]')) { [stato.da, stato.a] = [stato.a, stato.da]; disegna(); }
   else if (t.closest('[data-modifica]')) { modificaPreferiti = !modificaPreferiti; disegna(); }
+  else if (t.closest('[data-campanella]')) {
+    alternaCampanella(t.closest('[data-campanella]').dataset.campanella);
+    disegna();
+  }
   else if (t.closest('[data-togli]')) {
     const k = t.closest('[data-togli]').dataset.togli;
     scrivi('tt.preferiti', preferiti().filter((p) => chiaveTratta(p) !== k));

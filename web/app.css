@@ -17,6 +17,10 @@
   --accento: #ffb020;
   --verde: #3ddc97;
   --rosso: #ff6b6b;
+  /* L'ambra dei bollini di linea è una variabile a sé e non l'accento, che nel
+     tema chiaro diventa blu: qui il colore è il livello di gravità fra il verde
+     e il rosso, e un blu in mezzo a quella scala non vuol dire niente. */
+  --ambra: #ffb020;
   /* Le due fonti del ritardo. Non sono l'accento e il verde dell'interfaccia
      travestiti: qui il colore dice da quale lettura arriva il numero, e
      agganciarli ai colori di stato vorrebbe dire cambiare significato al
@@ -39,6 +43,7 @@
     --accento: #1a56db;
     --verde: #0d7a4f;
     --rosso: #c62828;
+    --ambra: #b45309;
     --rfi-testo: #7a4a00;
     --rfi-fondo: #ffeecd;
     --vt-testo: #04635c;
@@ -165,6 +170,34 @@ ul { list-style: none; margin: 0; padding: 0; }
   flex: none; padding: 12px 4px 12px 14px;
   background: none; border: 0; color: var(--rosso); font-size: 16px;
 }
+
+/* --- lista: lo stato delle linee --- */
+
+/* La riga di una linea non si tocca: non porta da nessuna parte, e darle
+   l'aspetto di un pulsante prometterebbe un gesto che non fa niente. L'unica
+   cosa toccabile è la campanella. */
+.riga-tocco.statica { cursor: default; }
+
+/* Il bollino sta nella stessa colonna della stella dei preferiti, così i nomi
+   restano incolonnati fra una sezione e l'altra. Accanto c'è sempre la parola
+   che lo traduce: il colore da solo non è un'informazione per tutti, e tre
+   pallini muti si distinguono male in mezzo a sessantacinque righe. */
+.bollino {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--tenue);
+}
+.bollino.regolare { background: var(--verde); }
+.bollino.critico { background: var(--ambra); }
+.bollino.grave { background: var(--rosso); }
+
+/* Stessa geometria della ✕ dei preferiti: occupano lo stesso posto in fondo
+   alla riga, e cambiare misura le farebbe ballare passando da una lista
+   all'altra. */
+.campanella {
+  flex: none; padding: 12px 4px 12px 14px;
+  background: none; border: 0; color: var(--tenue);
+}
+.campanella.accesa { color: var(--accento); }
 
 /* --- modulo: la nuova ricerca --- */
 

@@ -26,11 +26,13 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  // Un tabellone vecchio è peggio di nessun tabellone, e lo stesso vale per la
-  // posizione di un treno: queste richieste non vengono mai servite dalla
-  // cache, e se la rete manca l'app lo dice. L'elenco delle stazioni invece
-  // resta, perché cambia solo quando cambia l'immagine.
-  if (url.pathname.endsWith('/api/board') || url.pathname.endsWith('/api/train')) return;
+  // I dati vivi non passano mai dalla cache: un tabellone vecchio è peggio di
+  // nessun tabellone, e lo stesso vale per la posizione di un treno o per il
+  // semaforo di una linea. La regola è scritta al contrario — si tiene solo
+  // l'elenco delle stazioni, che cambia quando cambia l'immagine — così un
+  // endpoint nuovo nasce fuori dalla cache invece che dentro, che è il verso
+  // giusto in cui sbagliare.
+  if (url.pathname.includes('/api/') && !url.pathname.endsWith('/api/stations')) return;
 
   e.respondWith(caches.open(CACHE).then(async (cache) => {
     try {

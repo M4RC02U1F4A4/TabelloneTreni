@@ -8,6 +8,7 @@ con l'orario a cui ci arrivano.
 - **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
 - **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
 - **toccando un treno si vede dov'è adesso**, con gli orari reali delle fermate che ha già servito
+- **lo stato delle linee Trenord**, con la campanella per tenere in cima quelle che ti riguardano
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
@@ -187,6 +188,26 @@ esegue uno script che si rilegge i propri semafori cercando le classi
 `green-line`, `critical` e `danger`, ed è quella la fonte. Una linea il cui
 semaforo non si riconosce viene **scartata**, non mostrata come regolare: se
 Trenord cambia il markup è meglio una linea in meno che una falsa rassicurazione.
+
+#### Cosa si vede
+
+In home la sezione **non elenca tutte e 65 le linee**: mostra quelle seguite e
+quelle che in questo momento hanno un problema. In una giornata normale sono
+zero righe, ed è l'informazione giusta — la lista intera sta dietro a "Tutte",
+raggruppata come la raggruppa Trenord.
+
+La campanella marca le linee che ti riguardano e per ora le tiene in cima; è
+l'appiglio su cui arriveranno le notifiche. Si salva il **codice** della linea,
+non il nome, che cambia quando cambia un capolinea.
+
+Accanto al bollino c'è sempre la parola che lo traduce — "regolare",
+"criticità", "gravi criticità". Il colore da solo non è un'informazione per
+tutti, e tre pallini muti si distinguono male in mezzo a sessantacinque righe.
+
+I bollini non fanno mai aspettare il resto: la home compare subito e la sezione
+si riempie quando i dati arrivano. Se il servizio non risponde, al suo posto
+c'è una riga sottovoce — che manchino i semafori non deve sembrare che sia
+rotto il tabellone, che è l'unica cosa per cui l'app si apre di corsa.
 
 #### Perché è un servizio a parte
 
