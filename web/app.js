@@ -62,6 +62,9 @@ const viaggi = new Map(); // numero treno -> { stato: 'attesa'|'ok'|'errore', da
 // modalità non c'è: una ✕ accanto a una riga tappabile mette la cancellazione a
 // un dito dal gesto che si fa ogni giorno.
 let modificaPreferiti = false;
+// Quello che si sta cercando nell'elenco delle linee. Sta qui e non nel campo
+// perché il campo sparisce a ogni ridisegno della pagina, e il filtro no.
+let filtroLinee = '';
 let timerRinfresco = null;
 let timerEta = null;
 let richiestaInCorso = 0;
@@ -83,6 +86,18 @@ function canon(s) {
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* Segna nel nome il pezzo che corrisponde a quello che si sta cercando. La
+   posizione si trova sul nome normalizzato e si taglia su quello vero: canon()
+   non cambia la lunghezza sui casi che capitano qui, dove la punteggiatura è
+   sempre un carattere per un carattere. */
+function evidenzia(nome, query) {
+  if (!query) return esc(nome);
+  const i = canon(nome).indexOf(query);
+  if (i < 0) return esc(nome);
+  return esc(nome.slice(0, i)) + '<mark>' + esc(nome.slice(i, i + query.length)) +
+         '</mark>' + esc(nome.slice(i + query.length));
+}
 
 /* Le frecce sono disegni, non testo.
 
@@ -221,6 +236,9 @@ function statoNotifiche() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     return 'da-installare';
   }
+  // Stringa vuota vuol dire che il server ha risposto e non ha chiavi; null
+  // che non gliel'abbiamo ancora chiesto, e allora non si conclude niente.
+  if (chiavePubblica === '') return 'non-configurate';
   if (Notification.permission === 'denied') return 'negato';
   if (Notification.permission === 'default') return 'da-chiedere';
   return 'concesso';
@@ -232,7 +250,10 @@ let notificheErrore = null;
 /* La chiave pubblica VAPID arriva dal server come base64url, ma `subscribe`
    vuole dei byte. Vuota significa che le notifiche non sono configurate. */
 async function chiaveNotifiche() {
-  if (chiavePubblica !== null) return chiavePubblica;
+  // Solo una chiave vera si tiene: se il server non ne ha ancora, si richiede
+  // al prossimo giro, così l'app si aggiusta da sola appena viene configurato
+  // invece di restare convinta a vita che non ce ne siano.
+  if (chiavePubblica) return chiavePubblica;
   const r = await fetch(API.chiavePush);
   if (!r.ok) throw new Error('notifiche non disponibili');
   chiavePubblica = (await r.json()).key || '';
@@ -252,7 +273,7 @@ function byteDaBase64url(s) {
    quindi si fa lì e si aspetta qui. */
 async function sincronizzaNotifiche(permesso) {
   if (permesso) { try { await permesso; } catch { /* prompt chiuso */ } }
-  if (statoNotifiche() !== 'concesso') { disegna(); return; }
+  if (statoNotifiche() !== 'concesso') { aggiornaVista(); return; }
 
   const linee = campanelle();
   try {
@@ -261,9 +282,11 @@ async function sincronizzaNotifiche(permesso) {
     if (!abbonamento) {
       // Senza campanelle accese non c'è niente da registrare, e non è il caso
       // di prendersi un abbonamento per poi cancellarlo subito.
-      if (!linee.length) { notificheErrore = null; disegna(); return; }
+      if (!linee.length) { notificheErrore = null; aggiornaVista(); return; }
       const chiave = await chiaveNotifiche();
-      if (!chiave) throw new Error('notifiche non configurate sul server');
+      // Il server senza chiavi non è un guasto: è una configurazione che manca,
+      // e lo dice la nota in cima all'elenco senza allarmare nessuno.
+      if (!chiave) { aggiornaVista(); return; }
       abbonamento = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: byteDaBase64url(chiave),
@@ -279,7 +302,21 @@ async function sincronizzaNotifiche(permesso) {
   } catch (e) {
     notificheErrore = e.message;
   }
-  disegna();
+  aggiornaVista();
+}
+
+/* Ridisegna il minimo indispensabile. Sull'elenco delle linee rifare la pagina
+   intera cancellerebbe quello che si sta scrivendo nel campo di ricerca, e su
+   un telefono con la tastiera aperta è il modo più veloce per far imprecare
+   qualcuno. */
+function aggiornaVista() {
+  if (leggiRotta().vista !== 'linee') { disegna(); return; }
+  const nota = $('#nota-notifiche');
+  if (nota) {
+    nota.textContent = notaNotifiche();
+    nota.classList.toggle('guasta', !!notificheErrore);
+  }
+  disegnaElencoLinee();
 }
 
 /* Su iOS l'app installata non viene quasi mai chiusa davvero: resta sospesa in
@@ -358,17 +395,10 @@ function chiudiScelta() {
 
 function disegnaScelta() {
   const { intestazione, voci, query } = cerca(campoCerca.value);
-  const evidenzia = (nome) => {
-    if (!query) return esc(nome);
-    const i = canon(nome).indexOf(query);
-    if (i < 0) return esc(nome);
-    return esc(nome.slice(0, i)) + '<mark>' + esc(nome.slice(i, i + query.length)) +
-           '</mark>' + esc(nome.slice(i + query.length));
-  };
   listaScelta.innerHTML =
     (intestazione ? `<li class="intestazione">${esc(intestazione)}</li>` : '') +
     voci.map(([id, nome]) =>
-      `<li><button type="button" data-id="${id}">${evidenzia(nome)}</button></li>`).join('');
+      `<li><button type="button" data-id="${id}">${evidenzia(nome, query)}</button></li>`).join('');
 }
 
 listaScelta.addEventListener('click', (e) => {
@@ -418,8 +448,14 @@ async function cambiaRotta() {
   fermaTimer();
 
   if (r.vista === 'linee') {
+    // Il filtro non sopravvive all'uscita: tornandoci si vuole l'elenco
+    // intero, non quello che si stava cercando mezz'ora fa.
+    filtroLinee = '';
     disegna();
-    await caricaLinee();
+    // La chiave si chiede subito, insieme alle linee: serve a sapere già prima
+    // del primo tocco se il server può mandare notifiche, e quindi se ha senso
+    // chiedere il permesso.
+    await Promise.all([caricaLinee(), chiaveNotifiche().catch(() => {})]);
     if (leggiRotta().vista === 'linee') disegna();
     return;
   }
@@ -438,7 +474,8 @@ async function cambiaRotta() {
     // I bollini arrivano da un secondo servizio e non devono far aspettare la
     // home: si ridisegna quando ci sono, e solo se nel frattempo non si è
     // andati altrove.
-    caricaLinee().then(() => { if (leggiRotta().vista === 'home') disegna(); });
+    Promise.all([caricaLinee(), chiaveNotifiche().catch(() => {})])
+      .then(() => { if (leggiRotta().vista === 'home') disegna(); });
     return;
   }
 
@@ -610,13 +647,13 @@ function sezioneLinee() {
     <ul class="lista">${righe.map(rigaLinea).join('')}</ul></section>`;
 }
 
-function rigaLinea(l) {
+function rigaLinea(l, query) {
   const st = statoLinea(l.status);
   const accesa = seguita(l.code);
   return `<li class="riga">
     <span class="riga-tocco statica">
       <span class="segno"><span class="bollino ${st.classe}"></span></span>
-      <span class="testo">${esc(l.name)}<span class="qualifica"> · ${st.etichetta}</span></span>
+      <span class="testo">${evidenzia(l.name, query)}<span class="qualifica"> · ${st.etichetta}</span></span>
     </span>
     <button class="campanella${accesa ? ' accesa' : ''}" type="button"
             data-campanella="${esc(l.code)}" aria-pressed="${accesa}"
@@ -652,23 +689,59 @@ function disegnaLinee() {
     return;
   }
 
+  // Il campo di ricerca sta fuori dal contenitore che si ridisegna: filtrando
+  // si riscrive solo l'elenco, e quello che si sta scrivendo — con il cursore
+  // dov'era — resta al suo posto.
+  app.innerHTML = `
+    <input id="cerca-linee" class="cerca cerca-linee" type="search" inputmode="search"
+           autocomplete="off" autocorrect="off" spellcheck="false"
+           placeholder="Filtra per linea o stazione" aria-label="Filtra le linee"
+           value="${esc(filtroLinee)}">
+    <p id="nota-notifiche" class="nota${notificheErrore ? ' guasta' : ''}">${esc(notaNotifiche())}</p>
+    <div id="elenco-linee"></div>`;
+  disegnaElencoLinee();
+}
+
+/* Il filtro guarda il nome e il codice. Il nome di una linea è la catena delle
+   sue stazioni — "Saronno-Milano Passante-Lodi" — quindi cercare una stazione
+   funziona senza doverle indicizzare a parte. */
+function lineeFiltrate() {
+  const q = canon(filtroLinee);
+  if (!q) return { linee: stato.linee, query: '' };
+  // Il codice si confronta senza spazi: canon() trasforma "RE_13" in "RE 13",
+  // ma chi lo cerca lo scrive attaccato.
+  const qs = q.replace(/ /g, '');
+  const linee = stato.linee.filter((l) =>
+    canon(l.name).includes(q) || canon(l.code).replace(/ /g, '').includes(qs));
+  return { linee, query: q };
+}
+
+function disegnaElencoLinee() {
+  const dove = $('#elenco-linee');
+  if (!dove) return;
+  const { linee, query } = lineeFiltrate();
+
+  if (!linee.length) {
+    dove.innerHTML = `<p class="nota">Nessuna linea per «${esc(filtroLinee)}».</p>`;
+    return;
+  }
+
   // I gruppi si prendono nell'ordine in cui arrivano invece di ordinarli:
   // è quello in cui Trenord li pubblica, e chi conosce le proprie linee le
-  // cerca dove è abituato a trovarle.
+  // cerca dove è abituato a trovarle. Un gruppo rimasto senza linee sparisce,
+  // altrimenti filtrando resterebbero delle intestazioni sopra il vuoto.
   const gruppi = [];
-  for (const l of stato.linee) {
+  for (const l of linee) {
     const ultimo = gruppi[gruppi.length - 1];
     if (ultimo && ultimo.nome === l.group) ultimo.linee.push(l);
     else gruppi.push({ nome: l.group, linee: [l] });
   }
 
-  app.innerHTML = `
-    <p class="nota${notificheErrore ? ' guasta' : ''}">${esc(notaNotifiche())}</p>
-    ${gruppi.map((g) => `
-      <section class="sezione">
-        <h2 class="etichetta-sezione">${esc(g.nome)}</h2>
-        <ul class="lista">${g.linee.map(rigaLinea).join('')}</ul>
-      </section>`).join('')}`;
+  dove.innerHTML = gruppi.map((g) => `
+    <section class="sezione">
+      <h2 class="etichetta-sezione">${esc(g.nome)}</h2>
+      <ul class="lista">${g.linee.map((l) => rigaLinea(l, query)).join('')}</ul>
+    </section>`).join('');
 }
 
 /* Cosa succede quando accendi una campanella, detto prima di accenderla. Una
@@ -680,6 +753,8 @@ function notaNotifiche() {
   switch (statoNotifiche()) {
     case 'da-installare':
       return 'Le notifiche funzionano solo con l\'app aggiunta alla schermata Home del telefono. La campanella intanto tiene la linea in cima alla home.';
+    case 'non-configurate':
+      return 'Le notifiche non sono ancora configurate sul server. La campanella intanto tiene la linea in cima alla home.';
     case 'negato':
       return 'Le notifiche sono bloccate per questo sito: si riattivano dalle impostazioni del telefono. La campanella tiene comunque la linea in cima alla home.';
     case 'da-chiedere':
@@ -998,7 +1073,7 @@ app.addEventListener('click', (e) => {
     // tocco non c'è più. La promessa la si aspetta di là.
     const permesso = accendo && statoNotifiche() === 'da-chiedere'
       ? Notification.requestPermission() : null;
-    disegna();
+    aggiornaVista();
     sincronizzaNotifiche(permesso);
   }
   else if (t.closest('[data-togli]')) {
@@ -1006,6 +1081,12 @@ app.addEventListener('click', (e) => {
     scrivi('tt.preferiti', preferiti().filter((p) => chiaveTratta(p) !== k));
     disegna();
   }
+});
+
+app.addEventListener('input', (e) => {
+  if (e.target.id !== 'cerca-linee') return;
+  filtroLinee = e.target.value;
+  disegnaElencoLinee();
 });
 
 // `toggle` non fa bubbling: si ascolta in fase di cattura sul contenitore.

@@ -196,9 +196,16 @@ quelle che in questo momento hanno un problema. In una giornata normale sono
 zero righe, ed è l'informazione giusta — la lista intera sta dietro a "Tutte",
 raggruppata come la raggruppa Trenord.
 
-La campanella marca le linee che ti riguardano e per ora le tiene in cima; è
-l'appiglio su cui arriveranno le notifiche. Si salva il **codice** della linea,
+La campanella marca le linee che ti riguardano: le tiene in cima alla home ed è
+quello che decide chi riceve le notifiche. Si salva il **codice** della linea,
 non il nome, che cambia quando cambia un capolinea.
+
+In cima all'elenco completo c'è un campo che filtra su nome e codice. Il nome di
+una linea è la catena delle sue stazioni — "Saronno-Milano Passante-Lodi" —
+quindi cercare una stazione funziona senza indicizzarle a parte, e i gruppi
+rimasti vuoti spariscono invece di lasciare intestazioni sopra il niente. Il
+campo sta fuori dal pezzo che si ridisegna: filtrando si riscrive solo l'elenco,
+e quello che si sta scrivendo resta al suo posto con il cursore dov'era.
 
 Accanto al bollino c'è sempre la parola che lo traduce — "regolare",
 "criticità", "gravi criticità". Il colore da solo non è un'informazione per
@@ -238,20 +245,19 @@ perderebbe tutti gli abbonati insieme. Quando il servizio push risponde 404 o
 410 l'abbonamento viene tolto: l'app è stata disinstallata o il permesso
 revocato, e insistere è solo traffico.
 
+**Le chiavi VAPID se le genera il servizio al primo avvio** e stanno sullo
+stesso volume, in `chiavi.json` con permessi 600. Non c'è nessun segreto da
+creare a mano, ed è voluto che stiano lì e non altrove: cambiare le chiavi rende
+inservibili tutti gli abbonamenti presi, e perdere il volume li perde comunque.
+Tenerle separate creerebbe l'unico caso davvero brutto — chiavi nuove e
+abbonamenti vecchi — che è anche quello che nessuno noterebbe, perché fallisce
+in silenzio a ogni invio.
+
 La cifratura è quella di RFC 8291 con la firma VAPID di RFC 8292, e la fa
 [webpush-go](https://github.com/SherClockHolmes/webpush-go). È l'unica
 dipendenza aggiunta oltre a `golang.org/x/net`, ed è aggiunta apposta: ECDH più
 HKDF più AES-GCM più un JWT ES256 non è codice da scrivere in casa per
 risparmiare una riga in `go.mod`.
-
-**Senza chiavi VAPID il servizio parte lo stesso**, con le notifiche spente e i
-bollini che si vedono comunque. Si generano una volta sola:
-
-```sh
-statolinee -chiavi
-```
-
-Se cambiano, tutti gli abbonamenti già presi diventano inservibili.
 
 #### Perché è un servizio a parte
 
@@ -328,10 +334,7 @@ Il tabellone:
 |---|---|---|
 | `PORT` | `8081` | porta di ascolto |
 | `ADDR` | `:8081` | indirizzo completo, ha la precedenza su `PORT` |
-| `DATI` | *(vuoto)* | cartella dove tenere gli abbonamenti; vuoto significa solo in memoria, e si perdono a ogni riavvio |
-| `VAPID_PUBLIC` | *(vuoto)* | chiave pubblica VAPID; senza, le notifiche restano spente |
-| `VAPID_PRIVATE` | *(vuoto)* | chiave privata VAPID |
-| `VAPID_SUBJECT` | l'URL del progetto | `mailto:` o URL di chi manda, come chiede RFC 8292 |
+| `DATI` | *(vuoto)* | cartella dove tenere abbonamenti e chiavi; vuoto significa solo in memoria, e si perdono a ogni riavvio |
 
 | rotta | |
 |---|---|

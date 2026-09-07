@@ -199,6 +199,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .campanella.accesa { color: var(--accento); }
 
+/* Il campo che filtra le linee riusa l'aspetto di quello del selettore
+   stazione, ma lì sta in una riga accanto ad "Annulla" e qui è da solo. */
+.cerca-linee { width: 100%; margin-bottom: 12px; }
+
 /* --- modulo: la nuova ricerca --- */
 
 /* DA e A stanno in un solo riquadro separati da un filo, e il pulsante di
