@@ -165,6 +165,20 @@ func (r *Registro) mettiAvvisi(codice string, nuovi []trenord.Avviso) []trenord.
 	return freschi
 }
 
+// NomeDi è il nome per esteso di una linea, che è quello che finisce nel titolo
+// della notifica: il codice da solo non dice niente a nessuno. Se l'elenco non
+// è ancora arrivato resta il codice, che è meglio di una notifica senza titolo.
+func (r *Registro) NomeDi(codice string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, l := range r.linee {
+		if l.Codice == codice {
+			return l.Nome
+		}
+	}
+	return codice
+}
+
 // AvvisiDi restituisce le comunicazioni note per una linea.
 func (r *Registro) AvvisiDi(codice string) []trenord.Avviso {
 	r.mu.RLock()

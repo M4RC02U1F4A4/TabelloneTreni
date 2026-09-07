@@ -102,6 +102,12 @@ func (s *Servizio) leggi(ctx context.Context) {
 		log.Printf("elenco: %s %s: %s -> %s", c.Linea.Codice, c.Linea.Nome, c.Prima, c.Linea.Stato)
 	}
 	s.leggiDettagli(ctx, linee)
+
+	if s.notificatore != nil {
+		// Fuori dal giro di lettura: è una richiesta di rete per destinatario
+		// verso un servizio altrui, e non deve far tardare la prossima lettura.
+		go s.notificatore.Riconcilia(context.WithoutCancel(ctx), s.registro, time.Now())
+	}
 }
 
 // daInterrogare sceglie di quali linee chiedere le comunicazioni: solo quelle
@@ -187,12 +193,11 @@ func (s *Servizio) ChiediDettaglio(ctx context.Context, codice string) ([]trenor
 	}
 	r.scadeIl = time.Now().Add(Intervallo)
 
+	// Le notifiche non partono da qui. Questa funzione la chiama anche il
+	// telefono aprendo una riga, e con le fasce la domanda non è più "cos'è
+	// cambiato adesso" ma "chi, in questo momento, non lo sa ancora": si
+	// risponde una volta per giro, quando i dettagli sono tutti dentro.
 	novita := s.registro.MettiDettaglio(codice, s.nomeDi(codice), d)
-	if s.notificatore != nil {
-		// Le notifiche partono fuori dal giro: sono una richiesta di rete per
-		// destinatario verso un servizio altrui.
-		go s.notificatore.Annuncia(context.WithoutCancel(ctx), novita)
-	}
 	if novita.Cambio != nil {
 		c := novita.Cambio
 		log.Printf("%s %s: %s -> %s", codice, c.Linea.Nome, c.Prima, c.Linea.Stato)
@@ -206,13 +211,7 @@ func (s *Servizio) ChiediDettaglio(ctx context.Context, codice string) ([]trenor
 // nomeDi ritrova il nome per esteso di una linea, che è quello che finisce nel
 // titolo della notifica: il codice da solo non dice niente a nessuno.
 func (s *Servizio) nomeDi(codice string) string {
-	linee, _ := s.registro.Linee()
-	for _, l := range linee {
-		if l.Codice == codice {
-			return l.Nome
-		}
-	}
-	return codice
+	return s.registro.NomeDi(codice)
 }
 
 func (s *Servizio) Handler() http.Handler {

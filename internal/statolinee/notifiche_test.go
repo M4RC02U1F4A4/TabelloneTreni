@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
@@ -80,6 +81,39 @@ func cambio(codice string, da, a trenord.Stato) Cambio {
 	return Cambio{Linea: trenord.Linea{Codice: codice, Nome: codice + " prova", Stato: a}, Prima: da}
 }
 
+// registroCon prepara un registro come dopo il primo giro di lettura: l'elenco
+// c'è, e del dettaglio della linea si è già letto uno stato.
+func registroCon(t *testing.T, codice string, stato trenord.Stato, avvisi ...trenord.Avviso) *Registro {
+	t.Helper()
+	r := NuovoRegistro()
+	r.Aggiorna([]trenord.Linea{{Codice: codice, Nome: codice + " prova", Stato: stato}}, time.Now())
+	metti(r, codice, stato, 1, avvisi...)
+	return r
+}
+
+// metti fa quello che fa una lettura del dettaglio. Il numero è il giro: gli
+// orari devono crescere, o il registro scarta la risposta come vecchia.
+func metti(r *Registro, codice string, stato trenord.Stato, giro int, avvisi ...trenord.Avviso) {
+	r.MettiDettaglio(codice, codice+" prova", &trenord.Dettaglio{
+		Stato:      stato,
+		Aggiornato: time.Date(2026, 9, 7, 6, giro, 0, 0, time.UTC),
+		Avvisi:     avvisi,
+	})
+}
+
+// primoGiro è la riconciliazione che prende nota e tace. Ogni abbonato ne
+// attraversa una: chi accende una campanella non deve ricevere una notifica per
+// quello che sta già leggendo. I test che vogliono una notifica partono da qui.
+func primoGiro(n *Notificatore, r *Registro) {
+	n.Riconcilia(context.Background(), r, oreDi(8))
+}
+
+// oreDi è un lunedì all'ora data, in un fuso in cui le fasce dei test cadono
+// dove sembra che cadano.
+func oreDi(ora int) time.Time {
+	return time.Date(2026, 9, 7, ora, 0, 0, 0, roma)
+}
+
 // Il giro completo: chi segue la linea riceve un messaggio cifrato e firmato,
 // chi non la segue non riceve niente.
 func TestNotificaSoloAChiSegue(t *testing.T) {
@@ -101,8 +135,10 @@ func TestNotificaSoloAChiSegue(t *testing.T) {
 	}
 
 	n := notificatoreDiProva(t, ab, srv.Client())
-	c := cambio("S2", trenord.Regolare, trenord.Critico)
-	n.Annuncia(context.Background(), Novita{Cambio: &c})
+	reg := registroCon(t, "S2", trenord.Regolare)
+	primoGiro(n, reg)
+	metti(reg, "S2", trenord.Critico, 2)
+	n.Riconcilia(context.Background(), reg, oreDi(8))
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -139,8 +175,10 @@ func TestAbbonamentoScadutoVieneTolto(t *testing.T) {
 	})
 
 	n := notificatoreDiProva(t, ab, srv.Client())
-	c := cambio("S2", trenord.Regolare, trenord.Critico)
-	n.Annuncia(context.Background(), Novita{Cambio: &c})
+	reg := registroCon(t, "S2", trenord.Regolare)
+	primoGiro(n, reg)
+	metti(reg, "S2", trenord.Critico, 2)
+	n.Riconcilia(context.Background(), reg, oreDi(8))
 
 	if ab.Quanti() != 0 {
 		t.Fatalf("abbonamenti = %d, atteso nessuno", ab.Quanti())
@@ -157,8 +195,7 @@ func TestSenzaChiaviNonNotifica(t *testing.T) {
 	}
 	// Deve reggere la chiamata su nil senza esplodere: e' il caso normale di
 	// un'installazione senza notifiche configurate.
-	c := cambio("S2", trenord.Regolare, trenord.Critico)
-	n.Annuncia(context.Background(), Novita{Cambio: &c})
+	n.Riconcilia(context.Background(), registroCon(t, "S2", trenord.Critico), oreDi(8))
 	if n.ChiavePubblica() != "" {
 		t.Error("chiave pubblica non vuota")
 	}
@@ -269,11 +306,11 @@ func TestCambioEAvvisoFannoUnaNotificaSola(t *testing.T) {
 	})
 	n := notificatoreDiProva(t, ab, srv.Client())
 
-	c := cambio("S2", trenord.Regolare, trenord.Critico)
-	n.Annuncia(context.Background(), Novita{
-		Cambio: &c,
-		Avvisi: []trenord.Avviso{{Testo: "Guasto agli impianti a Seveso."}},
-	})
+	reg := registroCon(t, "S2", trenord.Regolare)
+	primoGiro(n, reg)
+	// Il bollino si muove e insieme compare la comunicazione che lo spiega.
+	metti(reg, "S2", trenord.Critico, 2, trenord.Avviso{Testo: "Guasto agli impianti a Seveso."})
+	n.Riconcilia(context.Background(), reg, oreDi(8))
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -291,7 +328,12 @@ func TestNienteDaDireNienteNotifica(t *testing.T) {
 		Sottoscrizione: webpush.Subscription{Endpoint: srv.URL + "/uno", Keys: chiaviFinte(t)},
 		Linee:          []string{"S2"},
 	})
-	notificatoreDiProva(t, ab, srv.Client()).Annuncia(context.Background(), Novita{})
+	n := notificatoreDiProva(t, ab, srv.Client())
+	reg := registroCon(t, "S2", trenord.Critico)
+	primoGiro(n, reg)
+	// Secondo giro senza che sia successo niente: la linea sta come stava.
+	metti(reg, "S2", trenord.Critico, 2)
+	n.Riconcilia(context.Background(), reg, oreDi(8))
 
 	mu.Lock()
 	defer mu.Unlock()

@@ -631,3 +631,50 @@ details[open] .apri { transform: rotate(90deg); }
   padding: 14px 16px 6px; font-size: 11.5px; font-weight: 650;
   letter-spacing: 0.07em; text-transform: uppercase; color: var(--tenue);
 }
+
+/* ------------------------------------------------------- quando avvisarti */
+
+/* Ogni fascia è una scheda, non una riga: porta tre cose — i giorni, l'ora di
+   apertura e quella di chiusura — e incolonnarle in una riga sola su un
+   telefono vorrebbe dire tre campi da cinque millimetri l'uno. */
+.fasce { display: flex; flex-direction: column; gap: 10px; margin: 0 0 4px; padding: 0; }
+.fascia {
+  list-style: none; padding: 12px 14px;
+  background: var(--piano); border: 1px solid var(--bordo); border-radius: var(--raggio);
+}
+/* Una fascia non finita si segnala da sé: il server la rifiuterebbe, e non
+   dirlo qui vorrebbe dire lasciarla lì con l'aria di funzionare. */
+.fascia.incompleta { border-color: var(--rosso); }
+.fascia-testa { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fascia-quando { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+/* I giorni sono sette bersagli in fila: larghi uguali, e abbastanza alti da
+   prenderli con il pollice senza guardare. */
+.giorni { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 10px 0; }
+.giorno {
+  padding: 8px 0; border: 1px solid var(--bordo); border-radius: 8px;
+  background: var(--piano-alto); color: var(--tenue);
+  font-size: 13px; font-weight: 650;
+}
+.giorno.acceso {
+  background: color-mix(in srgb, var(--accento) 18%, var(--piano-alto));
+  border-color: var(--accento); color: var(--accento);
+}
+.nota-fascia { margin: -4px 0 8px; font-size: 12.5px; color: var(--tenue); }
+
+.ore { display: flex; gap: 10px; }
+.ore label {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--tenue);
+}
+/* L'input dell'ora lo disegna il sistema, e su iOS arriva con un fondo suo che
+   sul tema scuro resta bianco: si riveste come gli altri campi, e il colore
+   del testo va detto o resta quello di default del controllo. */
+.ore input[type="time"] {
+  flex: 1; min-width: 0;
+  padding: 8px 10px; border: 1px solid var(--bordo); border-radius: 8px;
+  background: var(--piano-alto); color: var(--testo);
+  font: inherit; font-size: 16px; font-variant-numeric: tabular-nums;
+}
+.riga-aggiungi { margin: 2px 0 0; }
+.riga-aggiungi .btn-testo:disabled { color: var(--tenue); }

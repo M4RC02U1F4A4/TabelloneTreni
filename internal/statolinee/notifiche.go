@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -60,45 +62,126 @@ type messaggio struct {
 	Tag string `json:"tag"`
 }
 
-// Annuncia manda a chi segue la linea quello che è cambiato.
-//
-// Il bollino che si muove e una comunicazione nuova sono due notizie diverse e
-// vanno tutte e due, ma quando arrivano insieme è una notifica sola: sono la
-// stessa cosa vista da due lati, e mandarne due per lo stesso guasto è il modo
-// più rapido per far spegnere le notifiche.
-func (n *Notificatore) Annuncia(ctx context.Context, v Novita) {
-	if n == nil || (v.Cambio == nil && len(v.Avvisi) == 0) {
-		return
-	}
-	codice, nome := v.codiceNome()
-	destinatari := n.abbonati.PerLinea(codice)
-	if len(destinatari) == 0 {
-		return
-	}
+/*
+Riconcilia racconta a ognuno quello che non sa ancora, ma solo mentre è in
 
-	m := messaggio{
-		Titolo: nome,
-		URL:    destinazione(codice),
-		Tag:    "linea-" + codice,
-	}
-	switch {
-	case v.Cambio != nil && len(v.Avvisi) > 0:
-		// Il cambio dice cosa è successo, l'avviso perché: insieme sono la
-		// notifica che serve davvero.
-		m.Corpo = testoCambio(*v.Cambio) + " · " + taglia(v.Avvisi[0].Testo, 150)
-	case v.Cambio != nil:
-		m.Corpo = testoCambio(*v.Cambio)
-	default:
-		m.Corpo = taglia(v.Avvisi[0].Testo, 180)
-	}
+	ascolto.
 
-	corpo, err := json.Marshal(m)
-	if err != nil {
+	Prende il posto del vecchio "annuncia il cambio a tutti nell'istante in cui
+	succede", che con le fasce non poteva funzionare: il cambio si consumava una
+	volta per tutti, e chi in quel momento non ascoltava non l'avrebbe saputo
+	mai. Qui non c'è nessuna coda di notifiche rimandate — girando ogni pochi
+	minuti, il servizio sa già com'è la linea *adesso*, e la domanda giusta non è
+	"cos'è cambiato" ma "cosa non ti ho ancora detto".
+
+	Da cui, gratis, la regola che serviva: un guasto comparso alle 6 e ancora lì
+	alle 7 viene raccontato alle 7, perché alle 7 è ancora diverso da quello che
+	sai. Uno comparso alle 6 e rientrato alle 6 e mezza, alle 7 non è più diverso
+	da niente, e non arriva — che è esattamente il ronzio che le fasce dovevano
+	togliere.
+
+	Fuori dalla fascia non si tocca il visto: è quello che tiene la notizia in
+	sospeso invece di consumarla in silenzio.
+*/
+func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.Time) {
+	if n == nil {
 		return
 	}
-	for _, ab := range destinatari {
-		n.manda(ctx, ab, corpo)
+	for _, ab := range n.abbonati.Tutti() {
+		inAscolto := ab.InAscolto(adesso)
+		visto, cambiato := maps.Clone(ab.Visto), false
+		if visto == nil {
+			visto = map[string]Visto{}
+		}
+		for _, codice := range ab.Linee {
+			stato, noto := r.StatoNoto(codice)
+			if !noto {
+				// Della linea non si è ancora letto il dettaglio, che è la sola
+				// fonte con un orario: senza, non c'è niente da raccontare.
+				continue
+			}
+			avvisi := r.AvvisiDi(codice)
+			adessoVisto := Visto{Stato: stato, Avvisi: impronteDi(avvisi)}
+
+			prima, gia := ab.Visto[codice]
+			if !gia {
+				// Prima volta su questa linea per questa persona: si prende
+				// nota e si tace. Chi accende una campanella ha davanti lo
+				// stato attuale — è il motivo per cui l'ha accesa — e aprirgli
+				// una notifica per quello che sta già leggendo sarebbe una
+				// suoneria di benvenuto.
+				//
+				// Questo si fa anche a fascia chiusa, ed è il punto delicato:
+				// il primo contatto è il punto di partenza della storia, non
+				// una notizia da rimandare. Rimandandolo, la prima mattina
+				// utile si perderebbe — il guasto comparso alle 6 arriverebbe
+				// alle 7 come punto di partenza invece che come novità, cioè in
+				// silenzio, che è esattamente il caso per cui le fasce
+				// esistono.
+				visto[codice], cambiato = adessoVisto, true
+				continue
+			}
+			// Da qui in giù si parla, e fuori dalla fascia non si parla. Il
+			// visto resta indietro di proposito: è quello che tiene la notizia
+			// in sospeso invece di consumarla mentre nessuno ascolta.
+			if !inAscolto {
+				continue
+			}
+			freschi := nuoviAvvisi(avvisi, prima.Avvisi)
+			if stato == prima.Stato && len(freschi) == 0 {
+				continue
+			}
+			m := messaggio{Titolo: r.NomeDi(codice), URL: destinazione(codice), Tag: "linea-" + codice}
+			switch {
+			case stato != prima.Stato && len(freschi) > 0:
+				// Il cambio dice cosa è successo, l'avviso perché: insieme sono
+				// la notifica che serve davvero.
+				m.Corpo = testoCambio(Cambio{
+					Linea: trenord.Linea{Codice: codice, Stato: stato}, Prima: prima.Stato,
+				}) + " · " + taglia(freschi[0].Testo, 150)
+			case stato != prima.Stato:
+				m.Corpo = testoCambio(Cambio{
+					Linea: trenord.Linea{Codice: codice, Stato: stato}, Prima: prima.Stato,
+				})
+			default:
+				m.Corpo = taglia(freschi[0].Testo, 180)
+			}
+			if corpo, err := json.Marshal(m); err == nil {
+				n.manda(ctx, ab, corpo)
+			}
+			// Il visto avanza comunque, riuscito l'invio o no. Non avanzare
+			// vorrebbe dire riprovare la stessa notizia a ogni giro contro un
+			// servizio push che l'ha già rifiutata; e quando il rifiuto è
+			// definitivo l'abbonamento se ne va da sé — vedi manda.
+			visto[codice], cambiato = adessoVisto, true
+		}
+		if cambiato {
+			n.abbonati.SegnaVisto(ab.Sottoscrizione.Endpoint, visto)
+		}
 	}
+}
+
+func impronteDi(avvisi []trenord.Avviso) []string {
+	if len(avvisi) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(avvisi))
+	for _, a := range avvisi {
+		out = append(out, impronta(a.Testo))
+	}
+	return out
+}
+
+// nuoviAvvisi sono le comunicazioni di cui a questa persona non si è ancora
+// detto niente.
+func nuoviAvvisi(avvisi []trenord.Avviso, note []string) []trenord.Avviso {
+	var freschi []trenord.Avviso
+	for _, a := range avvisi {
+		if !slices.Contains(note, impronta(a.Testo)) {
+			freschi = append(freschi, a)
+		}
+	}
+	return freschi
 }
 
 func (v Novita) codiceNome() (string, string) {

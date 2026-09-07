@@ -238,6 +238,40 @@ Il permesso si chiede **dentro il tocco**: `Notification.requestPermission()`
 parte nel gestore del click e la sua promessa si aspetta dopo, perché su iOS una
 chiamata fatta dopo un `await` non conta più come gesto dell'utente.
 
+#### Quando avvisarti: le fasce
+
+Un guasto sulla linea con cui vai al lavoro è una notizia alle 7 e un ronzio
+alle 15. Dall'orologio in cima all'elenco delle linee si scelgono le **fasce** in
+cui le notifiche possono suonare — giorni e orari, quante ne servono: chi lavora
+si mette andata e ritorno e per il resto della giornata non sente niente.
+
+Senza nessuna fascia arrivano a qualunque ora, che è come stavano le cose prima:
+chi non configura niente non si accorge del cambiamento.
+
+**Fuori dalle fasce non si scarta, si rimanda.** Un guasto comparso alle 6 e
+ancora in corso alle 7 arriva alle 7; uno comparso alle 6 e rientrato alle 6 e
+mezza non arriva, perché alle 7 non c'è più niente da dire. Non c'è nessuna coda
+di notifiche in attesa: il servizio sa com'è la linea *adesso* e sa cosa ti ha
+già raccontato, e la differenza fra le due cose è tutto quello che serve. La
+domanda non è "cos'è cambiato" ma "cosa non ti ho ancora detto".
+
+Da qui una conseguenza sull'archivio: **la memoria di cosa è già stato detto sta
+per abbonato**, non una volta per tutti. Con le fasce due persone non sono più
+allo stesso punto della storia — chi ascolta la mattina e chi ascolta la sera
+hanno sentito cose diverse — e un solo "ultimo stato noto" non potrebbe
+rispondere a entrambi. Non arriva dal telefono: l'app riallinea l'abbonamento a
+ogni avvio, e prenderla da lì la azzererebbe ogni volta.
+
+Il **primo contatto** con una linea si prende comunque, anche a fascia chiusa: è
+il punto di partenza della storia e non una notizia. È anche quello che rende
+possibile il caso delle 6→7 — rimandandolo, la prima mattina utile il guasto
+sembrerebbe il punto di partenza invece di una novità, e arriverebbe in silenzio.
+
+Gli orari si leggono sul **quadrante del telefono**: l'app manda il proprio fuso
+insieme alle fasce. Il database dei fusi è compilato dentro il binario
+(`time/tzdata`) perché l'immagine è distroless static, dove `/usr/share/zoneinfo`
+non è garantito: senza, d'estate le fasce si leggerebbero due ore sbagliate.
+
 Gli abbonamenti stanno in un file JSON sul volume del servizio, riscritto per
 intero a ogni modifica e con un rename atomico: sono decine, e un database qui
 costerebbe più di quanto risolve, ma un file troncato a metà da un riavvio
@@ -411,7 +445,7 @@ Il tabellone:
 | `GET /linee` | stato di tutte le linee, con gli avvisi di quelle seguite e l'orario dell'ultima lettura riuscita |
 | `GET /avvisi?linea=S2` | le comunicazioni di una linea, prese al momento se quelle che si hanno sono scadute |
 | `GET /push/chiave` | la chiave pubblica VAPID; vuota se le notifiche non sono configurate |
-| `POST /push/abbonamenti` | registra chi seguire; un elenco di linee vuoto cancella l'abbonamento |
+| `POST /push/abbonamenti` | registra chi seguire, con le fasce e il fuso; un elenco di linee vuoto cancella l'abbonamento |
 | `GET /healthz` | 503 finché non è riuscita una lettura: appena avviato non deve ricevere traffico |
 
 Il volume va ceduto all'utente `nonroot` (uid 65532) la prima volta, perché

@@ -151,6 +151,7 @@ const ICONE = {
   // La campana e il suo battaglio sono due tracciati separati: da piena, il
   // riempimento deve prendere la campana e lasciare fuori il battaglio,
   // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
+  orologio: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   campana: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>' +
     '<path fill="none" d="M13.73 21a2 2 0 0 1-3.46 0"/>',
 };
@@ -181,6 +182,47 @@ const ePreferito = (p) => preferiti().some((x) => chiaveTratta(x) === chiaveTrat
 /* Le linee seguite. Si salva il codice ("S2", "R16") e non il nome, che cambia
    quando Trenord cambia un capolinea: la preferenza sopravvive al cambio. */
 const campanelle = () => leggi('tt.campanelle', []);
+
+/* Le fasce in cui si vogliono ricevere le notifiche sulle linee.
+
+   Elenco vuoto vuol dire sempre, che è come stavano le cose prima: un guasto
+   arriva quando succede, a qualunque ora. Con una fascia sopra, invece, fuori
+   dagli orari non si perde niente — quello che è ancora in corso quando la
+   fascia si apre arriva in quel momento. La regola sta nel servizio, che è il
+   solo posto che sa com'è la linea adesso e cosa ti ha già raccontato.
+
+   I giorni seguono la convenzione di time.Weekday, con la domenica a zero: sono
+   quelli che il server si aspetta, e tradurli qui in mezzo vorrebbe dire avere
+   due convenzioni e un punto in cui sbagliare. */
+const fasce = () => leggi('tt.notifiche', []);
+
+// Il nome IANA del fuso del telefono. Se il browser non lo dice — non capita
+// più da anni, ma costa una riga — resta vuoto e il server usa l'ora italiana.
+function fusoDelTelefono() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
+  catch { return ''; }
+}
+const scriviFasce = (f) => scrivi('tt.notifiche', f);
+
+// I giorni nell'ordine in cui si leggono in Italia: la settimana comincia il
+// lunedì, anche se nel modello la domenica è zero.
+const GIORNI = [
+  { v: 1, l: 'L' }, { v: 2, l: 'M' }, { v: 3, l: 'M' }, { v: 4, l: 'G' },
+  { v: 5, l: 'V' }, { v: 6, l: 'S' }, { v: 0, l: 'D' },
+];
+
+// Andata al lavoro e ritorno: la prima fascia che si aggiunge è quasi sempre
+// una delle due, e proporla già scritta risparmia quattro tocchi.
+const FASCE_PROPOSTE = [
+  { giorni: [1, 2, 3, 4, 5], da: '07:00', a: '09:00' },
+  { giorni: [1, 2, 3, 4, 5], da: '17:00', a: '19:00' },
+];
+
+// Una fascia con gli estremi uguali non è né vuota né di un giorno intero: è
+// una fascia che chi la stava scrivendo non ha finito. Il server la rifiuta, e
+// mandarla vorrebbe dire far comparire un errore al posto di una spiegazione.
+const fasciaCompleta = (f) => !!f.da && !!f.a && f.da !== f.a;
+const fasceValide = () => fasce().every(fasciaCompleta);
 const seguita = (codice) => campanelle().includes(codice);
 
 function alternaCampanella(codice) {
@@ -460,6 +502,13 @@ async function sincronizzaNotifiche(permesso) {
   if (statoNotifiche() !== 'concesso') { aggiornaVista(); return; }
 
   const linee = campanelle();
+  // Una fascia a metà non si manda: il server la rifiuterebbe, e chi la stava
+  // scrivendo vedrebbe un errore invece della riga che gli dice cosa manca.
+  if (!fasceValide()) {
+    notificheErrore = null;
+    aggiornaVista();
+    return;
+  }
   try {
     const reg = await navigator.serviceWorker.ready;
     let abbonamento = await reg.pushManager.getSubscription();
@@ -479,7 +528,17 @@ async function sincronizzaNotifiche(permesso) {
     const r = await fetch(API.abbonamento, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscription: abbonamento, lines: linee }),
+      // Il fuso lo dichiara il telefono: le fasce sono orari sul suo
+      // quadrante, e leggerle su quello del server vorrebbe dire notifiche a
+      // ore che non c'entrano niente con quelle scritte.
+      body: JSON.stringify({
+        subscription: abbonamento,
+        lines: linee,
+        windows: fasce().filter(fasciaCompleta).map((f) => ({
+          days: f.giorni, from: f.da, to: f.a,
+        })),
+        timezone: fusoDelTelefono(),
+      }),
     });
     if (!r.ok) throw new Error(`il server ha risposto ${r.status}`);
     notificheErrore = null;
@@ -615,6 +674,7 @@ function leggiRotta() {
   // #/linee/S2 apre l'elenco già filtrato su quella linea: è dove porta il
   // tocco su una notifica, che altrimenti scaricherebbe sessantacinque righe
   // addosso a chi ne stava cercando una.
+  if (parti[0] === 'notifiche') return { vista: 'notifiche' };
   if (parti[0] === 'linee') return { vista: 'linee', filtro: decodeURIComponent(parti[1] || '') };
   // #/t/S01700/2247/1788645600000 è un treno seguito. Nella rotta ci sono le
   // stesse tre coordinate che si mandano al server, e non il tabellone da cui
@@ -635,6 +695,7 @@ function leggiRotta() {
 
 const rottaDi = (da, a, arrivi) => `#/${arrivi ? 'a' : 'p'}/${da}` + (a && !arrivi ? `/${a}` : '');
 const ROTTA_LINEE = '#/linee';
+const ROTTA_NOTIFICHE = '#/notifiche';
 const rottaTreno = (t) =>
   `#/t/${encodeURIComponent(t.o)}/${encodeURIComponent(t.n)}/${t.d}`;
 
@@ -657,6 +718,11 @@ function apriLineaDaRotta(codice) {
 async function cambiaRotta() {
   const r = leggiRotta();
   fermaTimer();
+
+  if (r.vista === 'notifiche') {
+    disegna();
+    return;
+  }
 
   if (r.vista === 'linee') {
     // Il filtro non sopravvive all'uscita: tornandoci si vuole l'elenco
@@ -811,6 +877,7 @@ function aggiornaEta() {
 function disegna() {
   const r = leggiRotta();
   if (r.vista === 'home') disegnaHome();
+  else if (r.vista === 'notifiche') disegnaNotifiche();
   else if (r.vista === 'linee') disegnaLinee();
   else if (r.vista === 'treno') disegnaTreno(r.treno);
   else disegnaRisultati();
@@ -1194,11 +1261,82 @@ function rigaLineaScheletro() {
   </li>`;
 }
 
+/* Quando avvisarti: la schermata che decide a che ore le notifiche sulle linee
+   possono suonare.
+
+   Ogni fascia porta i suoi giorni, e non ce n'è un elenco solo per tutte:
+   andata e ritorno sono due fasce sugli stessi giorni, ma il sabato mattina di
+   chi lavora un turno è una terza fascia con giorni suoi, e un elenco unico di
+   giorni non saprebbe dirlo. */
+function disegnaNotifiche() {
+  const elenco = fasce();
+  testa.innerHTML = `
+    <div class="testa-riga">
+      <a class="tasto" href="${ROTTA_LINEE}" aria-label="Torna alle linee">${icona('indietro')}</a>
+      <h1 class="titolo">Quando avvisarti</h1>
+    </div>
+    <div class="sottotitolo">${elenco.length
+      ? 'Le notifiche sulle linee arrivano solo in queste fasce'
+      : 'Adesso le notifiche arrivano a qualunque ora'}</div>`;
+
+  app.innerHTML = `
+    <p class="nota">${elenco.length
+      ? 'Fuori dalle fasce non si perde niente: quello che è ancora in corso quando una fascia si apre arriva in quel momento. Quello che è rientrato prima, no.'
+      : 'Aggiungi una fascia per riceverle solo quando ti servono — per esempio andata e ritorno dal lavoro.'}</p>
+    ${elenco.length ? `<ul class="fasce">${elenco.map(rigaFascia).join('')}</ul>` : ''}
+    <p class="riga-aggiungi">
+      <button class="btn-testo" type="button" data-aggiungi-fascia
+              ${elenco.length >= MAX_FASCE ? 'disabled' : ''}>+ Aggiungi una fascia</button>
+    </p>
+    ${elenco.length >= MAX_FASCE ? '<p class="nota">Più di così non serve: sono già una settimana intera.</p>' : ''}
+    ${fasceValide() ? '' : '<p class="nota guasta">Una fascia ha due orari uguali: finiscila e le notifiche riprendono a seguirla.</p>'}
+    ${campanelle().length ? '' : '<p class="nota">Non hai ancora nessuna campanella accesa: le fasce valgono da quando ne accendi una.</p>'}`;
+}
+
+const MAX_FASCE = 8;
+
+function rigaFascia(f, i) {
+  const giorni = GIORNI.map((g) => {
+    const acceso = (f.giorni || []).includes(g.v);
+    return `<button class="giorno${acceso ? ' acceso' : ''}" type="button"
+                    data-giorno="${i}:${g.v}" aria-pressed="${acceso}"
+                    aria-label="${nomeGiorno(g.v)}">${g.l}</button>`;
+  }).join('');
+  return `<li class="fascia${fasciaCompleta(f) ? '' : ' incompleta'}">
+    <div class="fascia-testa">
+      <span class="fascia-quando">${esc(f.da || '--:--')} – ${esc(f.a || '--:--')}</span>
+      <button class="btn-testo" type="button" data-togli-fascia="${i}">Rimuovi</button>
+    </div>
+    <div class="giorni" role="group" aria-label="Giorni della fascia">${giorni}</div>
+    ${(f.giorni || []).length ? '' : '<p class="nota-fascia">Nessun giorno scelto: vale tutti i giorni.</p>'}
+    <div class="ore">
+      <label>dalle <input type="time" data-ora="${i}:da" value="${esc(f.da || '')}"></label>
+      <label>alle <input type="time" data-ora="${i}:a" value="${esc(f.a || '')}"></label>
+    </div>
+  </li>`;
+}
+
+const nomeGiorno = (v) =>
+  ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'][v];
+
+/* Ogni tocco salva e riallinea il server. Non c'è un tasto "salva": una fascia
+   scritta e non salvata è una notifica che non arriva senza che nessuno l'abbia
+   deciso, e il gesto in più lo si scopre solo quando è troppo tardi. */
+function cambiaFasce(muta) {
+  const f = fasce();
+  muta(f);
+  scriviFasce(f);
+  disegna();
+  sincronizzaNotifiche();
+}
+
 function disegnaLinee() {
   testa.innerHTML = `
     <div class="testa-riga">
       <a class="tasto" href="#/" aria-label="Torna alla home">${icona('indietro')}</a>
       <h1 class="titolo">Stato linee</h1>
+      <a class="tasto" href="${ROTTA_NOTIFICHE}"
+         aria-label="Quando ricevere le notifiche">${icona('orologio')}</a>
     </div>
     <div class="sottotitolo">Circolazione Trenord${
       stato.lineeAggiornate ? ` · <span class="${lineeFerme() ? 'fermo' : 'vivo'}">letto ${
@@ -1659,7 +1797,23 @@ function alternaSeguitoDa(el) {
 
 app.addEventListener('click', (e) => {
   const t = e.target;
-  if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
+  if (t.closest('[data-aggiungi-fascia]')) {
+    // La proposta è quella che manca: chi ha già l'andata sta quasi sempre
+    // aggiungendo il ritorno.
+    cambiaFasce((f) => f.push({ ...FASCE_PROPOSTE[Math.min(f.length, 1)] }));
+  }
+  else if (t.closest('[data-togli-fascia]')) {
+    const i = Number(t.closest('[data-togli-fascia]').dataset.togliFascia);
+    cambiaFasce((f) => f.splice(i, 1));
+  }
+  else if (t.closest('[data-giorno]')) {
+    const [i, g] = t.closest('[data-giorno]').dataset.giorno.split(':').map(Number);
+    cambiaFasce((f) => {
+      const giorni = f[i].giorni || [];
+      f[i].giorni = giorni.includes(g) ? giorni.filter((x) => x !== g) : [...giorni, g].sort();
+    });
+  }
+  else if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
   else if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
   else if (t.closest('[data-scambia]')) { [stato.da, stato.a] = [stato.a, stato.da]; disegna(); }
@@ -1714,6 +1868,16 @@ testa.addEventListener('click', (e) => {
   if (!e.target.closest('[data-preferito]')) return;
   alternaPreferito({ f: stato.da, t: stato.arrivi ? null : stato.a, a: stato.arrivi || undefined });
   disegnaRisultati();
+});
+
+/* Gli orari arrivano da un <input type="time">, che sul telefono apre la ruota
+   di sistema: la modifica si sente su change e non su input, o si salverebbe
+   una fascia a ogni scatto della ruota — e con essa una richiesta al server. */
+app.addEventListener('change', (e) => {
+  const el = e.target.closest('[data-ora]');
+  if (!el) return;
+  const [i, quale] = el.dataset.ora.split(':');
+  cambiaFasce((f) => { f[Number(i)][quale] = el.value; });
 });
 
 window.addEventListener('hashchange', cambiaRotta);
