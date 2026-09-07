@@ -16,6 +16,7 @@ import (
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
 
 type sorgenteFinta struct{}
@@ -395,5 +396,57 @@ func TestViaggioCoordinateAccettate(t *testing.T) {
 	}
 	if d["tracked"] != false {
 		t.Errorf("tracked = %v, atteso false", d["tracked"])
+	}
+}
+
+// Il serializzatore è il posto dove queste due cose si decidono, e si prova
+// direttamente: montare una finta ViaggiaTreno sotto al server per leggere due
+// campi vorrebbe dire provare il cablaggio invece della regola.
+func TestIlProvvedimentoArrivaAlClient(t *testing.T) {
+	sano := viaggioJSON(&vt.Andamento{Stazione: "PROVA"}, "")
+	if sano["disrupted"] != false {
+		t.Errorf("treno sano: disrupted = %v, atteso false", sano["disrupted"])
+	}
+	// Uno zero su ogni treno sano sarebbe un campo che si legge per scoprire
+	// che non dice niente: quando non ce ne sono, non c'è.
+	if _, c := sano["suppressedStops"]; c {
+		t.Error("treno sano: suppressedStops presente")
+	}
+
+	guasto := viaggioJSON(&vt.Andamento{
+		Stazione: "PROVA", ConProvvedimento: true, FermateSoppresse: 2,
+	}, "")
+	if guasto["disrupted"] != true {
+		t.Errorf("disrupted = %v, atteso true", guasto["disrupted"])
+	}
+	if guasto["suppressedStops"] != 2 {
+		t.Errorf("suppressedStops = %v, atteso 2", guasto["suppressedStops"])
+	}
+}
+
+// La fermata dove si scende si accende su una sola riga, e per codice: i nomi
+// delle due fonti non coincidono, ed è qui che non devono sbagliare.
+func TestSoloLaFermataSceltaSiAccende(t *testing.T) {
+	a := &vt.Andamento{Stazione: "PROVA", Fermate: []vt.Fermata{
+		{Codice: "S01700", Nome: "UNO"},
+		{Codice: "S01645", Nome: "DUE"},
+		{Codice: "S01820", Nome: "TRE"},
+	}}
+	fermate, ok := viaggioJSON(a, "S01645")["stops"].([]fermataJSON)
+	if !ok {
+		t.Fatal("le fermate non sono nella forma attesa")
+	}
+	for _, f := range fermate {
+		if atteso := f.Code == "S01645"; f.Chosen != atteso {
+			t.Errorf("%s: chosen = %v, atteso %v", f.Name, f.Chosen, atteso)
+		}
+	}
+
+	// Nessuna scelta: nessuna accesa, che è il caso del tabellone senza filtro.
+	fermate, _ = viaggioJSON(a, "")["stops"].([]fermataJSON)
+	for _, f := range fermate {
+		if f.Chosen {
+			t.Errorf("%s accesa senza fermata scelta", f.Name)
+		}
 	}
 }

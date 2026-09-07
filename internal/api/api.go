@@ -203,7 +203,7 @@ func viaggioJSON(a *vt.Andamento, codiceScelta string) map[string]any {
 		}
 		fermate = append(fermate, voce)
 	}
-	return map[string]any{
+	viaggio := map[string]any{
 		"tracked": a.Stazione != "",
 		"delay":   a.Ritardo,
 		// Le coordinate con cui richiedere questo stesso viaggio. Sono quello
@@ -219,16 +219,24 @@ func viaggioJSON(a *vt.Andamento, codiceScelta string) map[string]any {
 		"origin":   a.Origine,
 		"terminus": a.Destinazione,
 		"arrived":  a.Arrivato,
-		// Ended dice che il viaggio è finito da abbastanza tempo da poter
-		// smettere di seguirlo: è il segnale con cui la scheda si toglie da
-		// sola dalla home, senza che nessuno debba ricordarsi di farlo.
-		"ended": a.Concluso(time.Now()),
+		// Disrupted dice che sul treno c'è un provvedimento, senza dire quale:
+		// vedi vt.Andamento, dove sta il perché di questo silenzio. Serve
+		// perché un ritardo sereno su un treno cancellato è la bugia peggiore
+		// che questa scheda possa raccontare.
+		"disrupted": a.ConProvvedimento,
 		"lastSeen": map[string]any{
 			"station": a.Stazione,
 			"time":    orario(a.Ora),
 		},
 		"stops": fermate,
 	}
+	// Quante fermate ViaggiaTreno dichiara soppresse, e solo quando ce ne sono:
+	// una mappa non conosce omitempty, e uno zero su ogni treno sano sarebbe un
+	// campo che si legge per scoprire che non dice niente.
+	if a.FermateSoppresse > 0 {
+		viaggio["suppressedStops"] = a.FermateSoppresse
+	}
+	return viaggio
 }
 
 // fermataScelta traduce il PlaceId RFI della stazione dove si scende nel codice

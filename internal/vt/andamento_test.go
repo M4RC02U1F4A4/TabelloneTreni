@@ -2,10 +2,10 @@ package vt
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"testing"
-	"time"
 )
 
 // Il 2247 è stato catturato in corsa: due fermate servite e quattro ancora da
@@ -189,45 +189,91 @@ func TestIlViaggioPortaLeProprieCoordinate(t *testing.T) {
 	}
 }
 
-// La scheda di un treno seguito si toglie da sola, ma non nell'istante in cui
-// il treno arriva: chi lo seguiva è lì per vedere proprio quello.
-func TestUnViaggioSiConcludeMezzOraDopoLArrivo(t *testing.T) {
-	arrivo := time.Date(2026, 9, 7, 20, 41, 0, 0, time.UTC)
-	casi := []struct {
-		nome     string
-		a        Andamento
-		adesso   time.Time
-		concluso bool
-	}{
-		{
-			nome:   "in corsa",
-			a:      Andamento{Fermate: []Fermata{{Effettiva: arrivo}}},
-			adesso: arrivo.Add(3 * time.Hour),
-		},
-		{
-			nome:   "appena arrivato",
-			a:      Andamento{Arrivato: true, Fermate: []Fermata{{Effettiva: arrivo}}},
-			adesso: arrivo.Add(5 * time.Minute),
-		},
-		{
-			nome:     "arrivato da un pezzo",
-			a:        Andamento{Arrivato: true, Fermate: []Fermata{{Effettiva: arrivo}}},
-			adesso:   arrivo.Add(45 * time.Minute),
-			concluso: true,
-		},
-		{
-			// Non dovrebbe capitare; se capita, tenersi la scheda costa meno
-			// che buttarla per una deduzione che non regge.
-			nome:   "arrivato senza nemmeno un orario reale",
-			a:      Andamento{Arrivato: true, Fermate: []Fermata{{}}},
-			adesso: arrivo.Add(3 * time.Hour),
-		},
+// I provvedimenti si riconoscono, non si traducono: qui si verifica che ogni
+// forma in cui ViaggiaTreno può dire "su questo treno c'è qualcosa" venga
+// vista, e che il codice grezzo arrivi intatto a chi dovrà dargli un nome
+// quando ne avremo visto uno vero.
+func conCampi(t *testing.T, corpo []byte, campi map[string]any) []byte {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal(corpo, &m); err != nil {
+		t.Fatal(err)
 	}
-	for _, caso := range casi {
-		t.Run(caso.nome, func(t *testing.T) {
-			if got := caso.a.Concluso(caso.adesso); got != caso.concluso {
-				t.Errorf("concluso = %v, atteso %v", got, caso.concluso)
+	for k, v := range campi {
+		m[k] = v
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func andamentoCon(t *testing.T, campi map[string]any) *Andamento {
+	t.Helper()
+	corpo := conCampi(t, fixtureAndamento(t), campi)
+	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
+	a, err := c.Andamento(context.Background(), "S01700", "2247", 1788645600000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == nil {
+		t.Fatal("nessun andamento")
+	}
+	return a
+}
+
+func TestUnTrenoSanoNonHaProvvedimenti(t *testing.T) {
+	a := andamentoCon(t, nil)
+	if a.ConProvvedimento {
+		t.Error("un treno sano risulta con provvedimento")
+	}
+	if a.Provvedimento != 0 || a.FermateSoppresse != 0 {
+		t.Errorf("provvedimento = %d, fermate soppresse = %d, attesi zero",
+			a.Provvedimento, a.FermateSoppresse)
+	}
+}
+
+func TestOgniFormaDiProvvedimentoVieneVista(t *testing.T) {
+	casi := []struct {
+		nome  string
+		campi map[string]any
+	}{
+		// Il codice non lo sappiamo leggere, ma "diverso da zero" lo sappiamo.
+		{"un codice qualunque", map[string]any{"provvedimento": 1}},
+		{"un codice che non è l'uno", map[string]any{"provvedimento": 7}},
+		// Il flag può stare acceso da solo: è una seconda porta sullo stesso
+		// fatto, e chiuderne una sola lascerebbe passare il treno per sano.
+		{"solo il flag", map[string]any{"hasProvvedimenti": true}},
+		{"solo la lista", map[string]any{"provvedimenti": []any{map[string]any{"x": 1}}}},
+		{"solo le fermate soppresse", map[string]any{
+			"fermateSoppresse": []any{map[string]any{"id": "S01700"}},
+		}},
+	}
+	for _, c := range casi {
+		t.Run(c.nome, func(t *testing.T) {
+			if a := andamentoCon(t, c.campi); !a.ConProvvedimento {
+				t.Error("provvedimento non visto")
 			}
 		})
+	}
+}
+
+// Il codice grezzo passa intatto: è l'unica cosa che permetterà di dargli un
+// nome quando la produzione ce ne mostrerà uno.
+func TestIlCodiceDelProvvedimentoArrivaIntatto(t *testing.T) {
+	a := andamentoCon(t, map[string]any{"provvedimento": 2})
+	if a.Provvedimento != 2 {
+		t.Errorf("provvedimento = %d, atteso 2", a.Provvedimento)
+	}
+}
+
+func TestLeFermateSoppresseSiContano(t *testing.T) {
+	a := andamentoCon(t, map[string]any{"fermateSoppresse": []any{
+		map[string]any{"id": "S01700"},
+		map[string]any{"id": "S01645"},
+	}})
+	if a.FermateSoppresse != 2 {
+		t.Errorf("fermate soppresse = %d, attese 2", a.FermateSoppresse)
 	}
 }

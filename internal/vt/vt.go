@@ -18,6 +18,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -54,6 +55,9 @@ func (t Treno) Cambiato() bool {
 type Client struct {
 	hc   *http.Client
 	base string
+	// I provvedimenti già annotati nel log, per non riscrivere la stessa riga a
+	// ogni rilettura dello stesso treno. Vedi annotaProvvedimento.
+	provvedimentiVisti sync.Map
 }
 
 func NewClient() *Client {

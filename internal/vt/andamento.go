@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -42,7 +43,26 @@ type Andamento struct {
 	// ViaggiaTreno: dedurlo dall'ultima fermata servita vorrebbe dire chiamare
 	// arrivato anche un treno fermo da un'ora a due stazioni dalla fine.
 	Arrivato bool
-	Fermate  []Fermata
+
+	// ConProvvedimento dice che su questo treno c'è un provvedimento: una
+	// soppressione, una deviazione, qualcosa che cambia il treno e non solo il
+	// suo orario. Senza, un treno cancellato mentre lo si segue resterebbe lì
+	// a dichiarare un ritardo che non significa più niente.
+	//
+	// È uno scostamento riconosciuto, non un codice tradotto. Su dodici treni
+	// sani misurati ViaggiaTreno scrive sempre `provvedimento: 0` e
+	// `hasProvvedimenti: false`: qualunque altra cosa vuol dire che qualcosa
+	// c'è. *Che cosa* non lo si dichiara — il numero non è documentato, e
+	// stampare "soppresso" per un valore mai visto sarebbe inventarlo. Il
+	// codice grezzo resta qui accanto perché la produzione ce lo insegni.
+	ConProvvedimento bool
+	Provvedimento    int
+	// FermateSoppresse è quante ne dichiara ViaggiaTreno. Una lista di fermate
+	// si descrive da sé e non ha codici da interpretare: se non è vuota, quelle
+	// fermate il treno non le fa.
+	FermateSoppresse int
+
+	Fermate []Fermata
 }
 
 // Fermata è una tappa del viaggio, con l'orario previsto e — se il treno ci è
@@ -84,37 +104,23 @@ func (f Fermata) BinarioCambiato() bool {
 		f.BinarioProgrammato != f.BinarioEffettivo
 }
 
-// Concluso dice che il viaggio è finito da abbastanza tempo da poter smettere
-// di seguirlo.
-//
-// Non basta che il treno sia arrivato: chi lo seguiva vuole vedere che è
-// arrivato, e una scheda che sparisce nell'istante in cui la si guarda è una
-// risposta tolta di mano. Passata la mezz'ora, invece, è solo una riga vecchia
-// in cima alla home.
-func (a *Andamento) Concluso(adesso time.Time) bool {
-	if !a.Arrivato {
-		return false
-	}
-	for i := len(a.Fermate) - 1; i >= 0; i-- {
-		if t := a.Fermate[i].Effettiva; !t.IsZero() {
-			return adesso.Sub(t) > 30*time.Minute
-		}
-	}
-	// Arrivato senza un solo orario reale non dovrebbe capitare; se capita,
-	// tenersi la scheda costa meno che buttarla per una deduzione fragile.
-	return false
-}
-
 type andamento struct {
-	NumeroTreno               int       `json:"numeroTreno"`
-	Categoria                 string    `json:"categoria"`
-	Origine                   string    `json:"origine"`
-	Destinazione              string    `json:"destinazione"`
-	Arrivato                  bool      `json:"arrivato"`
-	Ritardo                   float64   `json:"ritardo"`
-	StazioneUltimoRilevamento string    `json:"stazioneUltimoRilevamento"`
-	OraUltimoRilevamento      int64     `json:"oraUltimoRilevamento"`
-	Fermate                   []fermata `json:"fermate"`
+	NumeroTreno      int    `json:"numeroTreno"`
+	Categoria        string `json:"categoria"`
+	Origine          string `json:"origine"`
+	Destinazione     string `json:"destinazione"`
+	Arrivato         bool   `json:"arrivato"`
+	Provvedimento    int    `json:"provvedimento"`
+	HasProvvedimenti bool   `json:"hasProvvedimenti"`
+	// Le due liste non si spacchettano: di una non conosciamo la forma — nei
+	// dati sani è sempre vuota — e dell'altra serve solo quante sono. Tenerle
+	// grezze evita di dichiarare campi che non abbiamo mai visto pieni.
+	Provvedimenti             []json.RawMessage `json:"provvedimenti"`
+	FermateSoppresse          []json.RawMessage `json:"fermateSoppresse"`
+	Ritardo                   float64           `json:"ritardo"`
+	StazioneUltimoRilevamento string            `json:"stazioneUltimoRilevamento"`
+	OraUltimoRilevamento      int64             `json:"oraUltimoRilevamento"`
+	Fermate                   []fermata         `json:"fermate"`
 }
 
 type fermata struct {
@@ -128,6 +134,11 @@ type fermata struct {
 	BinarioEffettivoArrivo     string `json:"binarioEffettivoArrivoDescrizione"`
 	BinarioProgrammatoPartenza string `json:"binarioProgrammatoPartenzaDescrizione"`
 	BinarioEffettivoPartenza   string `json:"binarioEffettivoPartenzaDescrizione"`
+
+	// La lettera con cui ViaggiaTreno classifica la fermata. Su centonovantanove
+	// fermate di treni sani sono soltanto P (partenza), F (intermedia) e A
+	// (arrivo): un'altra lettera è un caso che qui non si sa ancora leggere.
+	TipoFermata string `json:"tipoFermata"`
 }
 
 // binari sceglie quale coppia di binari conta per una fermata.
@@ -141,6 +152,40 @@ func binari(f fermata) (programmato, effettivo string) {
 		return f.BinarioProgrammatoArrivo, f.BinarioEffettivoArrivo
 	}
 	return f.BinarioProgrammatoPartenza, f.BinarioEffettivoPartenza
+}
+
+// annotaProvvedimento scrive nel log, una volta sola per treno e valore, i
+// campi grezzi di un provvedimento. Non decide niente: serve a leggere domani
+// dei casi veri quello che oggi non si può vedere, e a dare un nome al codice
+// con un dato sotto invece che a intuito.
+func (c *Client) annotaProvvedimento(numero string, a andamento) {
+	chiave := fmt.Sprintf("%s|%d|%t", numero, a.Provvedimento, a.HasProvvedimenti)
+	if _, visto := c.provvedimentiVisti.LoadOrStore(chiave, true); visto {
+		return
+	}
+	tipi := map[string]int{}
+	for _, f := range a.Fermate {
+		tipi[f.TipoFermata]++
+	}
+	log.Printf("provvedimento da imparare: treno %s provvedimento=%d hasProvvedimenti=%t provvedimenti=%s fermateSoppresse=%s tipoFermata=%v",
+		numero, a.Provvedimento, a.HasProvvedimenti,
+		compatta(a.Provvedimenti), compatta(a.FermateSoppresse), tipi)
+}
+
+// compatta rimette insieme un elenco grezzo per il log, tagliato: serve a
+// riconoscere la forma dei dati, non a riversarli tutti in un file.
+func compatta(v []json.RawMessage) string {
+	if len(v) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "?"
+	}
+	if len(b) > 600 {
+		return string(b[:600]) + "…"
+	}
+	return string(b)
 }
 
 // Andamento legge il viaggio di un singolo treno.
@@ -193,7 +238,20 @@ func (c *Client) Andamento(ctx context.Context, codOrigine, numero string, data 
 		Stazione: nomeStazione(a.StazioneUltimoRilevamento),
 		Ora:      quando(a.OraUltimoRilevamento),
 		Arrivato: a.Arrivato,
-		Fermate:  make([]Fermata, 0, len(a.Fermate)),
+
+		ConProvvedimento: a.Provvedimento != 0 || a.HasProvvedimenti ||
+			len(a.Provvedimenti) > 0 || len(a.FermateSoppresse) > 0,
+		Provvedimento:    a.Provvedimento,
+		FermateSoppresse: len(a.FermateSoppresse),
+
+		Fermate: make([]Fermata, 0, len(a.Fermate)),
+	}
+	// Il caso che non sappiamo ancora leggere si annota una volta, così
+	// l'encoding lo insegna la produzione invece di indovinarlo qui. Una volta
+	// per treno e per valore: un treno soppresso lo si rilegge ogni minuto per
+	// un giorno e mezzo, e senza il filtro sarebbe la stessa riga mille volte.
+	if out.ConProvvedimento {
+		c.annotaProvvedimento(out.Numero, a)
 	}
 	// Il numero della risposta ha la precedenza su quello chiesto solo se c'è:
 	// è la forma in cui ViaggiaTreno lo scrive, e la richiesta poteva portarlo

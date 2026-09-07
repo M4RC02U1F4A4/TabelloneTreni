@@ -399,6 +399,22 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    soppresso, e mezz'ora dopo se ne va da solo. */
 .treno.concluso { opacity: 0.65; }
 
+/* Il provvedimento prende una riga sua in cima alla scheda, prima del ritardo:
+   è la cosa che cambia il senso del numero grande, quindi si legge prima di
+   quello. Ambra e non rosso — l'ambra qui è la gravità fra il verde e il rosso,
+   ed è esattamente quello che si può dire di un provvedimento di cui non si
+   conosce il tipo: che c'è, non che è il peggiore. */
+.provvedimento {
+  grid-column: 1 / -1; margin: 0 0 8px;
+  padding: 5px 9px; border-radius: 8px;
+  background: color-mix(in srgb, var(--ambra) 15%, var(--piano-alto));
+  border-left: 3px solid var(--ambra);
+  color: var(--ambra); font-size: 12.5px; font-weight: 600;
+}
+/* Nella scheda aperta dal tabellone la fascia non sta in una griglia ma in un
+   blocco, e va rientrata come le fermate che le stanno sotto. */
+.fermate ~ .provvedimento, details .provvedimento { margin: 0 14px 8px 46px; }
+
 /* Il segnalibro sotto le fermate. Sta in fondo alla scheda aperta e non sulla
    riga chiusa: è lì che si scopre se c'è qualcosa da seguire. */
 .segui-riga { margin: 0 14px 10px 46px; }
