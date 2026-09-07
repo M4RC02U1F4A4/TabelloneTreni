@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -195,4 +196,47 @@ func ApriChiavi(percorso string) (pubblica, privata string, err error) {
 		return "", "", err
 	}
 	return pubblica, privata, nil
+}
+
+// AvvisaComunicazione manda una notifica per un avviso nuovo su una linea.
+//
+// È la ragione per cui gli scioperi non hanno bisogno di una fonte propria:
+// Trenord li pubblica come comunicazioni sulle linee interessate, giorni
+// prima, ed è esattamente quando serve saperlo.
+func (n *Notificatore) AvvisaComunicazione(ctx context.Context, l trenord.Linea, a trenord.Avviso) {
+	if n == nil {
+		return
+	}
+	destinatari := n.abbonati.PerLinea(l.Codice)
+	if len(destinatari) == 0 {
+		return
+	}
+	corpo, err := json.Marshal(messaggio{
+		Titolo: l.Nome,
+		Corpo:  taglia(a.Testo, 180),
+		URL:    destinazione(l.Codice),
+		// Tag diverso da quello del bollino: un avviso non sostituisce un
+		// cambio di stato, sono due notizie e servono tutte e due.
+		Tag: "avviso-" + l.Codice,
+	})
+	if err != nil {
+		return
+	}
+	for _, ab := range destinatari {
+		n.manda(ctx, ab, corpo)
+	}
+}
+
+// taglia accorcia il testo per la schermata di blocco, dove oltre un paio di
+// righe non si legge comunque e il resto lo nasconde il sistema. Si taglia su
+// uno spazio, per non mozzare una parola a metà.
+func taglia(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	t := s[:max]
+	if i := strings.LastIndex(t, " "); i > max/2 {
+		t = t[:i]
+	}
+	return t + "…"
 }

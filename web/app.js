@@ -654,15 +654,44 @@ function sezioneLinee() {
 function rigaLinea(l, query) {
   const st = statoLinea(l.status);
   const accesa = seguita(l.code);
-  return `<li class="riga">
-    <span class="riga-tocco statica">
-      <span class="segno"><span class="bollino ${st.classe}"></span></span>
-      <span class="testo">${evidenzia(l.name, query)}<span class="qualifica"> · ${st.etichetta}</span></span>
-    </span>
-    <button class="campanella${accesa ? ' accesa' : ''}" type="button"
-            data-campanella="${esc(l.code)}" aria-pressed="${accesa}"
-            aria-label="${accesa ? 'Smetti di seguire' : 'Segui'} ${esc(l.name)}"
-            >${icona('campana', accesa)}</button>
+  const avvisi = l.notices || [];
+  const campanella = `<button class="campanella${accesa ? ' accesa' : ''}" type="button"
+      data-campanella="${esc(l.code)}" aria-pressed="${accesa}"
+      aria-label="${accesa ? 'Smetti di seguire' : 'Segui'} ${esc(l.name)}"
+      >${icona('campana', accesa)}</button>`;
+  const nome = `<span class="segno"><span class="bollino ${st.classe}"></span></span>
+    <span class="testo">${evidenzia(l.name, query)}<span class="qualifica"> · ${st.etichetta}</span></span>`;
+
+  // Senza comunicazioni la riga resta quella di prima: un <details> che non ha
+  // niente da aprire è un invito a toccare che non porta da nessuna parte.
+  if (!avvisi.length) {
+    return `<li class="riga">
+      <span class="riga-tocco statica">${nome}</span>
+      ${campanella}
+    </li>`;
+  }
+  return `<li class="riga con-avvisi">
+    <details class="avvisi-linea">
+      <summary class="riga-tocco">
+        ${nome}
+        <span class="conta-avvisi">${avvisi.length}</span>
+        <span class="chevron">${icona('gallone')}</span>
+      </summary>
+      <ol class="avvisi">${avvisi.map(vociAvviso).join('')}</ol>
+    </details>
+    ${campanella}
+  </li>`;
+}
+
+/* Il testo arriva da Trenord e va messo con esc(): sono comunicazioni scritte a
+   mano in sala operativa, e ci finiscono dentro indirizzi e virgolette. */
+function vociAvviso(a) {
+  const d = a.date ? new Date(a.date) : null;
+  const quando = d && !isNaN(d)
+    ? d.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }) : '';
+  return `<li>
+    ${quando ? `<span class="data-avviso">${esc(quando)}</span>` : ''}
+    <span class="testo-avviso">${esc(a.text)}</span>
   </li>`;
 }
 

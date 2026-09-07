@@ -203,6 +203,37 @@ ul { list-style: none; margin: 0; padding: 0; }
    testo scuro. */
 .riga-tocco .testo mark { background: none; color: var(--accento); font-weight: 650; }
 
+/* --- le comunicazioni di una linea --- */
+
+/* La riga con avvisi si apre come una scheda treno: stesso gesto, stesso
+   gallone che ruota. Il <details> prende tutta la larghezza a sinistra della
+   campanella, che resta fuori e toccabile anche a scheda aperta. */
+.riga.con-avvisi { flex-wrap: wrap; align-items: flex-start; }
+.avvisi-linea { flex: 1; min-width: 0; }
+.avvisi-linea summary { list-style: none; cursor: pointer; }
+.avvisi-linea summary::-webkit-details-marker { display: none; }
+.avvisi-linea[open] .chevron { transform: rotate(90deg); }
+.avvisi-linea .chevron { transition: transform 0.15s; }
+@media (prefers-reduced-motion: reduce) { .avvisi-linea .chevron { transition: none; } }
+
+/* Il numero dice quante sono prima di aprire: una comunicazione o cinque
+   cambiano se vale la pena toccare adesso o dopo. */
+.conta-avvisi {
+  flex: none; min-width: 20px; text-align: center;
+  font-size: 12px; font-weight: 650; color: var(--tenue);
+  background: var(--piano-alto); border-radius: 10px; padding: 1px 7px;
+}
+.avvisi {
+  margin: 0 0 12px; padding: 0 2px 0 27px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.avvisi li { font-size: 13.5px; line-height: 1.5; }
+.avvisi .data-avviso {
+  display: block; font-size: 11px; font-weight: 650; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--tenue); margin-bottom: 2px;
+}
+.avvisi .testo-avviso { color: var(--testo); }
+
 /* Il campo che filtra le linee riusa l'aspetto di quello del selettore
    stazione, ma lì sta in una riga accanto ad "Annulla" e qui è da solo. */
 .cerca-linee { width: 100%; margin-bottom: 12px; }

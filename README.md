@@ -8,7 +8,7 @@ con l'orario a cui ci arrivano.
 - **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
 - **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
 - **toccando un treno si vede dov'è adesso**, con gli orari reali delle fermate che ha già servito
-- **lo stato delle linee Trenord**, con la **notifica sul telefono** quando il bollino di una linea seguita cambia
+- **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
@@ -259,6 +259,32 @@ dipendenza aggiunta oltre a `golang.org/x/net`, ed è aggiunta apposta: ECDH pi�
 HKDF più AES-GCM più un JWT ES256 non è codice da scrivere in casa per
 risparmiare una riga in `go.mod`.
 
+#### Perché il bollino non basta
+
+Il semaforo dice che qualcosa non va, non cosa. Il testo sta sul dettaglio
+della linea, a `/rest/render/line-details`, nella stessa forma dell'elenco: un
+JSON che incarta un frammento HTML, con un blocco per comunicazione, ciascuno
+con la propria data.
+
+**Si chiede solo per le linee che qualcuno segue davvero.** Il dettaglio pesa
+oltre 130 KB, quasi tutto elenco di stazioni: prenderle tutte, o anche solo
+tutte quelle non regolari — un giorno storto ne ha una dozzina — vorrebbe dire
+chiedere a Trenord megabyte ogni cinque minuti per un testo che in quel momento
+non sta leggendo nessuno. Con questa regola il costo è proporzionale a quanto la
+cosa serve: nessun abbonato, nessuna richiesta.
+
+**Gli scioperi arrivano da qui**, e non da una fonte propria: Trenord li
+pubblica come comunicazioni sulle linee interessate, giorni prima. Che siano
+proprio le linee che segui è il punto — uno sciopero cambia la giornata solo su
+quelle.
+
+Un avviso nuovo produce una notifica. Il confronto è sul **testo** e non sulla
+data: Trenord ripubblica lo stesso avviso con l'ora aggiornata quando lo
+ritocca, e avvisare due volte della stessa cosa è il modo più rapido per far
+spegnere le notifiche. Come per i bollini, la prima lettura dopo un avvio non
+annuncia niente, altrimenti ogni rilascio riannuncerebbe i lavori annunciati ad
+agosto.
+
 #### Perché è un servizio a parte
 
 `statolinee` è un secondo processo, non un pezzo del tabellone, per tre motivi:
@@ -338,7 +364,7 @@ Il tabellone:
 
 | rotta | |
 |---|---|
-| `GET /linee` | stato di tutte le linee, con l'orario dell'ultima lettura riuscita |
+| `GET /linee` | stato di tutte le linee, con gli avvisi di quelle seguite e l'orario dell'ultima lettura riuscita |
 | `GET /push/chiave` | la chiave pubblica VAPID; vuota se le notifiche non sono configurate |
 | `POST /push/abbonamenti` | registra chi seguire; un elenco di linee vuoto cancella l'abbonamento |
 | `GET /healthz` | 503 finché non è riuscita una lettura: appena avviato non deve ricevere traffico |
@@ -384,6 +410,10 @@ go run ./cmd/genstations
 - **Le notifiche su iOS vogliono l'app installata.** Web Push su iPhone
   funziona solo dalla schermata Home, non da una scheda di Safari. L'app lo
   dice, e lì la campanella serve solo a tenere la linea in cima.
+- **Gli avvisi ci sono solo per le linee seguite da qualcuno.** Sono le
+  campanelle a decidere cosa si scarica. Su iOS aperto come pagina in Safari,
+  dove le notifiche non esistono, non si crea nessun abbonamento e quindi non
+  arrivano nemmeno gli avvisi: lì la campanella resta il solo segnalibro.
 - **I bollini coprono la sola Lombardia.** Sono le linee di Trenord: un treno
   RFI fuori regione non ha nessuno stato di linea associato.
 

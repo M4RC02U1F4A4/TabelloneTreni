@@ -1,0 +1,95 @@
+package trenord
+
+import (
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
+
+// La fixture è la risposta vera del dettaglio della S2, catturata il 7
+// settembre 2026: due avvisi, dei lavori in corso fino a dicembre e uno
+// sciopero. Sono le due cose per cui questo endpoint vale la pena — il
+// bollino da solo direbbe "regolare" in entrambi i casi.
+func TestParseAvvisi(t *testing.T) {
+	f, err := os.Open("testdata/line-details-S2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	avvisi, err := ParseAvvisi(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(avvisi) != 2 {
+		t.Fatalf("avvisi = %d, attesi 2: %+v", len(avvisi), avvisi)
+	}
+
+	atteso := time.Date(2026, 8, 24, 16, 1, 0, 0, time.UTC)
+	if !avvisi[0].Data.Equal(atteso) {
+		t.Errorf("data = %v, attesa %v", avvisi[0].Data, atteso)
+	}
+	if !strings.Contains(avvisi[0].Testo, "lavori di potenziamento infrastrutturale") {
+		t.Errorf("primo avviso: %q", avvisi[0].Testo)
+	}
+	// Lo sciopero arriva da qui e non da una fonte a parte: e' la ragione per
+	// cui non serve andarlo a cercare altrove.
+	if !strings.Contains(avvisi[1].Testo, "sciopero") {
+		t.Errorf("secondo avviso: %q", avvisi[1].Testo)
+	}
+	// Il testo non deve portarsi dietro il markup nè gli spazi del template.
+	for _, a := range avvisi {
+		if strings.Contains(a.Testo, "<") || strings.Contains(a.Testo, "  ") {
+			t.Errorf("testo sporco: %q", a.Testo)
+		}
+	}
+}
+
+// Una linea senza comunicazioni ha il carosello vuoto, e non è un errore.
+func TestAvvisiAssenti(t *testing.T) {
+	const vuoto = `{"message":"<div class=\"carousel-line owl-carousel\"></div>"}`
+	avvisi, err := ParseAvvisi(strings.NewReader(vuoto))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(avvisi) != 0 {
+		t.Fatalf("avvisi = %+v, atteso nessuno", avvisi)
+	}
+}
+
+// Una risposta senza carosello invece è markup che non riconosciamo più, ed è
+// diverso da "questa linea non ha avvisi": la prima cosa va vista, la seconda
+// è la normalità.
+func TestAvvisiSenzaCarosello(t *testing.T) {
+	casi := map[string]string{
+		"pagina estranea": `{"message":"<div class=\"altro\"></div>"}`,
+		"403 anti-bot":    `{"code":"403","message":"Forbidden"}`,
+	}
+	for nome, corpo := range casi {
+		t.Run(nome, func(t *testing.T) {
+			if _, err := ParseAvvisi(strings.NewReader(corpo)); err == nil {
+				t.Fatal("attesa una segnalazione di errore")
+			}
+		})
+	}
+}
+
+// Un avviso con la data storta vale comunque: perderlo per una data
+// significherebbe non dire di uno sciopero perché non si sa quando è stato
+// annunciato.
+func TestAvvisoConDataStorta(t *testing.T) {
+	const c = `{"message":"<div class=\"carousel-line\"><div class=\"item info\">` +
+		`<span class=\"news-date\">non-una-data</span>` +
+		`<div class=\"body-texts\"><p>Sciopero il 12 dicembre.</p></div></div></div>"}`
+	avvisi, err := ParseAvvisi(strings.NewReader(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(avvisi) != 1 || avvisi[0].Testo != "Sciopero il 12 dicembre." {
+		t.Fatalf("avvisi = %+v", avvisi)
+	}
+	if !avvisi[0].Data.IsZero() {
+		t.Errorf("data = %v, attesa vuota", avvisi[0].Data)
+	}
+}

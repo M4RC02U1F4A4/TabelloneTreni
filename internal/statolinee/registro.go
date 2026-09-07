@@ -29,9 +29,12 @@ type Registro struct {
 	linee      []trenord.Linea
 	precedente map[string]trenord.Stato
 	aggiornato time.Time
+	avvisi     map[string][]trenord.Avviso
 }
 
-func NuovoRegistro() *Registro { return &Registro{} }
+func NuovoRegistro() *Registro {
+	return &Registro{avvisi: map[string][]trenord.Avviso{}}
+}
 
 // Aggiorna sostituisce lo stato e restituisce i bollini cambiati.
 //
@@ -68,4 +71,41 @@ func (r *Registro) Linee() ([]trenord.Linea, time.Time) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.linee, r.aggiornato
+}
+
+// MettiAvvisi sostituisce le comunicazioni di una linea e restituisce quelle
+// che prima non c'erano.
+//
+// Il confronto è sul testo e non sulla data: Trenord ripubblica lo stesso
+// avviso con l'ora aggiornata quando lo ritocca, e avvisare due volte della
+// stessa cosa è il modo più rapido per far spegnere le notifiche.
+func (r *Registro) MettiAvvisi(codice string, nuovi []trenord.Avviso) []trenord.Avviso {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	vecchi, cera := r.avvisi[codice]
+	r.avvisi[codice] = nuovi
+	// Prima lettura: niente è "nuovo", come per i bollini. Altrimenti ogni
+	// riavvio riannuncerebbe i lavori annunciati a agosto.
+	if !cera {
+		return nil
+	}
+	conosciuti := make(map[string]bool, len(vecchi))
+	for _, a := range vecchi {
+		conosciuti[a.Testo] = true
+	}
+	var freschi []trenord.Avviso
+	for _, a := range nuovi {
+		if !conosciuti[a.Testo] {
+			freschi = append(freschi, a)
+		}
+	}
+	return freschi
+}
+
+// AvvisiDi restituisce le comunicazioni note per una linea.
+func (r *Registro) AvvisiDi(codice string) []trenord.Avviso {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.avvisi[codice]
 }

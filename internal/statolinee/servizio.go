@@ -22,6 +22,19 @@ type Sorgente interface {
 	Fetch(ctx context.Context) ([]trenord.Linea, error)
 }
 
+// SorgenteAvvisi è la parte facoltativa: una sorgente che sa anche dire perché
+// una linea non è regolare. Sta a parte perché il servizio funziona lo stesso
+// senza, e i test del ciclo di lettura non hanno motivo di implementarla.
+type SorgenteAvvisi interface {
+	Avvisi(ctx context.Context, codice string) ([]trenord.Avviso, error)
+}
+
+// MaxAvvisiPerGiro è l'ultima difesa sul numero di linee interrogate a ogni
+// lettura. Non dovrebbe mai scattare — le linee seguite sono due o tre — ma il
+// dettaglio di una linea pesa oltre 130 KB, e un tetto sul traffico verso un
+// servizio altrui è il genere di cosa che si mette prima di averne bisogno.
+const MaxAvvisiPerGiro = 12
+
 type Servizio struct {
 	sorgente     Sorgente
 	registro     *Registro
@@ -76,6 +89,58 @@ func (s *Servizio) leggi(ctx context.Context) {
 	if s.notificatore != nil && len(cambi) > 0 {
 		go s.notificatore.Avvisa(context.WithoutCancel(ctx), cambi)
 	}
+	s.leggiAvvisi(ctx, linee)
+}
+
+// daInterrogare sceglie di quali linee chiedere le comunicazioni: solo quelle
+// che qualcuno segue davvero.
+//
+// Il dettaglio di una linea pesa oltre 130 KB, quasi tutto elenco di stazioni.
+// Prenderle tutte, o anche solo tutte quelle non regolari — un giorno storto ne
+// ha una dozzina — vorrebbe dire chiedere a Trenord megabyte ogni cinque minuti
+// per un testo che in quel momento non sta leggendo nessuno. Con questa regola
+// il costo è proporzionale a quanto la cosa serve: nessun abbonato, nessuna
+// richiesta.
+//
+// Vale anche per gli scioperi, che Trenord pubblica come comunicazioni sulle
+// linee interessate: arrivano su quelle che segui, che sono le uniche per cui
+// uno sciopero cambia la giornata.
+func (s *Servizio) daInterrogare(linee []trenord.Linea) []trenord.Linea {
+	if s.abbonati == nil {
+		return nil
+	}
+	var scelte []trenord.Linea
+	for _, l := range linee {
+		if len(scelte) >= MaxAvvisiPerGiro {
+			break
+		}
+		if len(s.abbonati.PerLinea(l.Codice)) > 0 {
+			scelte = append(scelte, l)
+		}
+	}
+	return scelte
+}
+
+func (s *Servizio) leggiAvvisi(ctx context.Context, linee []trenord.Linea) {
+	fonte, ok := s.sorgente.(SorgenteAvvisi)
+	if !ok {
+		return
+	}
+	for _, l := range s.daInterrogare(linee) {
+		c, annulla := context.WithTimeout(ctx, 30*time.Second)
+		avvisi, err := fonte.Avvisi(c, l.Codice)
+		annulla()
+		if err != nil {
+			log.Printf("avvisi di %s: %v", l.Codice, err)
+			continue
+		}
+		for _, a := range s.registro.MettiAvvisi(l.Codice, avvisi) {
+			log.Printf("%s avviso nuovo: %.80s", l.Codice, a.Testo)
+			if s.notificatore != nil {
+				go s.notificatore.AvvisaComunicazione(context.WithoutCancel(ctx), l, a)
+			}
+		}
+	}
 }
 
 func (s *Servizio) Handler() http.Handler {
@@ -125,15 +190,27 @@ func (s *Servizio) abbonamento(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// lineaJSON è una linea con attaccate le sue comunicazioni, quando le
+// abbiamo: il client le vuole insieme, e chiederle a parte vorrebbe dire una
+// richiesta per linea per una cosa che quasi sempre non c'è.
+type lineaJSON struct {
+	trenord.Linea
+	Avvisi []trenord.Avviso `json:"notices,omitempty"`
+}
+
 func (s *Servizio) linee(w http.ResponseWriter, r *http.Request) {
 	linee, quando := s.registro.Linee()
 	if quando.IsZero() {
 		http.Error(w, `{"error":"stato non ancora disponibile"}`, http.StatusServiceUnavailable)
 		return
 	}
+	fuori := make([]lineaJSON, 0, len(linee))
+	for _, l := range linee {
+		fuori = append(fuori, lineaJSON{Linea: l, Avvisi: s.registro.AvvisiDi(l.Codice)})
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]any{
 		"updated": quando.UTC().Format(time.RFC3339),
-		"lines":   linee,
+		"lines":   fuori,
 	})
 }

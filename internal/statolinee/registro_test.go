@@ -97,3 +97,82 @@ func TestOscillazione(t *testing.T) {
 		}
 	}
 }
+
+func avviso(testo string) trenord.Avviso {
+	return trenord.Avviso{Data: quando, Testo: testo}
+}
+
+// Come per i bollini, la prima lettura non è una notizia: altrimenti ogni
+// riavvio riannuncerebbe i lavori annunciati ad agosto.
+func TestPrimaLetturaAvvisiNonProduceNiente(t *testing.T) {
+	r := NuovoRegistro()
+	if n := r.MettiAvvisi("S2", []trenord.Avviso{avviso("lavori"), avviso("sciopero")}); len(n) != 0 {
+		t.Fatalf("nuovi = %+v, atteso nessuno", n)
+	}
+	if len(r.AvvisiDi("S2")) != 2 {
+		t.Fatalf("conservati = %+v", r.AvvisiDi("S2"))
+	}
+}
+
+func TestAvvisiNuovi(t *testing.T) {
+	r := NuovoRegistro()
+	r.MettiAvvisi("S2", []trenord.Avviso{avviso("lavori")})
+
+	nuovi := r.MettiAvvisi("S2", []trenord.Avviso{avviso("lavori"), avviso("sciopero l'8")})
+	if len(nuovi) != 1 || nuovi[0].Testo != "sciopero l'8" {
+		t.Fatalf("nuovi = %+v", nuovi)
+	}
+	// Il giro dopo non è più nuovo.
+	if n := r.MettiAvvisi("S2", []trenord.Avviso{avviso("lavori"), avviso("sciopero l'8")}); len(n) != 0 {
+		t.Fatalf("riannunciato: %+v", n)
+	}
+}
+
+// Trenord ripubblica lo stesso avviso con l'ora aggiornata quando lo ritocca.
+// Se il confronto fosse sulla data, ogni ritocco sarebbe una notifica, e due
+// notifiche per la stessa cosa sono il modo più rapido per farle spegnere.
+func TestStessoAvvisoConDataNuovaNonRiavvisa(t *testing.T) {
+	r := NuovoRegistro()
+	r.MettiAvvisi("S2", []trenord.Avviso{avviso("sciopero l'8")})
+
+	ritoccato := trenord.Avviso{Data: quando.Add(3 * time.Hour), Testo: "sciopero l'8"}
+	if n := r.MettiAvvisi("S2", []trenord.Avviso{ritoccato}); len(n) != 0 {
+		t.Fatalf("riannunciato: %+v", n)
+	}
+}
+
+// Gli avvisi di una linea non devono comparire su un'altra.
+func TestAvvisiNonSiMescolano(t *testing.T) {
+	r := NuovoRegistro()
+	r.MettiAvvisi("S2", []trenord.Avviso{avviso("guasto a Seveso")})
+	r.MettiAvvisi("R16", []trenord.Avviso{avviso("lavori ad Asso")})
+
+	if len(r.AvvisiDi("S2")) != 1 || r.AvvisiDi("S2")[0].Testo != "guasto a Seveso" {
+		t.Errorf("S2 = %+v", r.AvvisiDi("S2"))
+	}
+	if len(r.AvvisiDi("S99")) != 0 {
+		t.Errorf("S99 = %+v, atteso nessuno", r.AvvisiDi("S99"))
+	}
+}
+
+// Le comunicazioni si chiedono solo per le linee che qualcuno segue: il
+// dettaglio di una linea pesa oltre 130 KB, e senza abbonati non c'è nessuno
+// per cui valga la pena chiederlo.
+func TestSiInterroganoSoloLeLineeSeguite(t *testing.T) {
+	tutte := linee("S1", trenord.Regolare, "S2", trenord.Critico, "R16", trenord.Grave)
+
+	svc := Nuovo(nil)
+	if n := svc.daInterrogare(tutte); len(n) != 0 {
+		t.Fatalf("senza abbonati = %+v, atteso nessuna richiesta", n)
+	}
+
+	ab, _ := ApriAbbonati("")
+	ab.Registra(abbonamento("https://push.example/uno", "S1"))
+	svc = Nuovo(nil).ConNotifiche(ab, nil)
+
+	scelte := svc.daInterrogare(tutte)
+	// Solo S1: S2 e R16 non sono regolari, ma non le segue nessuno.
+	if len(scelte) != 1 || scelte[0].Codice != "S1" {
+		t.Fatalf("scelte = %+v, attesa la sola S1", scelte)
+	}
+}
