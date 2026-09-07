@@ -9,8 +9,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,8 +16,6 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
-
-	webpush "github.com/SherClockHolmes/webpush-go"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/statolinee"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/trenord"
@@ -30,35 +26,24 @@ var versione = "dev"
 func main() {
 	log.SetFlags(log.Ltime)
 
-	// Le chiavi VAPID si generano una volta sola e poi restano: se cambiano,
-	// tutti gli abbonamenti gia' presi diventano inservibili. Sta qui invece
-	// che in un comando a parte perche' e' una riga di lavoro, e cercarla dove
-	// gira il servizio e' piu' facile che ricordarsi che esiste un altro
-	// binario.
-	generaChiavi := flag.Bool("chiavi", false, "genera una coppia di chiavi VAPID ed esci")
-	flag.Parse()
-	if *generaChiavi {
-		privata, pubblica, err := webpush.GenerateVAPIDKeys()
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("VAPID_PUBLIC=%s\nVAPID_PRIVATE=%s\n", pubblica, privata)
-		return
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	abbonati, err := statolinee.ApriAbbonati(percorsoAbbonamenti())
+	abbonati, err := statolinee.ApriAbbonati(percorsoDati("abbonamenti.json"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	notificatore := statolinee.NuovoNotificatore(abbonati,
-		os.Getenv("VAPID_PUBLIC"), os.Getenv("VAPID_PRIVATE"), os.Getenv("VAPID_SUBJECT"))
-	if notificatore == nil {
-		log.Print("notifiche spente: VAPID_PUBLIC e VAPID_PRIVATE non impostate")
-	} else {
-		log.Printf("notifiche accese (%d abbonamenti)", abbonati.Quanti())
+	// Le chiavi se le fa il servizio al primo avvio e se le tiene accanto agli
+	// abbonamenti: non c'e' niente da creare a mano, e le due cose vivono e
+	// muoiono insieme, che e' l'unico modo in cui ha senso.
+	pubblica, privata, err := statolinee.ApriChiavi(percorsoDati("chiavi.json"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	notificatore := statolinee.NuovoNotificatore(abbonati, pubblica, privata, "")
+	log.Printf("notifiche accese (%d abbonamenti)", abbonati.Quanti())
+	if os.Getenv("DATI") == "" {
+		log.Print("DATI non impostata: chiavi e abbonamenti si perdono al riavvio")
 	}
 
 	svc := statolinee.Nuovo(trenord.NewClient()).ConNotifiche(abbonati, notificatore)
@@ -87,15 +72,16 @@ func main() {
 	}
 }
 
-// percorsoAbbonamenti dice dove tenere gli abbonamenti alle notifiche. Vuoto
-// significa solo in memoria: si perdono a ogni riavvio, il che va bene per
-// provare in locale e non va bene in produzione.
-func percorsoAbbonamenti() string {
+// percorsoDati dice dove tenere le cose che devono sopravvivere al riavvio:
+// gli abbonamenti alle notifiche e le chiavi con cui si spediscono. Vuoto
+// significa solo in memoria, il che va bene per provare in locale e non va bene
+// in produzione, dove i riavvii sono uno per rilascio.
+func percorsoDati(nome string) string {
 	d := os.Getenv("DATI")
 	if d == "" {
 		return ""
 	}
-	return filepath.Join(d, "abbonamenti.json")
+	return filepath.Join(d, nome)
 }
 
 func indirizzo() string {

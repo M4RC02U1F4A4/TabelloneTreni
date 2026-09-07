@@ -3,8 +3,11 @@ package statolinee
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -133,4 +136,56 @@ func (n *Notificatore) manda(ctx context.Context, ab Abbonamento, corpo []byte) 
 	if resp.StatusCode >= 300 {
 		log.Printf("notifica rifiutata: %s", resp.Status)
 	}
+}
+
+// chiaviVAPID è l'identità con cui il servizio si presenta ai servizi push.
+type chiaviVAPID struct {
+	Pubblica string `json:"public"`
+	Privata  string `json:"private"`
+}
+
+// ApriChiavi carica le chiavi VAPID, generandole al primo avvio.
+//
+// Stanno sul volume accanto agli abbonamenti, e non in un segreto da creare a
+// mano, perché le due cose vivono e muoiono insieme: cambiare le chiavi rende
+// inservibili tutti gli abbonamenti presi, e perdere il volume li perde
+// comunque. Tenerle separate creerebbe l'unico caso davvero brutto — chiavi
+// nuove e abbonamenti vecchi — che è anche quello che nessuno noterebbe,
+// perché fallisce in silenzio a ogni invio.
+//
+// Un percorso vuoto le genera in memoria: va bene per provare in locale, dove
+// perderle a ogni riavvio non costa niente.
+func ApriChiavi(percorso string) (pubblica, privata string, err error) {
+	if percorso == "" {
+		privata, pubblica, err = webpush.GenerateVAPIDKeys()
+		return pubblica, privata, err
+	}
+	b, err := os.ReadFile(percorso)
+	if err == nil {
+		var c chiaviVAPID
+		if err := json.Unmarshal(b, &c); err != nil {
+			return "", "", fmt.Errorf("%s: %w", percorso, err)
+		}
+		if c.Pubblica == "" || c.Privata == "" {
+			return "", "", fmt.Errorf("%s: chiavi incomplete", percorso)
+		}
+		return c.Pubblica, c.Privata, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", "", err
+	}
+
+	privata, pubblica, err = webpush.GenerateVAPIDKeys()
+	if err != nil {
+		return "", "", err
+	}
+	dati, err := json.Marshal(chiaviVAPID{Pubblica: pubblica, Privata: privata})
+	if err != nil {
+		return "", "", err
+	}
+	// 0600: la chiave privata è quella con cui si firma verso i servizi push.
+	if err := scriviAtomico(percorso, dati, 0o600); err != nil {
+		return "", "", err
+	}
+	return pubblica, privata, nil
 }

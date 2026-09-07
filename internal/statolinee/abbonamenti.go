@@ -129,22 +129,31 @@ func (a *Abbonati) scrivi() error {
 	if err != nil {
 		return err
 	}
-	// Scrittura atomica: si scrive accanto e si rinomina. Il rename è atomico
-	// sullo stesso filesystem, quindi il file buono o è quello vecchio o è
-	// quello nuovo, mai mezzo dell'uno e mezzo dell'altro.
-	tmp, err := os.CreateTemp(filepath.Dir(a.percorso), ".abbonamenti-*")
+	return scriviAtomico(a.percorso, b, 0o600)
+}
+
+// scriviAtomico scrive accanto e rinomina. Il rename è atomico sullo stesso
+// filesystem, quindi il file buono o è quello vecchio o è quello nuovo, mai
+// mezzo dell'uno e mezzo dell'altro: un riavvio a metà scrittura perderebbe
+// altrimenti tutti gli abbonati insieme.
+func scriviAtomico(percorso string, dati []byte, modo os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(percorso), "."+filepath.Base(percorso)+"-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(b); err != nil {
+	if err := tmp.Chmod(modo); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(dati); err != nil {
 		tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), a.percorso)
+	return os.Rename(tmp.Name(), percorso)
 }
 
 func valida(ab Abbonamento) error {

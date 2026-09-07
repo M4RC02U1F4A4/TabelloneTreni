@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -174,6 +176,67 @@ func TestTestoDelCambio(t *testing.T) {
 	for _, caso := range casi {
 		if got := testoCambio(caso.c); got != caso.atteso {
 			t.Errorf("%s -> %s: %q, atteso %q", caso.c.Prima, caso.c.Linea.Stato, got, caso.atteso)
+		}
+	}
+}
+
+// Le chiavi devono restare le stesse fra un riavvio e l'altro: se cambiano,
+// tutti gli abbonamenti gia' presi diventano inservibili, e falliscono in
+// silenzio a ogni invio.
+func TestChiaviStabiliFraRiavvii(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "chiavi.json")
+
+	pub1, priv1, err := ApriChiavi(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub1 == "" || priv1 == "" {
+		t.Fatal("chiavi vuote al primo avvio")
+	}
+
+	pub2, priv2, err := ApriChiavi(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub1 != pub2 || priv1 != priv2 {
+		t.Fatal("le chiavi sono cambiate al secondo avvio")
+	}
+
+	// La privata firma verso i servizi push: il file non deve essere leggibile
+	// da chiunque passi sul volume.
+	info, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := info.Mode().Perm(); m != 0o600 {
+		t.Errorf("permessi = %o, attesi 600", m)
+	}
+}
+
+// Senza percorso le chiavi si generano in memoria: serve a provare in locale,
+// e deve funzionare, non fallire.
+func TestChiaviInMemoria(t *testing.T) {
+	pub, priv, err := ApriChiavi("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub == "" || priv == "" {
+		t.Fatal("chiavi vuote")
+	}
+}
+
+// Un file di chiavi rovinato e' meglio saperlo all'avvio che scoprirlo al
+// primo invio fallito.
+func TestChiaviRovinate(t *testing.T) {
+	d := t.TempDir()
+	for nome, contenuto := range map[string]string{
+		"storto.json": "non-json",
+		"a-meta.json": `{"public":"BLzN"}`,
+	} {
+		f := filepath.Join(d, nome)
+		os.WriteFile(f, []byte(contenuto), 0o600)
+		if _, _, err := ApriChiavi(f); err == nil {
+			t.Errorf("%s: accettato, atteso un errore", nome)
 		}
 	}
 }

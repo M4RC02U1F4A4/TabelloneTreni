@@ -21,16 +21,12 @@ services:
     entrypoint: ["/statolinee"]
     restart: unless-stopped
     environment:
-      # Gli abbonamenti alle notifiche devono sopravvivere ai riavvii, che qui
-      # sono uno per rilascio. Senza DATI il servizio parte lo stesso e li tiene
-      # in memoria: va bene per provare, non in produzione.
+      # Qui dentro finiscono gli abbonamenti alle notifiche e le chiavi con cui
+      # si spediscono: il servizio se le genera al primo avvio, non c'e' niente
+      # da creare a mano. Devono sopravvivere ai riavvii, che sono uno per
+      # rilascio. Senza DATI il servizio parte lo stesso e tiene tutto in
+      # memoria: va bene per provare, non in produzione.
       DATI: /dati
-      # Le chiavi si generano una volta sola con `statolinee -chiavi`. Se
-      # cambiano, tutti gli abbonamenti presi diventano inservibili. Senza, le
-      # notifiche restano spente e i bollini si vedono lo stesso.
-      VAPID_PUBLIC: ${VAPID_PUBLIC:-}
-      VAPID_PRIVATE: ${VAPID_PRIVATE:-}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     volumes:
       - abbonamenti:/dati
     # L'immagine gira come nonroot (uid 65532) e un volume Docker appena creato
