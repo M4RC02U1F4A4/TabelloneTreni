@@ -93,3 +93,52 @@ func TestAvvisoConDataStorta(t *testing.T) {
 		t.Errorf("data = %v, attesa vuota", avvisi[0].Data)
 	}
 }
+
+// Trenord scrive le comunicazioni a mano, spesso incollando da Word, e i byte
+// tipografici di Windows-1252 arrivano non convertiti: sul telefono diventano
+// quadratini in mezzo alle parole. Nella fixture c'e' "dell'8 settembre"
+// scritto proprio cosi'.
+func TestApostrofoDiWord(t *testing.T) {
+	f, err := os.Open("testdata/line-details-S2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	avvisi, err := ParseAvvisi(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var sciopero string
+	for _, a := range avvisi {
+		if strings.Contains(a.Testo, "sciopero") {
+			sciopero = a.Testo
+		}
+	}
+	if sciopero == "" {
+		t.Fatal("avviso dello sciopero non trovato")
+	}
+	if !strings.Contains(sciopero, "dell\u20198 settembre") {
+		t.Errorf("apostrofo non riparato: %q", sciopero)
+	}
+	for _, r := range sciopero {
+		if r >= 0x80 && r <= 0x9f {
+			t.Errorf("carattere di controllo U+%04X rimasto nel testo", r)
+		}
+	}
+}
+
+func TestRiparaCP1252(t *testing.T) {
+	casi := map[string]string{
+		"dell\u00928 settembre":  "dell\u20198 settembre",
+		"\u0093virgolette\u0094": "\u201cvirgolette\u201d",
+		"trattino \u0096 lungo":  "trattino \u2013 lungo",
+		"niente da riparare":     "niente da riparare",
+		"buttato \u0081 via":     "buttato  via",
+	}
+	for dentro, atteso := range casi {
+		if got := riparaCP1252(dentro); got != atteso {
+			t.Errorf("%q -> %q, atteso %q", dentro, got, atteso)
+		}
+	}
+}

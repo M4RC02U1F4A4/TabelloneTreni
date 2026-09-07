@@ -151,6 +151,40 @@ func testo(n *html.Node) string {
 	return b.String()
 }
 
+/*
+Le comunicazioni di Trenord le scrive una persona, spesso incollando da
+
+	Word, e arrivano con i byte 0x80-0x9F lasciati passare cosi' com'erano: in
+	Windows-1252 sono virgolette e trattini tipografici, ma decodificati come
+	Latin-1 diventano caratteri di controllo, che sul telefono si vedono come un
+	quadratino in mezzo a una parola.
+
+	La tabella e' quella di CP1252 per quell'intervallo. Le cinque posizioni che
+	li' non sono assegnate restano a zero e vengono buttate: meglio un carattere
+	in meno che un quadratino.
+*/
+var cp1252 = [32]rune{
+	'\u20ac', 0, '\u201a', '\u0192', '\u201e', '\u2026', '\u2020', '\u2021',
+	'\u02c6', '\u2030', '\u0160', '\u2039', '\u0152', 0, '\u017d', 0,
+	0, '\u2018', '\u2019', '\u201c', '\u201d', '\u2022', '\u2013', '\u2014',
+	'\u02dc', '\u2122', '\u0161', '\u203a', '\u0153', 0, '\u017e', '\u0178',
+}
+
+func riparaCP1252(s string) string {
+	if !strings.ContainsFunc(s, func(r rune) bool { return r >= 0x80 && r <= 0x9f }) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if r >= 0x80 && r <= 0x9f {
+			if c := cp1252[r-0x80]; c != 0 {
+				return c
+			}
+			return -1 // non assegnato in CP1252: si butta
+		}
+		return r
+	}, s)
+}
+
 func pulisci(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+	return riparaCP1252(strings.Join(strings.Fields(s), " "))
 }
