@@ -26,14 +26,24 @@ type Server struct {
 	catalogo *stations.Catalogo
 	statici  fs.FS
 	versione string
+	// statoLinee è la base URL del servizio che segue le linee Trenord. Sta
+	// fuori da qui perché interroga Trenord a ritmo suo; il tabellone gli fa
+	// solo da tramite, come già fa con RFI, per non obbligare il telefono a
+	// conoscere un secondo indirizzo e a farsi bastare il CORS di qualcun altro.
+	statoLinee string
+	clientHTTP *http.Client
 
 	elencoUnaVolta sync.Once
 	elencoBody     []byte
 	elencoETag     string
 }
 
-func New(svc *board.Service, cat *stations.Catalogo, statici fs.FS, versione string) *Server {
-	return &Server{svc: svc, catalogo: cat, statici: statici, versione: versione}
+func New(svc *board.Service, cat *stations.Catalogo, statici fs.FS, versione, statoLinee string) *Server {
+	return &Server{
+		svc: svc, catalogo: cat, statici: statici, versione: versione,
+		statoLinee: strings.TrimSuffix(statoLinee, "/"),
+		clientHTTP: &http.Client{Timeout: 10 * time.Second},
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -41,6 +51,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/stations", s.stazioni)
 	mux.HandleFunc("GET /api/board", s.tabellone)
 	mux.HandleFunc("GET /api/train", s.treno)
+	mux.HandleFunc("GET /api/lines", s.linee)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))
 	})
@@ -220,6 +231,41 @@ func (s *Server) treno(w http.ResponseWriter, r *http.Request) {
 		errore(w, http.StatusInternalServerError, "errore interno")
 		return
 	}
+	w.Header().Set("Cache-Control", "no-cache")
+	scriviJSON(w, r, body, etag(body))
+}
+
+// linee inoltra lo stato delle linee dal servizio che lo segue.
+//
+// Il corpo si legge tutto in memoria invece di riversarlo: sono pochi KB, e
+// averlo intero permette di calcolarci l'ETag, che è quello che risparmia il
+// trasferimento quando i bollini non cambiano — cioè quasi sempre.
+func (s *Server) linee(w http.ResponseWriter, r *http.Request) {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.statoLinee+"/linee", nil)
+	if err != nil {
+		errore(w, http.StatusInternalServerError, "errore interno")
+		return
+	}
+	resp, err := s.clientHTTP.Do(req)
+	if err != nil {
+		log.Printf("stato linee: %v", err)
+		errore(w, http.StatusBadGateway, "stato linee non disponibile")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("stato linee: risposta %s", resp.Status)
+		errore(w, http.StatusBadGateway, "stato linee non disponibile")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		errore(w, http.StatusBadGateway, "stato linee non disponibile")
+		return
+	}
+	// I bollini li muove una persona in sala operativa: cambiano di rado, ma
+	// quando cambiano vanno visti subito, quindi si richiede sempre e si
+	// risparmia solo il corpo.
 	w.Header().Set("Cache-Control", "no-cache")
 	scriviJSON(w, r, body, etag(body))
 }

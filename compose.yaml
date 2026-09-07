@@ -4,7 +4,23 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    environment:
+      STATO_LINEE_URL: http://statolinee:8081
     # Il servizio non scrive niente e non tiene stato oltre la cache in memoria.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  # Stessa immagine, altro binario: segue lo stato delle linee Trenord e lo
+  # serve al tabellone. Sta a parte perché interroga Trenord a ritmo suo e una
+  # volta sola per tutti — se il tabellone scalasse a due repliche, dentro ci
+  # sarebbero due poller — e perché è qui che finiranno gli abbonamenti alle
+  # notifiche, cioè lo stato su disco che il tabellone non vuole avere.
+  statolinee:
+    image: ghcr.io/m4rc02u1f4a4/tabellonetreni:latest
+    entrypoint: ["/statolinee"]
+    restart: unless-stopped
+    # Nessuna porta pubblicata: ci parla solo il tabellone, dalla rete interna.
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

@@ -12,7 +12,7 @@ con l'orario a cui ci arrivano.
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
 - installabile sulla schermata iniziale del telefono
-- immagine Docker da 9 MB, nessun database, nessuno stato su disco
+- immagine Docker da 16 MB con due servizi dentro, nessun database, nessuno stato su disco
 
 |  |  |
 |:--|:--|
@@ -169,6 +169,54 @@ RFI, che italiani lo sono sempre. Il database dei fusi sta dentro il binario
 (404 KB) perché l'immagine finale è una distroless static, dove non c'è nessun
 `/usr/share/zoneinfo` su cui contare.
 
+### Lo stato delle linee Trenord
+
+RFI dice come va il singolo treno; se una linea intera ha un problema lo si
+scopre treno per treno. Trenord pubblica il proprio semaforo per linea — le 65
+linee lombarde con tre stati: regolare, con criticità, con gravi criticità — ed
+è quel dato che viene raccolto qui.
+
+**La pagina "Le nostre linee" arriva vuota.** L'elenco lo chiede il browser a
+`/rest/render/shoulder-lines`, che risponde con un JSON contenente lo stesso
+frammento HTML che la pagina si innesta da sé. Chiedere direttamente lì costa
+135 KB invece del megabyte e passa della pagina completa, senza mappa Google né
+widget di terze parti, e ne escono 5 KB di JSON per il telefono.
+
+I tre stati e il fatto che siano tre non sono dedotti dai colori: la pagina
+esegue uno script che si rilegge i propri semafori cercando le classi
+`green-line`, `critical` e `danger`, ed è quella la fonte. Una linea il cui
+semaforo non si riconosce viene **scartata**, non mostrata come regolare: se
+Trenord cambia il markup è meglio una linea in meno che una falsa rassicurazione.
+
+#### Perché è un servizio a parte
+
+`statolinee` è un secondo processo, non un pezzo del tabellone, per tre motivi:
+
+1. **Va interrogato una volta sola per tutti.** Il tabellone gira a due repliche;
+   con il poller dentro, le letture verso Trenord raddoppierebbero insieme alle
+   repliche, e più avanti raddoppierebbero anche le notifiche.
+2. **Avrà stato su disco.** Gli abbonamenti alle notifiche vanno ricordati fra
+   un rilascio e l'altro. Il tabellone non scrive niente e gira con il
+   filesystem in sola lettura: è una proprietà che conviene non perdere.
+3. **Se cade, cadono i bollini e basta.** I tabelloni sono la ragione per cui
+   l'applicazione esiste e continuano a funzionare: `/api/lines` risponde 502 e
+   il resto non se ne accorge.
+
+I due binari stanno però nella **stessa immagine**, distinti dall'entrypoint:
+vengono dallo stesso commit, si rilasciano insieme e non possono andare fuori
+sincrono. La pipeline resta una.
+
+Il tabellone fa da tramite su `/api/lines` invece di far parlare il telefono
+direttamente con il servizio, per la stessa ragione per cui questo server
+esiste: una sola origine, nessun CORS, nessun secondo indirizzo da conoscere.
+L'ETag ci risparmia il corpo quando i bollini non cambiano, cioè quasi sempre —
+li muove una persona in sala operativa.
+
+Una lettura fallita **non azzera niente**: si continua a servire l'ultimo stato
+buono, e il campo `updated` dice di quando è. Il primo giro dopo un avvio non
+produce mai un cambio di stato, altrimenti ogni rilascio annuncerebbe come
+"nuova" ogni linea che in quel momento non è regolare.
+
 ### Il riconoscimento delle fermate
 
 I nomi delle fermate sul tabellone sono abbreviati e non combaciano con quelli
@@ -191,13 +239,35 @@ eccezioni vere si aggiungono a mano in `cmd/genstations/main.go`.
 docker run -p 8080:8080 ghcr.io/m4rc02u1f4a4/tabellonetreni:latest
 ```
 
-oppure `docker compose up -d`. In sviluppo basta `go run .` — l'interfaccia è
-HTML, CSS e JavaScript senza passo di build, quindi non serve Node.
+I servizi però sono due, quindi la forma completa è `docker compose up -d`:
+oltre al tabellone parte `statolinee`, che è la stessa immagine avviata con
+`entrypoint: ["/statolinee"]` e non pubblica nessuna porta — ci parla solo il
+tabellone dalla rete interna.
+
+In sviluppo bastano `go run .` e `go run ./cmd/statolinee` in due terminali;
+l'interfaccia è HTML, CSS e JavaScript senza passo di build, quindi non serve
+Node. Senza `statolinee` il tabellone funziona: è solo `/api/lines` a
+rispondere 502.
+
+Il tabellone:
 
 | variabile | difetto | |
 |---|---|---|
 | `PORT` | `8080` | porta di ascolto |
 | `ADDR` | `:8080` | indirizzo completo, ha la precedenza su `PORT` |
+| `STATO_LINEE_URL` | `http://statolinee:8081` | dove risponde il servizio delle linee |
+
+`statolinee`, che legge da Trenord ogni 5 minuti:
+
+| variabile | difetto | |
+|---|---|---|
+| `PORT` | `8081` | porta di ascolto |
+| `ADDR` | `:8081` | indirizzo completo, ha la precedenza su `PORT` |
+
+| rotta | |
+|---|---|
+| `GET /linee` | stato di tutte le linee, con l'orario dell'ultima lettura riuscita |
+| `GET /healthz` | 503 finché non è riuscita una lettura: appena avviato non deve ricevere traffico |
 
 ## Aggiornare il catalogo delle stazioni
 
@@ -225,7 +295,15 @@ go run ./cmd/genstations
   dell'elenco di ViaggiaTreno: lì la pastiglia ciano non compare mai.
 - **Il markup di RFI può cambiare senza preavviso.** I test girano su pagine
   reali salvate in `internal/rfi/testdata`: se si rompono senza che sia cambiato
-  il codice, è cambiato il sito.
+  il codice, è cambiato il sito. Vale lo stesso per Trenord, in
+  `internal/trenord/testdata`.
+- **Verso Trenord bisogna spacciarsi per un browser.** Con RFI l'applicazione si
+  dichiara per quello che è; davanti a `trenord.it` c'è invece un Akamai Bot
+  Manager che a uno User-Agent onesto risponde 403 su quell'endpoint. È l'unico
+  header che conta — Referer e `X-Requested-With` non cambiano nulla, provati
+  uno per uno — ed è isolato in una variabile sola, `trenord.UserAgent`.
+- **I bollini coprono la sola Lombardia.** Sono le linee di Trenord: un treno
+  RFI fuori regione non ha nessuno stato di linea associato.
 
 ## Rilasci
 

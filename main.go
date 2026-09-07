@@ -53,7 +53,7 @@ func main() {
 	svc := board.New(rfi.NewClient(), stations.Default).ConLive(vt.NewClient())
 	srv := &http.Server{
 		Addr:              indirizzo(),
-		Handler:           api.New(svc, stations.Default, statici, versione).Handler(),
+		Handler:           api.New(svc, stations.Default, statici, versione, statoLinee()).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -76,6 +76,15 @@ func main() {
 	if err := srv.Shutdown(chiusura); err != nil {
 		log.Printf("arresto forzato: %v", err)
 	}
+}
+
+// statoLinee è dove risponde il servizio che segue le linee Trenord. Il valore
+// di default è il nome che il servizio ha dentro compose.
+func statoLinee() string {
+	if u := os.Getenv("STATO_LINEE_URL"); u != "" {
+		return u
+	}
+	return "http://statolinee:8081"
 }
 
 func indirizzo() string {

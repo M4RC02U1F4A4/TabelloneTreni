@@ -24,12 +24,14 @@ func (sorgenteFinta) Fetch(ctx context.Context, placeID int, arrivals bool) (*rf
 	}, nil
 }
 
-func server() http.Handler {
+func server() http.Handler { return serverCon("") }
+
+func serverCon(statoLinee string) http.Handler {
 	statici := fstest.MapFS{
 		"index.html":    {Data: []byte("<!doctype html><title>x</title>" + string(make([]byte, 2000)))},
 		"icona-180.png": {Data: []byte("\x89PNG\r\n\x1a\n" + string(make([]byte, 2000)))},
 	}
-	return New(board.New(sorgenteFinta{}, stations.Default), stations.Default, statici, "test").Handler()
+	return New(board.New(sorgenteFinta{}, stations.Default), stations.Default, statici, "test", statoLinee).Handler()
 }
 
 func chiedi(t *testing.T, h http.Handler, percorso string, intestazioni map[string]string) *http.Response {
@@ -175,5 +177,70 @@ func TestVersioneNelleIntestazioni(t *testing.T) {
 		if v := chiedi(t, h, p, nil).Header.Get("X-Versione"); v != "test" {
 			t.Errorf("%s: X-Versione = %q", p, v)
 		}
+	}
+}
+
+// Il tabellone fa da tramite verso il servizio delle linee per la stessa
+// ragione per cui esiste: il telefono parla con un'origine sola. Qui conta che
+// il corpo passi intatto e che l'ETag venga calcolato, perché è quello che
+// risparmia il trasferimento quando i bollini non cambiano.
+func TestLineeInoltrate(t *testing.T) {
+	const corpo = `{"updated":"2026-09-07T10:00:00Z","lines":[{"code":"S2","name":"Seveso","group":"LINEE SUBURBANE","status":1}]}`
+	monte := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/linee" {
+			t.Errorf("percorso richiesto = %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, corpo)
+	}))
+	defer monte.Close()
+
+	h := serverCon(monte.URL)
+	resp := chiedi(t, h, "/api/lines", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stato = %d", resp.StatusCode)
+	}
+	letto, _ := io.ReadAll(resp.Body)
+	if string(letto) != corpo {
+		t.Fatalf("corpo alterato:\n  ho  %s\n  atteso %s", letto, corpo)
+	}
+	tag := resp.Header.Get("ETag")
+	if tag == "" {
+		t.Fatal("senza ETag: il corpo si ritrasferirebbe a ogni richiesta")
+	}
+
+	// Con l'ETag di ritorno il corpo non deve ripartire.
+	ancora := chiedi(t, h, "/api/lines", map[string]string{"If-None-Match": tag})
+	defer ancora.Body.Close()
+	if ancora.StatusCode != http.StatusNotModified {
+		t.Fatalf("stato = %d, atteso 304", ancora.StatusCode)
+	}
+}
+
+// Se il servizio delle linee è giù, il tabellone deve dirlo e restare in
+// piedi: è la parte che serve davvero a prendere il treno.
+func TestLineeServizioGiu(t *testing.T) {
+	monte := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "rotto", http.StatusInternalServerError)
+	}))
+	monte.Close() // chiuso apposta: la connessione non si apre nemmeno
+
+	resp := chiedi(t, serverCon(monte.URL), "/api/lines", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("stato = %d, atteso 502", resp.StatusCode)
+	}
+	var d map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	if d["error"] == "" {
+		t.Errorf("risposta senza errore leggibile: %v", d)
+	}
+
+	// Il resto del tabellone continua a funzionare.
+	if r := chiedi(t, serverCon(monte.URL), "/api/board?from=1715", nil); r.StatusCode != 200 {
+		t.Errorf("tabellone = %d", r.StatusCode)
 	}
 }
