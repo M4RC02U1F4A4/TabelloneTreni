@@ -491,12 +491,40 @@ details[open] .apri { transform: rotate(90deg); }
 /* Il binario di ogni fermata sta fra il nome e l'ora, cioè nell'ordine in cui
    si leggono: dove, da che binario, a che ora. Non si stringe e non si taglia —
    è di due caratteri — mentre a cedere spazio è il nome, che è l'unico campo
-   che un troncamento lascia ancora riconoscibile. */
+   che un troncamento lascia ancora riconoscibile.
+
+   In colonna, però, e non appeso alla fine del nome. Appeso, l'ascissa gliela
+   decideva la lunghezza del nome: lungo venti fermate i numeri finivano ognuno
+   in un punto diverso, e quello che sulla carta era il secondo dato del
+   viaggio si leggeva come sporcizia fra il nome e l'ora. Incolonnati si
+   scorrono con un occhio solo, che è il gesto per cui li si guarda. */
+.fermate.con-binari { display: grid; grid-template-columns: 1fr auto auto; column-gap: 10px; }
+/* Le colonne sono della lista, non della riga: definite sulla riga, ognuna se
+   le calcolava per conto suo sui propri contenuti — che è come non averle.
+   La riga le eredita con subgrid, e resta una riga (la classe che la smorza o
+   la evidenzia ha ancora un elemento a cui attaccarsi). */
+.fermate.con-binari li {
+  display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
+  align-items: center;
+}
+/* Dove subgrid non c'è, larghezze fisse: due caratteri di binario e un orario
+   con l'eventuale ritardo ci stanno, e incolonnate valgono più che aderenti. */
+@supports not (grid-template-columns: subgrid) {
+  .fermate.con-binari { display: block; }
+  .fermate.con-binari li { grid-template-columns: 1fr 3.4em 4.8em; grid-column: auto; }
+}
+.fermate.con-binari li .bin-fermata { justify-self: center; }
+/* L'ora resta a filo destro come nella lista senza binari: la colonna è larga
+   quanto la più larga, e dentro le altre andrebbero a sinistra. */
+.fermate.con-binari li time { text-align: right; }
 .fermate li .bin-fermata {
   flex: none; min-width: 0;
   color: var(--tenue); font-size: 12px;
   padding: 0 5px; border-radius: 5px; background: var(--piano-alto);
 }
+/* La cella che tiene la colonna e non dice niente: nessuna pastiglia, o sulle
+   fermate lontane si vedrebbe una fila di rettangoli vuoti. */
+.fermate li .bin-fermata.vuoto { background: none; padding: 0; }
 .fermate li .bin-fermata.cambiato {
   color: var(--accento);
   background: color-mix(in srgb, var(--accento) 16%, var(--piano-alto));

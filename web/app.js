@@ -907,14 +907,13 @@ function schedaSeguito(t) {
   if (!d) {
     const nota = v && v.stato === 'errore'
       ? 'posizione non disponibile adesso' : 'cerco dov\'è il treno…';
-    return `<li class="treno"><a class="riga-treno seguito" href="${link}">
+    return `<li class="treno"><a class="riga-treno seguito senza-gallone" href="${link}">
       <div class="orario"><span class="ora">–</span></div>
       <div class="dove">
         <div class="destinazione">${etichettaTreno({ category: t.cat, number: t.n, terminus: t.capolinea })}</div>
         <span class="meta">${nota}</span>
       </div>
       <div class="binario"><span class="ignoto">–</span></div>
-      <span class="apri">${icona('gallone')}</span>
     </a></li>`;
   }
 
@@ -922,9 +921,8 @@ function schedaSeguito(t) {
   if (numeroGrande(d).inRitardo) classi.push('in-ritardo');
   if (d.arrived) classi.push('concluso');
   return `<li class="${classi.join(' ')}">
-    <a class="riga-treno seguito" href="${link}">
+    <a class="riga-treno seguito senza-gallone" href="${link}">
       ${corpoSeguito(d)}
-      <span class="apri">${icona('gallone')}</span>
     </a>
   </li>`;
 }
@@ -1484,6 +1482,12 @@ function viaggioReale(d) {
 }
 
 function elencoFermate(d, classe) {
+  // Il binario sta in colonna, e una colonna vuole una cella su ogni riga
+  // anche dove il binario non c'è: se la si salta, l'ora di quella riga slitta
+  // nella colonna del binario e la lista torna disallineata proprio dove
+  // mancava il dato. La colonna esiste solo se almeno una fermata ne ha uno,
+  // altrimenti sarebbe una colonna vuota lungo tutto il viaggio.
+  const conBinari = d.stops.some((f) => f.platform);
   const voci = d.stops.map((f) => {
     const classi = [];
     if (f.passed) classi.push('passata');
@@ -1492,9 +1496,12 @@ function elencoFermate(d, classe) {
       ? `${esc(f.actual)}${f.delay ? ` <small>${f.delay > 0 ? '+' : ''}${f.delay}</small>` : ''}`
       : esc(f.scheduled);
     return `<li class="${classi.join(' ')}">
-      <span>${esc(f.name)}</span>${binarioFermata(f)}<time>${ora}</time></li>`;
+      <span>${esc(f.name)}</span>${conBinari ? binarioFermata(f) : ''}<time>${ora}</time></li>`;
   }).join('');
-  return `<ol class="fermate${classe ? ' ' + classe : ''}">${voci}</ol>`;
+  const classi = ['fermate'];
+  if (conBinari) classi.push('con-binari');
+  if (classe) classi.push(classe);
+  return `<ol class="${classi.join(' ')}">${voci}</ol>`;
 }
 
 /* Il binario di ogni fermata, che è la seconda cosa che si chiede da sopra un
@@ -1505,7 +1512,9 @@ function elencoFermate(d, classe) {
    di numeri spenti dice che qualcosa è successo, non cosa, e sono due caratteri
    in più su una riga che ci sta comoda. */
 function binarioFermata(f) {
-  if (!f.platform) return '';
+  // Una cella vuota e non niente: è quella che tiene la colonna in piedi dove
+  // il binario non c'è ancora, che sulle fermate lontane è la norma.
+  if (!f.platform) return '<span class="bin-fermata vuoto"></span>';
   return `<span class="bin-fermata${f.platformScheduled ? ' cambiato' : ''}">${
     f.platformScheduled ? `<s>${esc(f.platformScheduled)}</s> ` : ''}${esc(f.platform)}</span>`;
 }
