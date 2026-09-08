@@ -29,6 +29,9 @@ jobs:
       - run: go vet ./...
       # -race perché la cache è condivisa fra le richieste concorrenti.
       - run: go test -race ./...
+      # Il title-case dei nomi di stazione sta nel JS, quindi il suo controllo
+      # non lo vede `go test`. Node c'è già sul runner.
+      - run: node ci/titolo.test.js
 
   release:
     needs: test

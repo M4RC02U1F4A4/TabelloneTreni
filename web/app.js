@@ -116,6 +116,44 @@ function canon(s) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/* RFI manda i nomi di stazione urlati — "MILANO PORTA GARIBALDI" — e nell'app
+   erano l'unica cosa scritta così: le linee di Trenord arrivano già in tondo, e
+   fra le due i preferiti sembravano un errore invece che il nome di un posto.
+   Qui vengono rimessi in tondo per come si scrivono in italiano.
+
+   La trasformazione non cambia la lunghezza di un carattere, ed è un vincolo
+   che serve: evidenzia() taglia il nome vero usando le posizioni trovate sul
+   nome normalizzato, e un titolo che allunga o accorcia sposterebbe il <mark>.
+
+   Cosa resta com'era, e perché:
+   - PM, PC, PES sono posti di movimento, comunicazione ed esercizio: sigle di
+     esercizio ferroviario, non parole. AV è l'alta velocità, MI e NO sono le
+     province fra parentesi che distinguono i due CUZZAGO.
+   - Le vocali finali accentate arrivano da RFI come apostrofo ("CANICATTI'").
+     Restano apostrofo: indovinare fra grave e acuta su duemila nomi vuol dire
+     sbagliarne qualcuno, e un accento sbagliato è peggio del segno che c'era.
+   - Dopo un punto, i troncamenti di due lettere sono minuscoli ("P.ta", "C.le")
+     e tutto il resto no ("S.Fratello", "R.R."): è la differenza fra una parola
+     abbreviata e un'iniziale puntata. */
+const MINORI = new Set(['a', 'agli', 'ai', 'al', 'all', 'alla', 'alle', 'allo', 'd', 'da', 'dal',
+  'dall', 'dalla', 'de', 'degli', 'dei', 'del', 'dell', 'della', 'delle', 'dello', 'di', 'e',
+  'gli', 'i', 'il', 'in', 'l', 'la', 'le', 'lo', 'per', 'su', 'sui', 'sul', 'sull', 'sulla',
+  'sulle', 'sullo']);
+const SIGLE = new Set(['AV', 'MI', 'NO', 'PC', 'PES', 'PM']);
+
+const grande = (p) => p[0].toUpperCase() + p.slice(1);
+
+function titolo(v) {
+  const s = String(v).toLowerCase();
+  return s.replace(/[a-z\u00e0-\u00ff0-9]+/g, (parola, i) => {
+    if (SIGLE.has(parola.toUpperCase())) return parola.toUpperCase();
+    if (i === 0) return grande(parola);
+    const prima = s[i - 1];
+    if (prima === '.' || prima === "'") return parola.length === 2 ? parola : grande(parola);
+    return MINORI.has(parola) ? parola : grande(parola);
+  });
+}
+
 /* Segna nel nome il pezzo che corrisponde a quello che si sta cercando. La
    posizione si trova sul nome normalizzato e si taglia su quello vero: canon()
    non cambia la lunghezza sui casi che capitano qui, dove la punteggiatura è
@@ -358,9 +396,11 @@ async function caricaStazioni() {
   const r = await fetch(API.stazioni);
   if (!r.ok) throw new Error('elenco stazioni non disponibile');
   const d = await r.json();
-  stato.stazioni = d.stations;
-  stato.canoni = d.stations.map(([, nome]) => canon(nome));
-  stato.nomi = new Map(d.stations);
+  // In tondo qui e non a ogni disegno: da qui in poi l'elenco, la ricerca, i
+  // preferiti e i campi leggono tutti la stessa forma.
+  stato.stazioni = d.stations.map(([id, n]) => [id, titolo(n)]);
+  stato.canoni = stato.stazioni.map(([, n]) => canon(n));
+  stato.nomi = new Map(stato.stazioni);
 }
 
 async function caricaTabellone() {
@@ -988,8 +1028,8 @@ function sezioneSeguiti() {
 }
 
 const etichettaTreno = (d) => {
-  const nome = esc([d.category, d.number].filter(Boolean).join(' ')) || 'treno';
-  return d.terminus ? `${nome} <span class="freccia">→</span> ${esc(d.terminus)}` : nome;
+  const etichetta = esc([d.category, d.number].filter(Boolean).join(' ')) || 'treno';
+  return d.terminus ? `${etichetta} <span class="freccia">→</span> ${esc(titolo(d.terminus))}` : etichetta;
 };
 
 /* La prima fermata non ancora servita: è dove il treno sta andando adesso.
@@ -1023,11 +1063,11 @@ function numeroGrande(d) {
    è una frase, non un dato incolonnato, e spezzata in mezzo agli altri campi
    si leggerebbe peggio. */
 function doveAdesso(d, lettoIl) {
-  if (d.arrived) return d.terminus ? `arrivato a ${esc(d.terminus)}` : 'arrivato';
+  if (d.arrived) return d.terminus ? `arrivato a ${esc(titolo(d.terminus))}` : 'arrivato';
   if (!d.tracked) return 'non ancora partito';
   const l = d.lastSeen || {};
   if (!l.station) return 'non ancora partito';
-  return `rilevato a ${esc(l.station)}${l.time ? ` alle ${esc(l.time)}` : ''}${etaLettura(lettoIl)}`;
+  return `rilevato a ${esc(titolo(l.station))}${l.time ? ` alle ${esc(l.time)}` : ''}${etaLettura(lettoIl)}`;
 }
 
 /* Quanto è vecchia questa lettura, ma solo quando è vecchia. Fresca non si
@@ -1211,7 +1251,7 @@ function bannerAvvisi() {
   // un'etichetta per ogni avviso rubarebbe il posto al testo che conta.
   const striscia = [...perTesto.keys()].join('  ·  ');
   const voci = [...perTesto].map(([t, stazioni]) => `<li>
-      <span class="stazione-avviso">${esc([...stazioni].join(' · '))}</span>
+      <span class="stazione-avviso">${[...stazioni].map((x) => esc(titolo(x))).join(' · ')}</span>
       <span class="testo-avviso">${esc(t)}</span>
     </li>`).join('');
 
@@ -1580,8 +1620,8 @@ function etichettaPreferito(p) {
 
 function disegnaRisultati() {
   const d = stato.dati;
-  const daNome = (d && d.from) || (stato.da ? nomeStazione(stato.da) : '');
-  const aNome = (d && d.to) || (stato.a ? nomeStazione(stato.a) : '');
+  const daNome = titolo((d && d.from) || (stato.da ? nomeStazione(stato.da) : ''));
+  const aNome = titolo((d && d.to) || (stato.a ? nomeStazione(stato.a) : ''));
   const questa = { f: stato.da, t: stato.arrivi ? null : stato.a, a: stato.arrivi || undefined };
   const salvato = ePreferito(questa);
 
@@ -1740,7 +1780,7 @@ function rigaTreno(t, d, misure) {
       ${scarto}
     </div>
     <div class="dove">
-      <div class="destinazione">${d.arrivals ? '<span class="da">da</span> ' : ''}${esc(t.terminus)}</div>
+      <div class="destinazione">${d.arrivals ? '<span class="da">da</span> ' : ''}${esc(titolo(t.terminus))}</div>
       <span class="meta">${dettagli}</span>
     </div>
     <div class="binario${cambio ? ' cambiato' : ''}">
@@ -1775,7 +1815,7 @@ function fermate(t) {
   const evidenziata = t.arrival ? t.stops.findIndex((f) => f.time === t.arrival) : -1;
   const voci = t.stops.map((f, i) =>
     `<li class="${i === evidenziata ? 'meta-scelta' : ''}">
-      <span>${esc(f.name)}</span><time>${esc(f.time)}</time></li>`).join('');
+      <span>${esc(titolo(f.name))}</span><time>${esc(f.time)}</time></li>`).join('');
   // Le fermate previste restano leggibili in ogni caso: sostituirle con
   // un'attesa toglierebbe un'informazione che c'è già. Sotto, però, va detto
   // com'è andata la ricerca del viaggio vero — anche quando è andata a vuoto,
@@ -1823,7 +1863,7 @@ function bottoneSegui(d) {
    con l'aria di essere un dato. */
 function viaggioReale(d) {
   const dove = d.tracked && d.lastSeen && d.lastSeen.station
-    ? `<p class="viaggio-nota">rilevato a ${esc(d.lastSeen.station)}${
+    ? `<p class="viaggio-nota">rilevato a ${esc(titolo(d.lastSeen.station))}${
         d.lastSeen.time ? ` alle ${esc(d.lastSeen.time)}` : ''}</p>`
     : '<p class="viaggio-nota">non ancora partito</p>';
   return fasciaProvvedimento(d) + dove + elencoFermate(d);
