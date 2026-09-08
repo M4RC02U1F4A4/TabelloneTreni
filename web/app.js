@@ -1187,7 +1187,7 @@ function corpoSeguito(d, lettoIl) {
     <div class="binario${cambio ? ' cambiato' : ''}">
       ${f && f.platform
         ? `<span class="num">${esc(f.platform)}</span>
-           <span class="cap">${cambio ? esc(cambio) : 'BIN'}</span>`
+           <span class="cap">${cambio ? esc(cambio) : 'bin.'}</span>`
         : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
     </div>
     <div class="adesso">${doveAdesso(d, lettoIl)}</div>`;
@@ -1703,6 +1703,20 @@ function disegnaRisultati() {
   const questa = { f: stato.da, t: stato.arrivi ? null : stato.a, a: stato.arrivi || undefined };
   const salvato = ePreferito(questa);
 
+  /* Quanti treni ha lasciato passare il filtro, detto dove il sottotitolo già
+     dice cosa si sta guardando. Era una nota sopra la lista, e una nota sopra
+     la lista è una riga tolta alla prima partenza — che è la ragione per cui
+     questa schermata si apre. Qui non costa niente: la parola che dice
+     "partenze" diventa "12 partenze su 40" e ha finito.
+
+     A zero treni resta la parola sola: il conteggio lo dà già, e meglio, lo
+     stato vuoto in mezzo alla pagina. */
+  const nomi = stato.arrivi ? ['arrivo', 'arrivi'] : ['partenza', 'partenze'];
+  const passati = d && d.filtered ? d.trains.length : 0;
+  const cosa = passati > 0
+    ? `${passati} ${nomi[passati === 1 ? 0 : 1]} su ${d.total}`
+    : (stato.arrivi ? 'Arrivi' : 'Partenze');
+
   testa.innerHTML = `
     <div class="testa-riga">
       <a class="tasto" href="#/" aria-label="Torna alla home">${icona('indietro')}</a>
@@ -1712,7 +1726,7 @@ function disegnaRisultati() {
               aria-label="${salvato ? 'Togli dai preferiti' : 'Aggiungi ai preferiti'}">${icona('stella', salvato)}</button>
     </div>
     <div class="sottotitolo">
-      ${stato.arrivi ? 'Arrivi' : 'Partenze'} ·
+      ${esc(cosa)} ·
       <span class="${stato.caricamento ? 'fermo' : 'vivo'}">
         ${stato.caricamento ? 'aggiornamento…' : `aggiornato <span id="eta">${eta()}</span>`}
       </span>
@@ -1730,12 +1744,6 @@ function disegnaRisultati() {
   if (d.stopsUnavailable) {
     note.push(`<p class="nota">RFI non pubblica le fermate dei treni in arrivo:
       qui sotto ci sono tutti gli arrivi, senza il filtro per ${esc(aNome)}.</p>`);
-  }
-  // A zero treni il conteggio ripeterebbe quello che dice già lo stato vuoto.
-  if (d.filtered && d.trains.length > 0) {
-    const n = d.trains.length;
-    note.push(`<p class="nota">${n} ${n === 1 ? 'treno' : 'treni'} su ${d.total}
-      ${n === 1 ? 'ferma' : 'fermano'} a ${esc(aNome)}.</p>`);
   }
 
   const corpo = d.trains.length
@@ -1863,7 +1871,7 @@ function rigaTreno(t, d, misure) {
     </div>
     <div class="binario${cambio ? ' cambiato' : ''}">
       ${t.platform ? `<span class="num">${esc(t.platform)}</span>
-                      <span class="cap">${cambio ? esc(cambio) : 'BIN'}</span>`
+                      <span class="cap">${cambio ? esc(cambio) : 'bin.'}</span>`
                    : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
     </div>
     ${espandibile ? `<span class="apri" aria-hidden="true">${icona('gallone')}</span>` : ''}

@@ -534,10 +534,10 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 
 /* Il numero grande qui non è un orario di partenza ma il ritardo, e da solo
    non si spiega: la didascalia sotto dice di cosa è il numero, con la stessa
-   geometria del "BIN" nella colonna del binario. */
+   geometria del "bin." nella colonna del binario. */
 .orario .cap {
   display: block; margin-top: 1px;
-  font-size: 10px; color: var(--tenue); letter-spacing: 0.05em;
+  font-size: 10px; color: var(--tenue);
 }
 
 /* Dov'è adesso: una frase, non un dato incolonnato, quindi prende una riga
@@ -614,14 +614,17 @@ summary.riga-treno::-webkit-details-marker { display: none; }
   display: block; font-size: 17px; font-weight: 650;
   padding: 3px 8px; border-radius: 8px; background: var(--piano-alto);
 }
-.binario .cap { display: block; font-size: 10px; color: var(--tenue); letter-spacing: 0.05em; }
+/* Senza spaziatura fra le lettere: era l'ultimo residuo dell'etichettina
+   spaziata, e in questo slot ci finisce anche "era 3" quando il binario cambia
+   — cioè una frase, che spaziata si legge peggio. */
+.binario .cap { display: block; font-size: 10px; color: var(--tenue); }
 /* Il binario non assegnato è la norma finché il treno non è vicino: merita un
    segno posato, non due righe di testo che gridano più del binario vero. */
 .binario .ignoto { color: var(--bordo); font-size: 20px; }
 
 /* Il binario cambiato all'ultimo è la cosa che fa perdere il treno più del
    ritardo, e RFI la pubblica come un numero qualunque in una casella qualunque.
-   Qui prende il colore dell'accento e la parola al posto di "BIN": la scritta è
+   Qui prende il colore dell'accento e la parola al posto di "bin.": la scritta è
    più larga, quindi la colonna si allarga solo su queste righe, che è
    esattamente dove si vuole che l'occhio vada. */
 .binario.cambiato .num {
