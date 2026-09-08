@@ -49,6 +49,22 @@ func Parse(r io.Reader, placeID int, arrivals bool) (*Board, error) {
 				if m := reAggiornamento.FindStringSubmatch(pulisci(testo(n))); m != nil {
 					b.Updated = m[1] + " " + m[2]
 				}
+			case n.Data == "div" && haClasse(n, "marqueeinfosupp"):
+				// Gli avvisi di stazione: un <div> figlio per avviso, dentro
+				// il contenitore che la pagina fa scorrere in fondo. Sono
+				// l'unico posto dove RFI dice degli ascensori guasti o dei
+				// lavori sulla linea, e non hanno niente in comune col resto
+				// del markup — nessun id, nessuna tabella, solo il nome della
+				// classe con cui il CSS li anima.
+				for c := n.FirstChild; c != nil; c = c.NextSibling {
+					if c.Type != html.ElementNode || c.Data != "div" {
+						continue
+					}
+					if t := pulisci(testo(c)); t != "" {
+						b.Notices = append(b.Notices, t)
+					}
+				}
+				return // gli avvisi non si annidano
 			case n.Data == "tr" && attr(n, "name") == "treno":
 				// Una riga senza né orario né destinazione non è mostrabile:
 				// diventerebbe una scheda vuota in mezzo all'elenco. Non se ne

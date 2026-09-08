@@ -145,6 +145,75 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   color: var(--tenue); margin: 0 0 8px 2px;
 }
 
+/* --- il banner degli avvisi di stazione --- */
+
+/* Sta in cima alla home e scorre come il tabellone vero da cui arriva. Il
+   colore è l'ambra dei bollini di gravità e non l'accento, che nel tema chiaro
+   diventa blu: un avviso di stazione non è un elemento di interfaccia da
+   toccare, è un cartello giallo, e in entrambi i temi deve leggersi così. */
+.avvisi-stazione {
+  margin-bottom: 18px;
+  border: 1px solid color-mix(in srgb, var(--ambra) 45%, transparent);
+  background: color-mix(in srgb, var(--ambra) 13%, var(--piano));
+  border-radius: var(--raggio);
+  color: var(--ambra);
+}
+.avvisi-stazione summary {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  list-style: none; cursor: pointer;
+  font-size: 13px; font-weight: 600;
+}
+.avvisi-stazione summary::-webkit-details-marker { display: none; }
+/* Il contenitore che taglia: senza overflow nascosto qui, il testo che entra
+   da destra allargherebbe la pagina e la si potrebbe scorrere in orizzontale
+   per andare a vedere il vuoto accanto al banner. */
+.avvisi-stazione .scorrevole { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+/* Il padding di una larghezza intera fa partire il testo appena fuori dal
+   bordo destro; la traslazione del 100% della *propria* larghezza — padding
+   compreso — lo porta a uscire tutto da sinistra. Trenta secondi per un giro:
+   un avviso di RFI è lungo come un SMS, e più veloce non si legge. */
+.avvisi-stazione .scorre {
+  display: inline-block;
+  padding-left: 100%;
+  animation: scorri 30s linear infinite;
+}
+@keyframes scorri { to { transform: translateX(-100%); } }
+/* Aperto, il testo non scorre più: l'etichetta prende il posto della striscia
+   e gli avvisi stanno sotto per intero. Un avviso da leggere non può scorrere
+   via mentre lo si legge. */
+.avvisi-stazione .etichetta { display: none; flex: 1; }
+.avvisi-stazione[open] .scorrevole { display: none; }
+.avvisi-stazione[open] .etichetta { display: block; }
+.avvisi-stazione .chevron { flex: none; display: flex; align-items: center; transition: transform 0.15s; }
+.avvisi-stazione[open] .chevron { transform: rotate(90deg); }
+
+.elenco-avvisi-stazione {
+  padding: 0 12px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.elenco-avvisi-stazione li { font-size: 13.5px; line-height: 1.5; min-width: 0; }
+/* Stessa forma della data sulle comunicazioni di linea: sopra l'avviso, in
+   piccolo, la cosa a cui si riferisce. Con tre preferiti su stazioni diverse
+   un testo senza etichetta non si sa di chi sia. */
+.elenco-avvisi-stazione .stazione-avviso {
+  display: block; font-size: 11px; font-weight: 650; letter-spacing: 0.04em;
+  text-transform: uppercase; margin-bottom: 2px;
+}
+/* Il testo va a capo tutto e si spezza dove serve: RFI ci mette dentro sigle
+   con le barre ("BINARI 14/15 - 16/17") che sono parole lunghe senza spazi. */
+.elenco-avvisi-stazione .testo-avviso { color: var(--testo); overflow-wrap: anywhere; }
+
+/* Un testo che scorre è esattamente quello che questa preferenza chiede di non
+   fare: resta fermo e troncato, e per leggerlo si apre il banner. */
+@media (prefers-reduced-motion: reduce) {
+  .avvisi-stazione .scorrevole { text-overflow: ellipsis; }
+  /* Da inline l'ellissi funziona: sull'inline-block il testo verrebbe
+     tagliato di netto senza i tre punti che dicono che continua. */
+  .avvisi-stazione .scorre { display: inline; padding-left: 0; animation: none; }
+  .avvisi-stazione .chevron { transition: none; }
+}
+
 /* --- lista: le tratte salvate e le voci di navigazione --- */
 
 .lista { border-top: 1px solid var(--bordo); }

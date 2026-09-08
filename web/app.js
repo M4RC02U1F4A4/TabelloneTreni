@@ -22,6 +22,7 @@ const API = {
     + (t.a ? `&to=${encodeURIComponent(t.a)}` : ''),
   linee: 'api/lines',
   avvisiLinea: (codice) => `api/lines/notices?line=${encodeURIComponent(codice)}`,
+  avvisiStazione: (id) => `api/notices?stations=${id.join(',')}`,
   chiavePush: 'api/push/key',
   abbonamento: 'api/push/subscribe',
 };
@@ -57,6 +58,10 @@ const stato = {
   linee: null,
   lineeAggiornate: '',
   lineeErrore: null,
+  // Gli avvisi delle stazioni preferite, come li manda il server: solo quelle
+  // che ne hanno almeno uno. Come le linee, non sono mai un motivo per non
+  // disegnare la home — se non arrivano, il banner non c'è e nessuno lo sa.
+  avvisiStazione: [],
 };
 
 /* Le schede aperte e i viaggi già scaricati.
@@ -85,6 +90,10 @@ let filtroLinee = '';
    né rifare una richiesta già fatta. */
 const avvisiLinea = new Map(); // codice -> { stato: 'attesa'|'ok'|'errore', dati }
 const lineeAperte = new Set();
+// Il banner degli avvisi di stazione, aperto o chiuso. Vale come lineeAperte:
+// la home si ridisegna una volta al minuto, e senza ricordarselo il banner si
+// richiuderebbe in faccia a chi stava leggendo l'avviso per intero.
+let avvisiStazioneAperti = false;
 let timerRinfresco = null;
 let timerEta = null;
 let richiestaInCorso = 0;
@@ -449,6 +458,29 @@ async function aggiornaSeguiti(forza) {
   stato.scaricatoIl = Date.now();
 }
 
+/* Gli avvisi delle stazioni preferite: gli ascensori guasti, i lavori che per
+   tre mesi spostano i treni. Si chiedono per le sole stazioni di partenza dei
+   preferiti, distinte — è l'unico posto in cui il banner compare, e senza
+   preferiti non c'è niente da chiedere.
+
+   Vale la regola delle linee, in forma più severa: qui non si mostra nemmeno
+   il motivo dell'errore. Un banner giallo in cima alla home che dice che il
+   banner giallo non funziona è peggio del banner che manca. */
+async function caricaAvvisiStazione() {
+  // Otto è il tetto che accetta il server: più preferiti di così sulla stessa
+  // schermata non ci stanno, e sarebbero otto pagine di RFI per una striscia.
+  const ids = [...new Set(preferiti().map((p) => p.f))].slice(0, 8);
+  if (!ids.length) { stato.avvisiStazione = []; return; }
+  try {
+    const r = await fetch(API.avvisiStazione(ids));
+    if (controllaVersione(r)) return;
+    if (!r.ok) throw new Error(`errore ${r.status}`);
+    stato.avvisiStazione = (await r.json()).stations || [];
+  } catch {
+    stato.avvisiStazione = [];
+  }
+}
+
 /* --------------------------------------------------------------- notifiche */
 
 /* Lo stato del permesso, che decide sia cosa si può fare sia cosa si scrive
@@ -785,7 +817,7 @@ async function cambiaRotta() {
     // I bollini arrivano da un secondo servizio e non devono far aspettare la
     // home: si ridisegna quando ci sono, e solo se nel frattempo non si è
     // andati altrove.
-    Promise.all([caricaLinee(), chiaveNotifiche().catch(() => {})])
+    Promise.all([caricaLinee(), caricaAvvisiStazione(), chiaveNotifiche().catch(() => {})])
       .then(() => { if (leggiRotta().vista === 'home') disegna(); });
     return;
   }
@@ -833,7 +865,12 @@ document.addEventListener('visibilitychange', () => {
   // che non vederlo. L'ETag rende la richiesta quasi gratis quando non è
   // cambiato niente.
   if (vista === 'home' || vista === 'linee') {
-    caricaLinee().then(() => { if (leggiRotta().vista === vista) disegna(); });
+    // Gli avvisi di stazione stanno solo in home. Il server li tiene dieci
+    // minuti, quindi rifarne la richiesta a ogni ritorno sull'app costa una
+    // 304 e non una pagina di RFI.
+    const attese = [caricaLinee()];
+    if (vista === 'home') attese.push(caricaAvvisiStazione());
+    Promise.all(attese).then(() => { if (leggiRotta().vista === vista) disegna(); });
     // Un treno seguito è la cosa che invecchia più in fretta di tutte: chi
     // riapre l'app dopo dieci minuti vuole sapere dov'è adesso, non dov'era
     // quando l'ha chiusa.
@@ -892,6 +929,7 @@ function disegnaHome() {
   if (!fav.length) modificaPreferiti = false;
 
   app.innerHTML = `
+    ${bannerAvvisi()}
     ${sezioneSeguiti()}
     ${fav.length ? `
     <section class="sezione">
@@ -1134,6 +1172,47 @@ function disegnaTreno(t) {
       : '<p class="nota">ViaggiaTreno non pubblica le fermate di questo treno.</p>'}
     ${salvato ? '' : `<p class="nota">Non stai seguendo questo treno: tocca il segnalibro
       in alto per tenerlo in cima alla home.</p>`}`;
+}
+
+/* Il banner degli avvisi di stazione, in cima alla home e sopra ogni altra
+   cosa: un ascensore fuori servizio o una linea deviata per tre mesi cambiano
+   il viaggio prima ancora della scelta del treno.
+
+   Chiuso è una striscia sola che scorre, perché gli avvisi di RFI sono lunghi
+   quanto un SMS e in una riga non ci starebbero; toccandolo si apre e si legge
+   tutto, fermo. È un <details> come le righe delle linee: aperto e chiuso li
+   tiene il browser, e non c'è nessuno stato in più da gestire qui.
+
+   Aperto, ogni avviso porta il nome della sua stazione: con due o tre
+   preferiti su stazioni diverse, un testo senza etichetta non si sa a chi si
+   riferisca — e "ASCENSORI BINARI 14/15 FUORI SERVIZIO" senza sapere in quale
+   stazione non è un'informazione. */
+function bannerAvvisi() {
+  // Si guarda anche che la stazione sia ancora fra i preferiti: togliendone
+  // uno la home si ridisegna subito, mentre gli avvisi in mano sono quelli
+  // dell'ultima richiesta, e resterebbe un cartello di una stazione che non
+  // si segue più.
+  const miei = new Set(preferiti().map((p) => p.f));
+  const st = (stato.avvisiStazione || [])
+    .filter((s) => miei.has(s.placeId) && s.notices && s.notices.length);
+  if (!st.length) return '';
+
+  // Chiuso il nome della stazione non c'è: la striscia scorre e allungarla con
+  // un'etichetta per ogni avviso rubarebbe il posto al testo che conta.
+  const striscia = st.flatMap((s) => s.notices).join('  ·  ');
+  const voci = st.flatMap((s) => s.notices.map((t) => `<li>
+      <span class="stazione-avviso">${esc(s.station)}</span>
+      <span class="testo-avviso">${esc(t)}</span>
+    </li>`)).join('');
+
+  return `<details class="avvisi-stazione" data-avvisi${avvisiStazioneAperti ? ' open' : ''}>
+    <summary>
+      <span class="scorrevole"><span class="scorre">${esc(striscia)}</span></span>
+      <span class="etichetta">Avvisi di stazione</span>
+      <span class="chevron">${icona('gallone')}</span>
+    </summary>
+    <ul class="elenco-avvisi-stazione">${voci}</ul>
+  </details>`;
 }
 
 /* La sezione in home non elenca tutte e 65 le linee: mostra quelle seguite e
@@ -1846,6 +1925,10 @@ app.addEventListener('input', (e) => {
 // `toggle` non fa bubbling: si ascolta in fase di cattura sul contenitore.
 app.addEventListener('toggle', (e) => {
   const d = e.target;
+  if (d instanceof HTMLDetailsElement && 'avvisi' in d.dataset) {
+    avvisiStazioneAperti = d.open;
+    return;
+  }
   if (d instanceof HTMLDetailsElement && d.dataset.linea) {
     const codice = d.dataset.linea;
     if (d.open) { lineeAperte.add(codice); scaricaAvvisi(codice); }

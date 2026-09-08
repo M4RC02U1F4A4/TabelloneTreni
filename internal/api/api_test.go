@@ -4,11 +4,13 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -449,4 +451,175 @@ func TestSoloLaFermataSceltaSiAccende(t *testing.T) {
 			t.Errorf("%s accesa senza fermata scelta", f.Name)
 		}
 	}
+}
+
+/* ---------- avvisi di stazione ---------- */
+
+// Una sorgente che mette un avviso solo su alcune stazioni e conta le pagine
+// chieste: gli avvisi vanno letti dal tabellone delle partenze, e RFI non deve
+// vedere una pagina per ogni volta che qualcuno apre la home.
+type sorgenteAvvisi struct {
+	mu    sync.Mutex
+	letti map[int]int
+	muti  map[int]bool // stazioni senza avvisi
+}
+
+func (s *sorgenteAvvisi) Fetch(ctx context.Context, placeID int, arrivals bool) (*rfi.Board, error) {
+	s.mu.Lock()
+	if s.letti == nil {
+		s.letti = map[int]int{}
+	}
+	s.letti[placeID]++
+	s.mu.Unlock()
+
+	b := &rfi.Board{
+		PlaceID: placeID, Station: fmt.Sprintf("STAZIONE %d", placeID), Arrivals: arrivals,
+		Trains: []rfi.Train{{Number: "1", Time: "10:00", Terminus: "ALTROVE"}},
+	}
+	if !s.muti[placeID] {
+		b.Notices = []string{fmt.Sprintf("ASCENSORE FUORI SERVIZIO A %d", placeID)}
+	}
+	return b, nil
+}
+
+func (s *sorgenteAvvisi) volte(placeID int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.letti[placeID]
+}
+
+func serverAvvisi(src *sorgenteAvvisi) (*Server, http.Handler) {
+	srv := New(board.New(src, stations.Default), stations.Default, fstest.MapFS{}, "test", "")
+	return srv, srv.Handler()
+}
+
+type rispostaAvvisi struct {
+	Stations []struct {
+		PlaceID int      `json:"placeId"`
+		Station string   `json:"station"`
+		Notices []string `json:"notices"`
+	} `json:"stations"`
+}
+
+func leggiAvvisi(t *testing.T, h http.Handler, percorso string) rispostaAvvisi {
+	t.Helper()
+	res := chiedi(t, h, percorso, nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("%s: stato = %d", percorso, res.StatusCode)
+	}
+	var d rispostaAvvisi
+	if err := json.NewDecoder(res.Body).Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// Le stazioni tornano nell'ordine della richiesta, con dentro solo quelle che
+// hanno qualcosa da dire: un banner senza testo non si disegna, e farlo
+// decidere al client vorrebbe dire mandargli quasi sempre voci vuote.
+func TestAvvisiStazioni(t *testing.T) {
+	src := &sorgenteAvvisi{muti: map[int]bool{1728: true}}
+	_, h := serverAvvisi(src)
+
+	// 830 non esiste nel catalogo: si salta senza far fallire il resto.
+	d := leggiAvvisi(t, h, "/api/notices?stations=1728,1715,830")
+	if len(d.Stations) != 1 {
+		t.Fatalf("stazioni con avvisi = %d, attesa 1: %+v", len(d.Stations), d.Stations)
+	}
+	s := d.Stations[0]
+	if s.PlaceID != 1715 || s.Station != "STAZIONE 1715" {
+		t.Errorf("stazione = %+v", s)
+	}
+	if len(s.Notices) != 1 || s.Notices[0] != "ASCENSORE FUORI SERVIZIO A 1715" {
+		t.Errorf("avvisi = %q", s.Notices)
+	}
+	if src.volte(830) != 0 {
+		t.Errorf("la stazione sconosciuta è stata chiesta a RFI %d volte", src.volte(830))
+	}
+	// Gli avvisi si prendono dal tabellone delle partenze: il verso conta,
+	// perché arrivi e partenze della stessa stazione ne portano di diversi.
+	if src.volte(1715) != 1 {
+		t.Errorf("pagine chieste per 1715 = %d, attesa 1", src.volte(1715))
+	}
+
+	// L'ordine è quello della query, non quello in cui RFI risponde.
+	src2 := &sorgenteAvvisi{}
+	_, h2 := serverAvvisi(src2)
+	d2 := leggiAvvisi(t, h2, "/api/notices?stations=1728,1715")
+	if len(d2.Stations) != 2 || d2.Stations[0].PlaceID != 1728 || d2.Stations[1].PlaceID != 1715 {
+		t.Errorf("ordine = %+v", d2.Stations)
+	}
+}
+
+// La home si aggiorna una volta al minuto e ogni buco costa a RFI una pagina
+// da ~280 KB: due letture di fila non devono diventare due richieste.
+func TestAvvisiInCache(t *testing.T) {
+	src := &sorgenteAvvisi{}
+	srv, h := serverAvvisi(src)
+
+	primo := leggiAvvisi(t, h, "/api/notices?stations=1715")
+	secondo := leggiAvvisi(t, h, "/api/notices?stations=1715")
+	if len(primo.Stations) != 1 || len(secondo.Stations) != 1 {
+		t.Fatalf("risposte = %+v / %+v", primo.Stations, secondo.Stations)
+	}
+	if n := src.volte(1715); n != 1 {
+		t.Errorf("pagine chieste a RFI = %d, attesa 1", n)
+	}
+	// La cache è quella degli avvisi e non quella dei tabelloni, che dura solo
+	// trenta secondi: se un domani sparisse, la scadenza lo direbbe.
+	v, presente := srv.avvisi[1715]
+	if !presente {
+		t.Fatal("niente in cache per 1715")
+	}
+	if d := time.Until(v.scadeIl); d < avvisiTTL-time.Minute || d > avvisiTTL {
+		t.Errorf("scadenza fra %v, atteso circa %v", d, avvisiTTL)
+	}
+}
+
+// Il parametro arriva da fuori. Un elenco che non è un elenco di numeri è un
+// errore del chiamante, non una risposta vuota da interpretare.
+func TestAvvisiParametriNonValidi(t *testing.T) {
+	_, h := serverAvvisi(&sorgenteAvvisi{})
+	casi := []string{
+		"/api/notices",
+		"/api/notices?stations=",
+		"/api/notices?stations=abc",
+		"/api/notices?stations=1715,x",
+		"/api/notices?stations=-1",
+		"/api/notices?stations=0",
+		"/api/notices?stations=1,2,3,4,5,6,7,8,9",
+	}
+	for _, p := range casi {
+		res := chiedi(t, h, p, nil)
+		res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: stato = %d, attesa 400", p, res.StatusCode)
+		}
+	}
+}
+
+// Una stazione che non risponde non deve far fallire la richiesta: il banner è
+// decorazione, e le altre stazioni hanno comunque i loro avvisi.
+func TestAvvisiStazioneGuasta(t *testing.T) {
+	// stations.Default non contiene l'id 999999: board.Service lo rifiuta come
+	// sconosciuto, che è lo stesso errore che darebbe RFI irraggiungibile.
+	src := &sorgenteAvvisi{}
+	srv := New(board.New(src, stations.Default), catalogoConFinta(t), fstest.MapFS{}, "test", "")
+
+	d := leggiAvvisi(t, srv.Handler(), "/api/notices?stations=999999,1715")
+	if len(d.Stations) != 1 || d.Stations[0].PlaceID != 1715 {
+		t.Fatalf("stazioni = %+v", d.Stations)
+	}
+}
+
+// Un catalogo che conosce una stazione in più di quello di board.Service: è il
+// modo di far fallire la lettura di una sola stazione senza toccare la rete.
+func catalogoConFinta(t *testing.T) *stations.Catalogo {
+	t.Helper()
+	c, err := stations.Load([]byte(`{"generated":"2026-09-08","stations":[{"i":999999,"n":"FINTA"},{"i":1715,"n":"MILANO PORTA GARIBALDI"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }

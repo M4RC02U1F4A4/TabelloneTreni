@@ -68,4 +68,14 @@ type Board struct {
 	Arrivals bool    `json:"arrivals"`
 	Updated  string  `json:"updated,omitempty"`
 	Trains   []Train `json:"trains"`
+	// Notices sono gli avvisi di stazione. RFI non li pubblica da nessun'altra
+	// parte: sono il testo che scorre in fondo alla pagina del monitor, e sono
+	// il solo posto in cui compaiono cose come gli ascensori dei sottopassi
+	// fuori servizio o i lavori che per tre mesi spostano i treni di una linea.
+	// Il tabellone dei treni non ne dice niente, quindi chi guarda solo quello
+	// arriva in stazione e lo scopre dal cartello.
+	//
+	// Dipendono dal verso: la stessa stazione ne pubblica di diversi su arrivi
+	// e partenze.
+	Notices []string `json:"notices,omitempty"`
 }

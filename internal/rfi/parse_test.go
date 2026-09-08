@@ -177,3 +177,55 @@ func TestRigheVuoteScartate(t *testing.T) {
 		t.Errorf("treno = %+v", b.Trains[0])
 	}
 }
+
+// Gli avvisi di stazione dipendono dal verso: la stessa stazione ne pubblica
+// uno sulle partenze (i lavori fra Rho e Certosa) e un altro sugli arrivi (gli
+// ascensori guasti). Controllarli su entrambi i file è la prova che si leggono
+// dalla pagina che si è chiesta, e non da un posto qualunque del documento.
+func TestAvvisiDiStazione(t *testing.T) {
+	casi := []struct {
+		file     string
+		arrivals bool
+		atteso   string
+	}{
+		{"partenze-1715.html", false, "DAL 14 GIUGNO AL 13 SETTEMBRE VARIAZIONI AI TRENI S11 ED S6 PER LAVORI TRA RHO E MILANO CERTOSA. INFO SUI CANALI WEB E IN STAZIONE"},
+		{"arrivi-1715.html", true, "ASCENSORI BINARI 14/15 - 16/17 - 18/19 - 20 FUORI SERVIZIO"},
+	}
+	for _, caso := range casi {
+		t.Run(caso.file, func(t *testing.T) {
+			b := carica(t, caso.file, caso.arrivals)
+			if len(b.Notices) != 1 {
+				t.Fatalf("avvisi = %d, atteso 1: %q", len(b.Notices), b.Notices)
+			}
+			if b.Notices[0] != caso.atteso {
+				t.Errorf("avviso =\n  %q\natteso\n  %q", b.Notices[0], caso.atteso)
+			}
+		})
+	}
+}
+
+// Il contenitore può portare più di un avviso, e i <div> vuoti che RFI lascia
+// in giro non devono diventare righe vuote nel banner.
+func TestAvvisiMultipliEVuoti(t *testing.T) {
+	const pagina = `<html><body>
+	<h1 id="nomeStazioneId">PROVA</h1>
+	<div class="marqueeinfosupp">
+	  <div>  ASCENSORE   BINARIO 3 FUORI SERVIZIO  </div>
+	  <div></div>
+	  <div>SCIOPERO IL 12 SETTEMBRE</div>
+	</div></body></html>`
+
+	b, err := Parse(strings.NewReader(pagina), 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	atteso := []string{"ASCENSORE BINARIO 3 FUORI SERVIZIO", "SCIOPERO IL 12 SETTEMBRE"}
+	if len(b.Notices) != len(atteso) {
+		t.Fatalf("avvisi = %q", b.Notices)
+	}
+	for i := range atteso {
+		if b.Notices[i] != atteso[i] {
+			t.Errorf("avviso %d = %q, atteso %q", i, b.Notices[i], atteso[i])
+		}
+	}
+}

@@ -4,6 +4,7 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -39,6 +40,11 @@ type Server struct {
 	elencoUnaVolta sync.Once
 	elencoBody     []byte
 	elencoETag     string
+
+	// Gli avvisi di stazione hanno una cache propria, più lunga di quella dei
+	// tabelloni: vedi avvisiTTL.
+	muAvvisi sync.Mutex
+	avvisi   map[int]voceAvvisi
 }
 
 func New(svc *board.Service, cat *stations.Catalogo, statici fs.FS, versione, statoLinee string) *Server {
@@ -46,6 +52,7 @@ func New(svc *board.Service, cat *stations.Catalogo, statici fs.FS, versione, st
 		svc: svc, catalogo: cat, statici: statici, versione: versione,
 		statoLinee: strings.TrimSuffix(statoLinee, "/"),
 		clientHTTP: &http.Client{Timeout: 10 * time.Second},
+		avvisi:     map[int]voceAvvisi{},
 	}
 }
 
@@ -55,6 +62,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/board", s.tabellone)
 	mux.HandleFunc("GET /api/train", s.treno)
 	mux.HandleFunc("GET /api/journey", s.viaggio)
+	mux.HandleFunc("GET /api/notices", s.avvisiStazioni)
 	mux.HandleFunc("GET /api/lines", s.linee)
 	mux.HandleFunc("GET /api/lines/notices", s.avvisiLinea)
 	mux.HandleFunc("GET /api/push/key", s.inoltraPush("/push/chiave"))
@@ -131,6 +139,126 @@ func (s *Server) tabellone(w http.ResponseWriter, r *http.Request) {
 	// quasi sempre, visto che si aggiorna più spesso di quanto RFI cambi.
 	w.Header().Set("Cache-Control", "no-cache")
 	scriviJSON(w, r, body, etag(body))
+}
+
+// avvisiTTL è quanto restano validi gli avvisi di una stazione, ed è la ragione
+// per cui questa cache esiste invece di appoggiarsi a quella dei tabelloni, che
+// dura trenta secondi: la home si aggiorna una volta al minuto e per ogni
+// stazione fra i preferiti, e ogni buco costerebbe a RFI una pagina da ~280 KB
+// per una striscia di testo. Gli avvisi cambiano di rado — quello nei dati di
+// prova copre tre mesi — quindi dieci minuti sono generosi verso RFI senza far
+// arrivare tardi niente che serva davvero.
+const avvisiTTL = 10 * time.Minute
+
+// Il tetto sulle stazioni per richiesta: sono i preferiti di una persona, e
+// oltre questo numero è qualcuno che sta usando l'endpoint per altro.
+const avvisiMaxStazioni = 8
+
+type avvisiStazione struct {
+	PlaceID int      `json:"placeId"`
+	Station string   `json:"station"`
+	Notices []string `json:"notices"`
+}
+
+type voceAvvisi struct {
+	dati    *avvisiStazione
+	scadeIl time.Time
+}
+
+func (s *Server) avvisiStazioni(w http.ResponseWriter, r *http.Request) {
+	campi := strings.Split(r.URL.Query().Get("stations"), ",")
+	if len(campi) > avvisiMaxStazioni {
+		errore(w, http.StatusBadRequest, "troppe stazioni")
+		return
+	}
+	visti := make(map[int]bool, len(campi))
+	ids := make([]int, 0, len(campi))
+	for _, v := range campi {
+		id, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || id <= 0 {
+			errore(w, http.StatusBadRequest, "parametro 'stations' mancante o non valido")
+			return
+		}
+		// Una stazione che il catalogo non conosce si salta e non è un errore:
+		// i preferiti stanno sul telefono e possono contenere un id che una
+		// rigenerazione del catalogo ha portato via.
+		if visti[id] || s.catalogo.ByID(id) == nil {
+			continue
+		}
+		visti[id] = true
+		ids = append(ids, id)
+	}
+
+	// In parallelo, perché in serie il banner costerebbe l'attesa di tre
+	// pagine di RFI una dopo l'altra. Le posizioni sono preassegnate: l'ordine
+	// della risposta è quello della richiesta, non quello in cui rispondono.
+	letti := make([]*avvisiStazione, len(ids))
+	var attesa sync.WaitGroup
+	for i, id := range ids {
+		attesa.Add(1)
+		go func() {
+			defer attesa.Done()
+			letti[i] = s.avvisiDi(r.Context(), id)
+		}()
+	}
+	attesa.Wait()
+
+	// Solo le stazioni che hanno qualcosa da dire: una voce vuota nella
+	// risposta obbligherebbe il client a filtrare per non disegnare un banner
+	// senza testo, e quasi sempre sarebbero tutte vuote.
+	elenco := make([]*avvisiStazione, 0, len(letti))
+	for _, a := range letti {
+		if a != nil && len(a.Notices) > 0 {
+			elenco = append(elenco, a)
+		}
+	}
+
+	body, err := json.Marshal(map[string]any{"stations": elenco})
+	if err != nil {
+		errore(w, http.StatusInternalServerError, "errore interno")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	scriviJSON(w, r, body, etag(body))
+}
+
+// avvisiDi legge gli avvisi di una stazione, dalla cache o da RFI.
+//
+// Si guarda il solo tabellone delle partenze e non entrambi i versi: gli
+// avvisi dei due differiscono davvero — la stessa stazione annuncia i lavori
+// sulle partenze e gli ascensori guasti sugli arrivi — ma raddoppiare le
+// pagine scaricate per un banner non vale quello che si guadagna.
+//
+// Una stazione che non risponde si salta: il banner è decorazione, e non deve
+// mai essere il motivo per cui la home non si apre.
+func (s *Server) avvisiDi(ctx context.Context, id int) *avvisiStazione {
+	adesso := time.Now()
+
+	s.muAvvisi.Lock()
+	v, presente := s.avvisi[id]
+	s.muAvvisi.Unlock()
+	if presente && adesso.Before(v.scadeIl) {
+		return v.dati
+	}
+
+	res, err := s.svc.Get(ctx, id, false, 0)
+	if err != nil {
+		log.Printf("avvisi stazione %d: %v", id, err)
+		return nil
+	}
+	dati := &avvisiStazione{PlaceID: id, Station: res.Station, Notices: res.Notices}
+
+	s.muAvvisi.Lock()
+	// Tetto banale: le stazioni interrogate sono i preferiti di chi usa l'app,
+	// quindi una decina. Se la mappa cresce oltre ogni misura ragionevole si
+	// butta via intera invece di tenere una lista di accessi che qui non
+	// servirebbe a niente.
+	if len(s.avvisi) > 200 {
+		clear(s.avvisi)
+	}
+	s.avvisi[id] = voceAvvisi{dati: dati, scadeIl: adesso.Add(avvisiTTL)}
+	s.muAvvisi.Unlock()
+	return dati
 }
 
 // romaOrRomaLess è il fuso in cui vanno letti gli orari dei treni italiani. Il

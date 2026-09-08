@@ -9,6 +9,7 @@ con l'orario a cui ci arrivano.
 - **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
 - **toccando un treno si vede dov'è adesso**, con gli orari reali delle fermate che ha già servito
 - **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
+- **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. Toccandola si apre e si legge per intero
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
@@ -408,6 +409,37 @@ vincolo a impedire che `LODI` catturi `LODI VECCHIO`: un falso positivo qui
 farebbe salire qualcuno sul treno sbagliato, quindi la regola resta stretta e le
 eccezioni vere si aggiungono a mano in `cmd/genstations/main.go`.
 
+### Gli avvisi di stazione
+
+In fondo alla pagina del monitor RFI fa scorrere una striscia gialla con gli
+avvisi della stazione: `ASCENSORI BINARI 14/15 - 16/17 - 18/19 - 20 FUORI
+SERVIZIO`, `DAL 14 GIUGNO AL 13 SETTEMBRE VARIAZIONI AI TRENI S11 ED S6 PER
+LAVORI TRA RHO E MILANO CERTOSA`. È l'unico posto in cui quelle cose compaiono:
+il tabellone dei treni non ne dice niente, e chi guarda solo quello lo scopre
+dal cartello in stazione.
+
+Sono nel markup senza nessun id, dentro un `div.marqueeinfosupp` — solo il nome
+della classe con cui il CSS li anima — e **dipendono dal verso**: la stessa
+stazione, alla stessa ora, annuncia i lavori sulle partenze e gli ascensori
+sugli arrivi.
+
+In home la striscia sta sopra ogni altra cosa, perché un ascensore fuori
+servizio cambia il viaggio prima ancora della scelta del treno. Chiusa scorre,
+che è il solo modo di far stare in una riga un testo lungo come un SMS;
+toccandola si apre, si ferma e mostra tutto, con il nome della stazione sopra
+ogni avviso — `ASCENSORI BINARI 14/15 FUORI SERVIZIO` senza sapere dove non è
+un'informazione. Sotto `prefers-reduced-motion` non scorre affatto: resta ferma
+e troncata, e per leggerla si apre.
+
+Gli avvisi si chiedono per le **stazioni di partenza dei preferiti**, distinte,
+al massimo otto. Senza preferiti non c'è niente da chiedere e nessuna richiesta
+parte. Hanno una cache propria da **dieci minuti**, più lunga di quella da
+trenta secondi dei tabelloni: la home si aggiorna una volta al minuto e per ogni
+preferito, e ogni buco costerebbe a RFI una pagina da 280 KB per una striscia
+di testo che copre tre mesi. Una stazione che non risponde si salta in silenzio
+— un banner giallo che dice che il banner giallo non funziona è peggio del
+banner che manca.
+
 ## Farlo girare
 
 ```sh
@@ -491,6 +523,11 @@ go run ./cmd/genstations
   dice, e lì la campanella serve solo a tenere la linea in cima.
 - **I bollini coprono la sola Lombardia.** Sono le linee di Trenord: un treno
   RFI fuori regione non ha nessuno stato di linea associato.
+
+- **Gli avvisi in home vengono dal solo tabellone partenze.** I due versi ne
+  pubblicano di diversi, ma raddoppiare le pagine scaricate per una striscia non
+  vale quello che si guadagna: un avviso che RFI mette solo sugli arrivi in home
+  non si vede.
 
 ## Rilasci
 
