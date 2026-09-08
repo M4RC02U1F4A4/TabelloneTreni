@@ -1784,15 +1784,18 @@ function disegnaRisultati() {
   /* Quanti treni ha lasciato passare il filtro, detto dove il sottotitolo già
      dice cosa si sta guardando. Era una nota sopra la lista, e una nota sopra
      la lista è una riga tolta alla prima partenza — che è la ragione per cui
-     questa schermata si apre. Qui non costa niente: la parola che dice
-     "partenze" diventa "12 partenze su 40" e ha finito.
+     questa schermata si apre.
+
+     "40 partenze, 12 per te" e non "12 partenze su 40": i due numeri sono gli
+     stessi ma in quest'ordine si leggono come una frase — quante ne partono,
+     quante ti riguardano — invece che come una frazione da sciogliere.
 
      A zero treni resta la parola sola: il conteggio lo dà già, e meglio, lo
      stato vuoto in mezzo alla pagina. */
   const nomi = stato.arrivi ? ['arrivo', 'arrivi'] : ['partenza', 'partenze'];
   const passati = d && d.filtered ? d.trains.length : 0;
   const cosa = passati > 0
-    ? `${passati} ${nomi[passati === 1 ? 0 : 1]} su ${d.total}`
+    ? `${d.total} ${nomi[d.total === 1 ? 0 : 1]}, ${passati} per te`
     : (stato.arrivi ? 'Arrivi' : 'Partenze');
 
   testa.innerHTML = `
