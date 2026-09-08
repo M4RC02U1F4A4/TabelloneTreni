@@ -215,6 +215,22 @@ function scrivi(chiave, valore) {
   try { localStorage.setItem(chiave, JSON.stringify(valore)); } catch { /* modalità privata */ }
 }
 
+/* Le due stazioni scritte nella ricerca. Stavano solo in memoria, e su un
+   telefono che chiude le applicazioni quando gli pare sparivano di continuo:
+   si riapriva l'app e il modulo era di nuovo vuoto, con la stazione di partenza
+   da ridire ogni volta. Sono l'unica cosa della home che si compila a mano, e
+   la sola che non si ricordava. */
+const scriviCampi = () => scrivi('tt.campi', { da: stato.da, a: stato.a });
+
+/* Si rileggono una volta sola all'avvio e non a ogni ritorno in home: dentro
+   la sessione i campi seguono già quello che si sta guardando, e rimetterceli
+   sopra a ogni giro cancellerebbe la stazione appena scelta. */
+function idrataCampi() {
+  const c = leggi('tt.campi', {});
+  stato.da = c.da || null;
+  stato.a = c.a || null;
+}
+
 const preferiti = () => leggi('tt.preferiti', []);
 const chiaveTratta = (p) => `${p.f}>${p.t || ''}${p.a ? '>a' : ''}`;
 /* La stessa chiave, per il tabellone che si sta guardando. Ha un nome suo
@@ -407,6 +423,11 @@ async function caricaStazioni() {
   stato.stazioni = d.stations.map(([id, n]) => [id, titolo(n)]);
   stato.canoni = stato.stazioni.map(([, n]) => canon(n));
   stato.nomi = new Map(stato.stazioni);
+  // Un id salvato può non esistere più dopo un aggiornamento del catalogo:
+  // senza questo il campo resterebbe su "stazione 1393" senza modo di capire
+  // cosa sia. Si controlla qui perché è l'unico punto in cui i nomi esistono.
+  if (stato.da && !stato.nomi.has(stato.da)) stato.da = null;
+  if (stato.a && !stato.nomi.has(stato.a)) stato.a = null;
 }
 
 async function caricaTabellone() {
@@ -736,6 +757,7 @@ listaScelta.addEventListener('click', (e) => {
     return;
   }
   if (campoInModifica === 'da') stato.da = id; else stato.a = id;
+  scriviCampi();
   chiudiScelta();
   disegna();
 });
@@ -1016,19 +1038,15 @@ function disegnaHome() {
       </div>
     </section>`;
 
-  /* Chi ha già delle tratte salvate apre l'app per guardarle, non per
-     compilare un modulo: quelle e lo stato delle linee stanno in cima, e la
-     ricerca — che si usa quando si va in un posto nuovo, cioè di rado — scende
-     in fondo.
+  /* Le tratte salvate in cima, poi le due cose che si fanno — cercare e aprire
+     un tabellone — e in fondo i bollini, che si guardano e basta.
 
-     Senza preferiti l'ordine si rovescia. Aprire con i bollini delle linee
-     lascerebbe la prima schermata di chi arriva per la prima volta senza
-     niente da fare, e la ricerca lì è l'unica cosa che c'è da fare. */
-  const corpo = fav.length
-    ? [salvate, sezioneLinee(), ricerca, tabellone]
-    : [ricerca, tabellone, sezioneLinee()];
-
-  app.innerHTML = `${bannerAvvisi()}${sezioneSeguiti()}${corpo.join('')}`;
+     La ricerca era finita sotto lo stato linee, per il ragionamento che chi ha
+     dei preferiti cerca di rado. Vero come statistica e sbagliato in mano: le
+     volte che serve, serve subito, e stava a due schermate di distanza. Un
+     modulo che si usa poco va tenuto corto, non lontano. */
+  app.innerHTML = `${bannerAvvisi()}${sezioneSeguiti()}${
+    fav.length ? salvate : ''}${ricerca}${tabellone}${sezioneLinee()}`;
 }
 
 /* Il preferito guardato per ultimo va in cima. La mattina si guarda l'andata e
@@ -1319,12 +1337,19 @@ function sezioneLinee() {
       <p class="nota">Stato delle linee non disponibile.</p></section>`;
   }
 
-  const mie = stato.linee.filter((l) => seguita(l.code));
-  const guai = stato.linee.filter((l) => l.status > 0 && !seguita(l.code));
-  const righe = [...mie, ...guai];
+  /* Solo le linee seguite. Prima si aggiungevano anche quelle in difficoltà
+     che uno non segue: in una brutta giornata erano dieci righe di linee che
+     non c'entrano niente con dove si va, e mangiavano la home per dare una
+     notizia che non riguardava nessuno.
+
+     Quello che le sostituisce è la barra, che di righe ne occupa zero: se il
+     rosso c'è si vede, e "Tutte" è lì accanto per andarlo a leggere. */
+  const righe = stato.linee.filter((l) => seguita(l.code));
 
   return `<section class="sezione">${testa}${barraLinee(stato.linee)}
-    ${righe.length ? `<ul class="lista">${righe.map(rigaLinea).join('')}</ul>` : ''}</section>`;
+    ${righe.length
+      ? `<ul class="lista">${righe.map(rigaLinea).join('')}</ul>`
+      : '<p class="nota">Nessuna linea seguita. Accendi una campanella da «Tutte» per tenerla qui.</p>'}</section>`;
 }
 
 /* Il colpo d'occhio sulle 65 linee, che una lista di zero righe non dà: la
@@ -1998,7 +2023,11 @@ app.addEventListener('click', (e) => {
   else if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
   else if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
-  else if (t.closest('[data-scambia]')) { [stato.da, stato.a] = [stato.a, stato.da]; disegna(); }
+  else if (t.closest('[data-scambia]')) {
+    [stato.da, stato.a] = [stato.a, stato.da];
+    scriviCampi();
+    disegna();
+  }
   else if (t.closest('[data-modifica]')) { modificaPreferiti = !modificaPreferiti; disegna(); }
   else if (t.closest('[data-campanella]')) {
     const codice = t.closest('[data-campanella]').dataset.campanella;
@@ -2070,6 +2099,7 @@ window.addEventListener('hashchange', cambiaRotta);
 // Prima della prima rotta: la home deve poter disegnare le schede seguite con
 // l'ultima lettura salvata, senza aspettare una rete che magari non c'è.
 idrataViaggi();
+idrataCampi();
 cambiaRotta();
 
 if ('serviceWorker' in navigator) {
