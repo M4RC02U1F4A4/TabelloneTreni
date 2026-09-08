@@ -240,6 +240,35 @@ Il permesso si chiede **dentro il tocco**: `Notification.requestPermission()`
 parte nel gestore del click e la sua promessa si aspetta dopo, perché su iOS una
 chiamata fatta dopo un `await` non conta più come gesto dell'utente.
 
+#### Gli scioperi
+
+Uno sciopero cambia la giornata più di qualunque ritardo, e arriva **giorni
+prima**: quello del 7-8 settembre è stato pubblicato il primo. Ha quindi un
+cartello suo, **rosso**, in cima alla home e sopra quello giallo degli avvisi di
+stazione — è una gerarchia e non due tinte a caso: il giallo dice "guarda quando
+passi in stazione", il rosso dice "oggi il treno potrebbe non esserci". Il giallo
+resta al suo posto: un ascensore fuori servizio serve anche il giorno di uno
+sciopero.
+
+E ha una **notifica dedicata**, con un tag proprio, così sulla schermata di
+blocco non sostituisce la notizia di un guasto in corso né ne viene sostituita:
+sono due cose da sapere entrambe. È l'eccezione al silenzio sugli avvisi
+programmati, e le variazioni d'orario continuano a tacere — se notificassero,
+ogni riavvio del servizio annuncerebbe i lavori di agosto.
+
+Si riconosce **dalla parola**, perché non c'è nient'altro: la sorgente non ha un
+campo che lo dica, e la sezione non aiuta — uno sciopero sta fra gli avvisi
+programmati, in mezzo alle variazioni d'orario. È un'euristica su un campione
+osservato, quindi sta in un posto solo e il testo che ha riconosciuto finisce
+sotto gli occhi di chi legge: se prende qualcosa di troppo, si vede subito.
+
+Lo stesso sciopero è pubblicato su tutte le linee interessate, e nel cartello si
+scrive **una volta**, con accanto i codici delle linee: uno sciopero nazionale
+altrimenti si leggerebbe quindici volte. Il cartello vive delle comunicazioni
+che arrivano dentro l'elenco delle linee, e quelle esistono solo per le linee
+che segui — **senza nessuna campanella accesa non compare niente**, ed è
+coerente: la stessa campanella che accende le notifiche accende il cartello.
+
 #### La mappa del viaggio
 
 Sulla scheda di un treno, un tasto chiede la posizione e apre una mappa con

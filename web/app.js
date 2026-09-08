@@ -122,6 +122,9 @@ const lineeAperte = new Set();
 // la home si ridisegna una volta al minuto, e senza ricordarselo il banner si
 // richiuderebbe in faccia a chi stava leggendo l'avviso per intero.
 let avvisiStazioneAperti = false;
+// Il cartello degli scioperi si ricorda se l'avevi aperto, come quello giallo:
+// la home si ridisegna spesso e richiuderlo sotto le dita sarebbe fastidioso.
+let scioperiAperti = false;
 let timerRinfresco = null;
 let timerEta = null;
 let richiestaInCorso = 0;
@@ -1183,7 +1186,7 @@ function disegnaHome() {
      dei preferiti cerca di rado. Vero come statistica e sbagliato in mano: le
      volte che serve, serve subito, e stava a due schermate di distanza. Un
      modulo che si usa poco va tenuto corto, non lontano. */
-  app.innerHTML = `${bannerAvvisi()}${sezioneSeguiti()}${
+  app.innerHTML = `${bannerScioperi()}${bannerAvvisi()}${sezioneSeguiti()}${
     fav.length ? salvate : ''}${ricerca}${tabellone}${sezioneLinee()}`;
 }
 
@@ -1770,6 +1773,50 @@ function aggiornaRicentra(m) {
    preferiti su stazioni diverse, un testo senza etichetta non si sa a chi si
    riferisca — e "ASCENSORI BINARI 14/15 FUORI SERVIZIO" senza sapere in quale
    stazione non è un'informazione. */
+/* Gli scioperi, in rosso e sopra ogni altra cosa.
+
+   Uno sciopero cambia la giornata più di qualunque ritardo, e arriva giorni
+   prima: è l'unica comunicazione che vale la pena leggere quando non stai
+   ancora andando in stazione. Sta sopra il cartello giallo degli avvisi di
+   stazione, che resta al suo posto — un ascensore fuori servizio continua a
+   servire anche il giorno di uno sciopero.
+
+   Le comunicazioni arrivano dentro l'elenco delle linee, ma solo per le linee
+   che segui: sono quelle che il servizio interroga per poter mandare le
+   notifiche. Senza nessuna campanella accesa qui non compare niente, ed è
+   coerente — la stessa campanella che accende le notifiche accende il
+   cartello. */
+function bannerScioperi() {
+  const miei = new Set(campanelle());
+  // Lo stesso sciopero è pubblicato su tutte le linee interessate, quindi si
+  // raggruppa sul testo come fa il cartello giallo: uno sciopero nazionale
+  // altrimenti si scriverebbe quindici volte.
+  const perTesto = new Map();
+  for (const l of stato.linee || []) {
+    if (!miei.has(l.code)) continue;
+    for (const a of l.notices || []) {
+      if (!a.strike) continue;
+      if (!perTesto.has(a.text)) perTesto.set(a.text, new Set());
+      perTesto.get(a.text).add(l.code);
+    }
+  }
+  if (!perTesto.size) return '';
+
+  const striscia = [...perTesto.keys()].join('  ·  ');
+  const voci = [...perTesto].map(([t, linee]) => `<li>
+      <span class="stazione-avviso">${[...linee].map((x) => esc(x)).join(' · ')}</span>
+      <span class="testo-avviso">${esc(t)}</span>
+    </li>`).join('');
+  return `<details class="avvisi-stazione sciopero" data-scioperi${scioperiAperti ? ' open' : ''}>
+    <summary>
+      <span class="scorrevole"><span class="scorre">${esc(striscia)}</span></span>
+      <span class="etichetta">Sciopero</span>
+      <span class="chevron">${icona('gallone')}</span>
+    </summary>
+    <ul class="elenco-avvisi-stazione">${voci}</ul>
+  </details>`;
+}
+
 function bannerAvvisi() {
   // Si guarda anche che la stazione sia ancora fra i preferiti: togliendone
   // uno la home si ridisegna subito, mentre gli avvisi in mano sono quelli
@@ -2663,6 +2710,10 @@ app.addEventListener('toggle', (e) => {
   const d = e.target;
   if (d instanceof HTMLDetailsElement && 'avvisi' in d.dataset) {
     avvisiStazioneAperti = d.open;
+    return;
+  }
+  if (d instanceof HTMLDetailsElement && 'scioperi' in d.dataset) {
+    scioperiAperti = d.open;
     return;
   }
   if (d instanceof HTMLDetailsElement && d.dataset.linea) {

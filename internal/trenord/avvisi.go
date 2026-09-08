@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,7 +25,22 @@ type Avviso struct {
 	Testo string    `json:"text"`
 	// Da quale delle due liste della pagina viene. Vedi Sezione.
 	Sezione Sezione `json:"section,omitempty"`
+	// Sciopero dice che questa comunicazione parla di uno sciopero, che è la
+	// cosa che cambia una giornata più di qualunque ritardo.
+	//
+	// Si riconosce dalla parola, perché non c'è nient'altro: la sorgente non ha
+	// un campo che lo dica, e la sezione non aiuta — uno sciopero sta fra gli
+	// avvisi programmati, in mezzo alle variazioni d'orario e ai lavori. È
+	// un'euristica su un campione osservato, quindi sta in un posto solo e il
+	// testo che ha riconosciuto finisce sotto gli occhi di chi legge: se prende
+	// qualcosa di troppo, si vede subito invece di restare nascosto.
+	Sciopero bool `json:"strike,omitempty"`
 }
+
+// parlaDiSciopero riconosce la parola in tutte le sue forme — sciopero,
+// scioperi, scioperano — e anche dentro il nome del PDF allegato, che è dove
+// finisce quando il testo la nomina una volta sola.
+var parlaDiSciopero = regexp.MustCompile(`(?i)scioper`)
 
 // Sezione dice in quale dei due elenchi della pagina Trenord la comunicazione
 // era pubblicata. Sono due cose diverse e la pagina le tiene separate:
@@ -148,7 +164,11 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 		if corpo == "" {
 			continue
 		}
-		a := Avviso{Testo: corpo, Sezione: sezioneDi(c)}
+		a := Avviso{
+			Testo:    corpo,
+			Sezione:  sezioneDi(c),
+			Sciopero: parlaDiSciopero.MatchString(corpo),
+		}
 		if d := trova(c, func(n *html.Node) bool { return haClasse(n, "news-date") }); d != nil {
 			// Il formato è ISO con i millisecondi e la Z: se un giorno cambia,
 			// meglio un avviso senza data che nessun avviso.

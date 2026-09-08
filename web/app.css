@@ -983,3 +983,16 @@ details[open] .apri { transform: rotate(90deg); }
   padding: 3px 8px; font-size: 10px; text-align: right;
   color: var(--tenue); background: color-mix(in srgb, var(--sfondo) 72%, transparent);
 }
+
+/* Lo stesso cartello, in rosso, per gli scioperi.
+   Il giallo dice "guarda quando passi in stazione", il rosso dice "oggi il
+   treno potrebbe non esserci": è una gerarchia, non due tinte a caso, e per
+   questo il rosso sta sopra. */
+.avvisi-stazione.sciopero {
+  border-left-color: var(--rosso);
+  background: color-mix(in srgb, var(--rosso) 10%, var(--piano));
+  color: var(--rosso);
+}
+/* Nell'elenco aperto l'etichetta è il codice della linea, non il nome di una
+   stazione: lo stesso sciopero vale su più linee insieme. */
+.avvisi-stazione.sciopero .stazione-avviso { color: var(--rosso); }

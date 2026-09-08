@@ -233,3 +233,64 @@ func TestLeSchedeDelCaroselloRestanoFuori(t *testing.T) {
 		t.Fatalf("avvisi = %d, attesi 5: nel carosello ce ne sono sette, due sono schede", len(d.Avvisi))
 	}
 }
+
+// Uno sciopero si riconosce dalla parola, perché la sorgente non ha un campo
+// che lo dica e la sezione non aiuta: sta fra gli avvisi programmati, in mezzo
+// alle variazioni d'orario. Nella fixture della RE_5 ce n'è esattamente uno,
+// indetto il primo settembre per il 7 e l'8 — sei giorni prima, che è il motivo
+// per cui vale la pena avvisare.
+func TestLoScioperoSiRiconosce(t *testing.T) {
+	f, err := os.Open("testdata/line-details-RE_5.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	d, err := ParseDettaglio(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var scioperi []Avviso
+	for _, a := range d.Avvisi {
+		if a.Sciopero {
+			scioperi = append(scioperi, a)
+		}
+	}
+	if len(scioperi) != 1 {
+		t.Fatalf("scioperi = %d, atteso 1: %+v", len(scioperi), scioperi)
+	}
+	s := scioperi[0]
+	if !strings.Contains(s.Testo, "sciopero nazionale") {
+		t.Errorf("non è l'avviso atteso: %.80s", s.Testo)
+	}
+	// Sta fra i programmati, ed è proprio il punto: filtrando per sezione si
+	// perderebbe.
+	if s.Sezione != SezioneAvvisi {
+		t.Errorf("sezione = %d, attesa quella degli avvisi programmati", s.Sezione)
+	}
+	// E le variazioni d'orario, che stanno nella stessa sezione, non sono uno
+	// sciopero: se lo fossero, il cartello rosso comparirebbe per tre mesi.
+	for _, a := range d.Avvisi {
+		if a.Sciopero == strings.Contains(a.Testo, "variazioni") && strings.Contains(a.Testo, "variazioni") {
+			t.Errorf("le variazioni d'orario passano per sciopero: %.80s", a.Testo)
+		}
+	}
+}
+
+// Tutte le forme della parola, e anche quando compare solo nel nome del PDF.
+func TestLeFormeDellaParolaSciopero(t *testing.T) {
+	casi := map[string]bool{
+		"I sindacati hanno indetto uno sciopero nazionale":         true,
+		"Scioperi del personale previsti per lunedì":               true,
+		"Il personale scioperano dalle 9 alle 17":                  true,
+		"consultare AvvisoTrenord_2026_186__Sciopero_7-8.pdf":      true,
+		"Dal 24 agosto i seguenti treni subiscono variazioni":      false,
+		"Il treno 2536 non è ancora partito per un guasto tecnico": false,
+		"Circolazione rallentata per un guasto agli impianti":      false,
+	}
+	for testo, atteso := range casi {
+		if got := parlaDiSciopero.MatchString(testo); got != atteso {
+			t.Errorf("%.50s → %v, atteso %v", testo, got, atteso)
+		}
+	}
+}

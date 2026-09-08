@@ -365,3 +365,110 @@ func TestFasciaRottaRifiutataDallHandler(t *testing.T) {
 		t.Error("abbonamento registrato comunque")
 	}
 }
+
+// avvisoSciopero è la comunicazione vera del primo settembre, accorciata.
+func avvisoSciopero() trenord.Avviso {
+	return trenord.Avviso{
+		Testo:    "I sindacati CUB TRASPORTI e SGB hanno indetto uno sciopero nazionale dalle ore 21:18 del 7 settembre.",
+		Sezione:  trenord.SezioneAvvisi,
+		Sciopero: true,
+	}
+}
+
+// avvisoProgrammato sta nella stessa sezione dello sciopero e non è uno
+// sciopero: è la variazione d'orario che resta pubblicata per settimane, e per
+// cui nessuno vuole essere svegliato.
+func avvisoProgrammato() trenord.Avviso {
+	return trenord.Avviso{
+		Testo:   "Dal 24 agosto al 13 settembre i seguenti treni subiscono variazioni.",
+		Sezione: trenord.SezioneAvvisi,
+	}
+}
+
+// Uno sciopero notifica, anche stando fra gli avvisi programmati — che è dove
+// sta. È l'eccezione al silenzio su quella sezione, e ha una ragione: arriva
+// giorni prima e cambia la giornata più di qualunque ritardo.
+func TestLoScioperoNotifica(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+	ab, _ := ApriAbbonati("")
+	dove := abbonaA(t, ab, srv.URL, "lavoratore", mattina)
+	n := notificatoreDiProva(t, ab, srv.Client())
+
+	reg := registroCon(t, "S2", trenord.Regolare)
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+
+	metti(reg, "S2", trenord.Regolare, 2, avvisoSciopero())
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+
+	mu.Lock()
+	defer mu.Unlock()
+	if q := quante(viste, dove); q != 1 {
+		t.Fatalf("notifiche = %d, attesa 1", q)
+	}
+}
+
+// Gli altri avvisi programmati continuano a tacere: se notificassero, ogni
+// riavvio del servizio annuncerebbe i lavori di agosto.
+func TestGliAvvisiProgrammatiRestanoZitti(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+	ab, _ := ApriAbbonati("")
+	dove := abbonaA(t, ab, srv.URL, "lavoratore", mattina)
+	n := notificatoreDiProva(t, ab, srv.Client())
+
+	reg := registroCon(t, "S2", trenord.Regolare)
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+
+	metti(reg, "S2", trenord.Regolare, 2, avvisoProgrammato())
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+
+	mu.Lock()
+	defer mu.Unlock()
+	if q := quante(viste, dove); q != 0 {
+		t.Fatalf("notifiche = %d, attesa nessuna", q)
+	}
+}
+
+// Sciopero e guasto insieme fanno due notifiche, non una: sono due cose da
+// sapere entrambe, e sulla schermata di blocco non devono sostituirsi a
+// vicenda — per questo hanno tag diversi.
+func TestScioperoEGuastoSonoDueNotifiche(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+	ab, _ := ApriAbbonati("")
+	dove := abbonaA(t, ab, srv.URL, "lavoratore", mattina)
+	n := notificatoreDiProva(t, ab, srv.Client())
+
+	reg := registroCon(t, "S2", trenord.Regolare)
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+
+	// La linea peggiora e insieme compare lo sciopero.
+	metti(reg, "S2", trenord.Critico, 2, avvisoSciopero(),
+		trenord.Avviso{Testo: "Guasto agli impianti a Seveso.", Sezione: trenord.SezioneCircolazione})
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+
+	mu.Lock()
+	defer mu.Unlock()
+	if q := quante(viste, dove); q != 2 {
+		t.Fatalf("notifiche = %d, attese 2", q)
+	}
+}
+
+// E una volta detto, non si ripete: al giro dopo lo sciopero è lo stesso.
+func TestLoScioperoNonSiRipete(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+	ab, _ := ApriAbbonati("")
+	dove := abbonaA(t, ab, srv.URL, "lavoratore", mattina)
+	n := notificatoreDiProva(t, ab, srv.Client())
+
+	reg := registroCon(t, "S2", trenord.Regolare)
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+	metti(reg, "S2", trenord.Regolare, 2, avvisoSciopero())
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+	metti(reg, "S2", trenord.Regolare, 3, avvisoSciopero())
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+
+	mu.Lock()
+	defer mu.Unlock()
+	if q := quante(viste, dove); q != 1 {
+		t.Fatalf("notifiche = %d, attesa 1: lo sciopero è stato riannunciato", q)
+	}
+}

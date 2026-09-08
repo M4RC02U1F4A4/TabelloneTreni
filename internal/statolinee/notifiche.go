@@ -100,13 +100,22 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 				// fonte con un orario: senza, non c'è niente da raccontare.
 				continue
 			}
-			// Solo "STATO DELLA LINEA": è quello che sta succedendo adesso. Gli
-			// avvisi programmati — variazioni d'orario, scioperi, i PDF —
-			// restano pubblicati per settimane e non sono una notizia che
-			// giustifichi una vibrazione, tanto meno la prima volta che il
-			// servizio li vede dopo un riavvio.
-			avvisi := diCircolazione(r.AvvisiDi(codice))
-			adessoVisto := Visto{Stato: stato, Avvisi: impronteDi(avvisi)}
+			// Due cose diverse, tenute separate perché sono due notizie
+			// diverse. La circolazione è quello che sta succedendo adesso; lo
+			// sciopero è programmato, arriva giorni prima, e cambia la
+			// giornata più di qualunque ritardo. Gli altri avvisi programmati —
+			// variazioni d'orario, lavori, i PDF — restano fuori: stanno
+			// pubblicati per settimane e non giustificano una vibrazione.
+			tutti := r.AvvisiDi(codice)
+			avvisi := diCircolazione(tutti)
+			scioperi := diSciopero(tutti)
+			// Il visto tiene le impronte di tutto ciò su cui si notifica, in un
+			// insieme solo: serve a sapere cosa è già stato detto, non da quale
+			// dei due passaggi.
+			adessoVisto := Visto{
+				Stato:  stato,
+				Avvisi: append(impronteDi(avvisi), impronteDi(scioperi)...),
+			}
 
 			prima, gia := ab.Visto[codice]
 			if !gia {
@@ -127,7 +136,8 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 				continue
 			}
 			freschi := nuoviAvvisi(avvisi, prima.Avvisi)
-			if stato == prima.Stato && len(freschi) == 0 {
+			nuoviScioperi := nuoviAvvisi(scioperi, prima.Avvisi)
+			if stato == prima.Stato && len(freschi) == 0 && len(nuoviScioperi) == 0 {
 				continue
 			}
 			// Fuori dalla fascia non si parla. Il visto resta indietro di
@@ -144,27 +154,48 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 					adesso.In(ab.fuso()).Format("Mon 15:04"), ab.fasceScritte())
 				continue
 			}
-			m := messaggio{Titolo: r.NomeDi(codice), URL: destinazione(codice), Tag: "linea-" + codice}
-			switch {
-			case stato != prima.Stato && len(freschi) > 0:
-				// Il cambio dice cosa è successo, l'avviso perché: insieme sono
-				// la notifica che serve davvero.
-				m.Corpo = testoCambio(Cambio{
-					Linea: trenord.Linea{Codice: codice, Stato: stato}, Prima: prima.Stato,
-				}) + " · " + taglia(freschi[0].Testo, 150)
-			case stato != prima.Stato:
-				m.Corpo = testoCambio(Cambio{
-					Linea: trenord.Linea{Codice: codice, Stato: stato}, Prima: prima.Stato,
-				})
-			default:
-				m.Corpo = taglia(freschi[0].Testo, 180)
+			// Il messaggio della circolazione si costruisce solo se c'è
+			// circolazione di cui parlare. Costruirlo comunque significava
+			// leggere `freschi[0]` con `freschi` vuoto, che è quello che
+			// succede quando la sola novità è uno sciopero.
+			if stato != prima.Stato || len(freschi) > 0 {
+				m := messaggio{Titolo: r.NomeDi(codice), URL: destinazione(codice), Tag: "linea-" + codice}
+				switch {
+				case stato != prima.Stato && len(freschi) > 0:
+					// Il cambio dice cosa è successo, l'avviso perché: insieme
+					// sono la notifica che serve davvero.
+					m.Corpo = testoCambio(Cambio{
+						Linea: trenord.Linea{Codice: codice, Stato: stato}, Prima: prima.Stato,
+					}) + " · " + taglia(freschi[0].Testo, 150)
+				case stato != prima.Stato:
+					m.Corpo = testoCambio(Cambio{
+						Linea: trenord.Linea{Codice: codice, Stato: stato}, Prima: prima.Stato,
+					})
+				default:
+					m.Corpo = taglia(freschi[0].Testo, 180)
+				}
+				if corpo, err := json.Marshal(m); err == nil {
+					// Una riga anche sull'invio riuscito. Senza, "spedita" e
+					// "spedita e non consegnata" sono indistinguibili dai log,
+					// e ogni segnalazione riparte da zero.
+					log.Printf("%s notifica a %s: %s", codice, breve(ab.Sottoscrizione.Endpoint), m.Corpo)
+					n.manda(ctx, ab, corpo)
+				}
 			}
-			if corpo, err := json.Marshal(m); err == nil {
-				// Una riga anche sull'invio riuscito. Senza, "spedita" e
-				// "spedita e non consegnata" sono indistinguibili dai log, e
-				// ogni segnalazione riparte da zero.
-				log.Printf("%s notifica a %s: %s", codice, breve(ab.Sottoscrizione.Endpoint), m.Corpo)
-				n.manda(ctx, ab, corpo)
+			// Lo sciopero va per conto suo, con un tag suo: non deve sostituire
+			// sulla schermata di blocco la notizia di un guasto in corso, né
+			// esserne sostituito. Sono due cose da sapere entrambe.
+			if len(nuoviScioperi) > 0 {
+				sc := messaggio{
+					Titolo: "Sciopero · " + r.NomeDi(codice),
+					URL:    destinazione(codice),
+					Tag:    "sciopero-" + codice,
+					Corpo:  taglia(nuoviScioperi[0].Testo, 180),
+				}
+				if corpo, err := json.Marshal(sc); err == nil {
+					log.Printf("%s sciopero a %s: %.60s", codice, breve(ab.Sottoscrizione.Endpoint), sc.Corpo)
+					n.manda(ctx, ab, corpo)
+				}
 			}
 			// Il visto avanza comunque, riuscito l'invio o no. Non avanzare
 			// vorrebbe dire riprovare la stessa notizia a ogni giro contro un
@@ -186,7 +217,22 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 func diCircolazione(avvisi []trenord.Avviso) []trenord.Avviso {
 	var out []trenord.Avviso
 	for _, a := range avvisi {
-		if a.Sezione != trenord.SezioneAvvisi {
+		// Uno sciopero ha la sua notifica: se ne comparisse uno nella sezione
+		// della circolazione — non l'ho mai visto, ma la sorgente è di altri —
+		// non deve arrivare due volte.
+		if a.Sezione != trenord.SezioneAvvisi && !a.Sciopero {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// diSciopero tiene le sole comunicazioni che parlano di uno sciopero, da
+// qualunque delle due liste vengano.
+func diSciopero(avvisi []trenord.Avviso) []trenord.Avviso {
+	var out []trenord.Avviso
+	for _, a := range avvisi {
+		if a.Sciopero {
 			out = append(out, a)
 		}
 	}
