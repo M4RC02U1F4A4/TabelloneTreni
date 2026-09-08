@@ -126,3 +126,30 @@ assert.strictEqual(
 
 console.log('tratte: ok — 4 giri completi + 3 casi su ricordaTratta');
 
+/* ------------------------------------------- il numero del binario e il SOT */
+
+/* numeroBinario() è l'unico punto dell'app che compone HTML a pezzi invece di
+ * passare tutto da esc(), quindi il controllo guarda due cose: che stacchi la
+ * qualifica solo quando c'è davvero, e che quello che RFI ci mette dentro non
+ * esca mai dal template. */
+const esc = new Function(`${ritaglia('const esc =', '/* RFI manda i nomi')}; return esc;`)();
+const numeroBinario = new Function('esc',
+  `${ritaglia('function numeroBinario', '/* Il provvedimento')}; return numeroBinario;`)(esc);
+
+for (const [dato, atteso] of [
+  ['2', '2'],
+  ['10', '10'],
+  ['2 SOT', '2<small>SOT</small>'],        // i sotterranei di Porta Garibaldi
+  ['1 SOT', '1<small>SOT</small>'],
+  ['EST', 'EST'],                          // niente cifra davanti: tale e quale
+  ['', ''],
+]) {
+  assert.strictEqual(numeroBinario(dato), atteso, dato);
+}
+
+// RFI scrive a mano in quella casella: qualunque cosa ci finisca esce escapata.
+assert.strictEqual(numeroBinario('<b>x'), '&lt;b&gt;x');
+assert.strictEqual(numeroBinario('3 <b>x'), '3<small>&lt;b&gt;x</small>');
+
+console.log('binario: ok — 6 casi + 2 di escaping');
+

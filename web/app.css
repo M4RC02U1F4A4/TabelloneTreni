@@ -614,6 +614,10 @@ summary.riga-treno::-webkit-details-marker { display: none; }
   display: block; font-size: 17px; font-weight: 650;
   padding: 3px 8px; border-radius: 8px; background: var(--piano-alto);
 }
+/* La qualifica del binario — il "SOT" dei sotterranei di Garibaldi — sta
+   accanto alla cifra ma non pesa quanto lei: il numero è quello che si cerca,
+   la qualifica dice dove andarlo a prendere. */
+.binario .num small { font-size: 11px; font-weight: 600; margin-left: 3px; }
 /* Senza spaziatura fra le lettere: era l'ultimo residuo dell'etichettina
    spaziata, e in questo slot ci finisce anche "era 3" quando il binario cambia
    — cioè una frase, che spaziata si legge peggio. */

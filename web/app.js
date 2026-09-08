@@ -1146,6 +1146,23 @@ function etaLettura(lettoIl) {
   return ` · letto ${m === 1 ? 'un minuto' : `${m} minuti`} fa`;
 }
 
+/* Il numero del binario, con la qualifica staccata quando ce n'è una.
+
+   A Milano Porta Garibaldi RFI manda "2 SOT": il binario è il 2, "SOT" dice
+   che è nei sotterranei — che sono cinque minuti di camminata dai binari di
+   superficie, quindi non è una cosa da togliere. Ma scritta grande quanto la
+   cifra allargava la colonna su quasi ogni suburbano, e la colonna ballava da
+   una riga all'altra.
+
+   La cifra resta il pezzo grande, la qualifica scende di misura e resta lì
+   accanto. Quello che non combacia con "numero più resto" si scrive tale e
+   quale: RFI in quella casella ci mette di tutto, e non vale la pena
+   indovinare. */
+function numeroBinario(p) {
+  const m = /^(\d+)\s+(.+)$/.exec(p);
+  return m ? `${esc(m[1])}<small>${esc(m[2])}</small>` : esc(p);
+}
+
 /* Il provvedimento, quando c'è. Sta in cima alla scheda perché cambia il senso
    di tutto quello che c'è sotto: un +5 su un treno soppresso è la bugia
    peggiore che questa scheda possa raccontare, e non si corregge stampandolo
@@ -1186,7 +1203,7 @@ function corpoSeguito(d, lettoIl) {
     </div>
     <div class="binario${cambio ? ' cambiato' : ''}">
       ${f && f.platform
-        ? `<span class="num">${esc(f.platform)}</span>
+        ? `<span class="num">${numeroBinario(f.platform)}</span>
            <span class="cap">${cambio ? esc(cambio) : 'bin.'}</span>`
         : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
     </div>
@@ -1870,7 +1887,7 @@ function rigaTreno(t, d, misure) {
       <span class="meta">${dettagli}</span>
     </div>
     <div class="binario${cambio ? ' cambiato' : ''}">
-      ${t.platform ? `<span class="num">${esc(t.platform)}</span>
+      ${t.platform ? `<span class="num">${numeroBinario(t.platform)}</span>
                       <span class="cap">${cambio ? esc(cambio) : 'bin.'}</span>`
                    : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
     </div>
