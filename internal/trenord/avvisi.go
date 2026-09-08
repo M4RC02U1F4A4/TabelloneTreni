@@ -22,7 +22,34 @@ type Avviso struct {
 	// a riconoscere quelli nuovi senza tenere memoria di quelli vecchi.
 	Data  time.Time `json:"date"`
 	Testo string    `json:"text"`
+	// Da quale delle due liste della pagina viene. Vedi Sezione.
+	Sezione Sezione `json:"section,omitempty"`
 }
+
+// Sezione dice in quale dei due elenchi della pagina Trenord la comunicazione
+// era pubblicata. Sono due cose diverse e la pagina le tiene separate:
+// "STATO DELLA LINEA" è quello che sta succedendo adesso, "AVVISI" è quello che
+// è stato programmato — variazioni d'orario, scioperi, i PDF — e resta lì per
+// settimane.
+//
+// Non è la gravità, ed è un errore facile: misurato su otto linee, la sezione
+// degli avvisi porta sia `info` sia `warning`, mentre la circolazione portava
+// solo `critical`. Filtrando sulla gravità si terrebbe la cosa sbagliata al
+// primo `2 warning` — una criticità rientrata, che è proprio la notizia che si
+// aspetta.
+//
+// Il numero è quello che la pagina scrive nella classe dell'elemento. Un valore
+// che non conosciamo resta Ignota e non viene buttato: sparire in silenzio è
+// peggio che arrivare senza etichetta.
+type Sezione int
+
+const (
+	SezioneIgnota Sezione = 0
+	// SezioneAvvisi è "AVVISI": il programmato.
+	SezioneAvvisi Sezione = 1
+	// SezioneCircolazione è "STATO DELLA LINEA": quello di adesso.
+	SezioneCircolazione Sezione = 2
+)
 
 const dettaglioURL = "https://www.trenord.it/rest/render/line-details"
 
@@ -121,7 +148,7 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 		if corpo == "" {
 			continue
 		}
-		a := Avviso{Testo: corpo}
+		a := Avviso{Testo: corpo, Sezione: sezioneDi(c)}
 		if d := trova(c, func(n *html.Node) bool { return haClasse(n, "news-date") }); d != nil {
 			// Il formato è ISO con i millisecondi e la Z: se un giorno cambia,
 			// meglio un avviso senza data che nessun avviso.
@@ -131,6 +158,21 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 	}
 	d.Avvisi = avvisi
 	return d, nil
+}
+
+// sezioneDi legge la sezione dalla classe dell'elemento: "item 2 critical" è
+// circolazione, "item 1 info" è un avviso. Il numero è l'unico token numerico
+// della classe; se non c'è, o non è uno di quelli noti, resta Ignota.
+func sezioneDi(n *html.Node) Sezione {
+	for _, f := range strings.Fields(attr(n, "class")) {
+		switch f {
+		case "1":
+			return SezioneAvvisi
+		case "2":
+			return SezioneCircolazione
+		}
+	}
+	return SezioneIgnota
 }
 
 // trova restituisce il primo nodo che soddisfa la condizione.

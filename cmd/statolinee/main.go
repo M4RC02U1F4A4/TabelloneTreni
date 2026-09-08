@@ -42,6 +42,13 @@ func main() {
 	}
 	notificatore := statolinee.NuovoNotificatore(abbonati, pubblica, privata, "")
 	log.Printf("notifiche accese (%d abbonamenti)", abbonati.Quanti())
+	// Cosa il servizio crede delle fasce di ognuno, all'avvio. È l'unico modo
+	// di confrontarlo con quello che l'interfaccia mostra sul telefono: senza,
+	// "ho impostato 17-19" e "il servizio ha 19-21" sono indistinguibili da
+	// fuori, e la differenza si scopre solo quando una notifica non arriva.
+	for _, r := range abbonati.Riepilogo() {
+		log.Printf("abbonato %s", r)
+	}
 	if os.Getenv("DATI") == "" {
 		log.Print("DATI non impostata: chiavi e abbonamenti si perdono al riavvio")
 	}

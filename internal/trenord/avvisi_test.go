@@ -166,3 +166,70 @@ func TestDettaglioPortaStatoEOrario(t *testing.T) {
 		t.Errorf("aggiornato = %v, atteso %v", d.Aggiornato, atteso)
 	}
 }
+
+// La pagina di una linea tiene due elenchi separati — "STATO DELLA LINEA" e
+// "AVVISI" — e la differenza va portata su, perché è quella che decide cosa
+// finisce sotto gli occhi e cosa fa suonare il telefono.
+//
+// La RE_5 è stata catturata l'8 settembre 2026 alle 19:04, con tre
+// comunicazioni di circolazione della sera e due avvisi programmati: è la sola
+// configurazione in cui si vede che le due liste arrivano mescolate.
+func TestLeDueSezioniSiDistinguono(t *testing.T) {
+	f, err := os.Open("testdata/line-details-RE_5.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	d, err := ParseDettaglio(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var circolazione, avvisi, ignote int
+	for _, a := range d.Avvisi {
+		switch a.Sezione {
+		case SezioneCircolazione:
+			circolazione++
+		case SezioneAvvisi:
+			avvisi++
+		default:
+			ignote++
+			t.Errorf("avviso senza sezione: %.60s", a.Testo)
+		}
+	}
+	if circolazione != 3 {
+		t.Errorf("circolazione = %d, attese 3", circolazione)
+	}
+	if avvisi != 2 {
+		t.Errorf("avvisi = %d, attesi 2", avvisi)
+	}
+
+	// I tre della circolazione sono i treni della sera; i due avvisi sono le
+	// variazioni d'orario e lo sciopero, pubblicati giorni prima.
+	for _, a := range d.Avvisi {
+		vecchio := a.Data.Before(time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC))
+		if a.Sezione == SezioneCircolazione && vecchio {
+			t.Errorf("circolazione datata %s: %.60s", a.Data.Format("2/1"), a.Testo)
+		}
+		if a.Sezione == SezioneAvvisi && !vecchio {
+			t.Errorf("avviso di oggi: %.60s", a.Testo)
+		}
+	}
+}
+
+// Le schede del carosello che non sono comunicazioni — biglietti, distributori
+// — non hanno testo e restano fuori, come prima.
+func TestLeSchedeDelCaroselloRestanoFuori(t *testing.T) {
+	f, err := os.Open("testdata/line-details-RE_5.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	d, err := ParseDettaglio(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Avvisi) != 5 {
+		t.Fatalf("avvisi = %d, attesi 5: nel carosello ce ne sono sette, due sono schede", len(d.Avvisi))
+	}
+}

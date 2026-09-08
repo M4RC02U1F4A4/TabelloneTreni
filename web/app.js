@@ -866,6 +866,14 @@ async function cambiaRotta() {
     // perché il codice della rotta va confrontato con quelli veri.
     if (r.filtro) apriLineaDaRotta(r.filtro);
     disegna();
+    // Le comunicazioni invecchiano mentre le si legge: il servizio rilegge
+    // Trenord ogni cinque minuti, e questa è la vista in cui si sta fermi ad
+    // aspettare che cambi qualcosa. Senza timer restava quello che c'era
+    // quando si è entrati. L'ETag rende quasi gratis i giri in cui il servizio
+    // non ha ancora riletto niente.
+    avviaTimer(() => caricaLinee().then(() => {
+      if (leggiRotta().vista === 'linee') disegna();
+    }));
     return;
   }
 
@@ -1547,11 +1555,42 @@ function corpoAvvisi(codice) {
   if (v.stato === 'errore') {
     return `<p class="avvisi-attesa">${esc(v.dati)}</p>`;
   }
-  if (!v.dati.length) {
+  const dati = diCircolazione(v.dati);
+  if (!dati.length) {
     return '<p class="avvisi-attesa">Nessuna comunicazione su questa linea.</p>';
   }
-  return `<ol class="avvisi">${v.dati.map(vociAvviso).join('')}</ol>`;
+  return `<ol class="avvisi">${dati.map(vociAvviso).join('')}</ol>`;
 }
+
+/* Quello che sta succedendo adesso, dal più recente.
+
+   La pagina di Trenord tiene due elenchi: "STATO DELLA LINEA", che è la
+   circolazione di oggi, e "AVVISI", che è il programmato — variazioni d'orario
+   fino a dicembre, scioperi, i PDF. Arrivano mescolati in una lista sola, e
+   mescolati non si leggono: le tre righe che dicono cosa sta succedendo alla
+   tua linea stasera finivano in mezzo a due cartelli di settembre.
+
+   Il programmato resta comunque leggibile dove vale: la striscia gialla in
+   cima alla home, che è per i cartelli e non per la circolazione.
+
+   Una sezione che non conosciamo si tiene: se la sorgente cambia sotto, meglio
+   una riga in più che una notizia scomparsa in silenzio. */
+const SEZIONE_AVVISI = 1;
+
+function diCircolazione(avvisi) {
+  return avvisi
+    .filter((a) => a.section !== SEZIONE_AVVISI)
+    // Trenord non li manda in ordine: la RE_5 dell'8 settembre li dava 18:41,
+    // 18:46, 18:42. In cima va quello che vale adesso.
+    .sort((a, b) => quandoAvviso(b) - quandoAvviso(a));
+}
+
+const quandoAvviso = (a) => {
+  const d = a.date ? new Date(a.date) : null;
+  // Senza data va in fondo, non in cima: non si sa quando sia stato scritto, e
+  // non è il candidato a essere il più recente.
+  return d && !isNaN(d) ? d.getTime() : -Infinity;
+};
 
 /* Le comunicazioni si chiedono quando si apre una riga, non per tutte e 65: il
    dettaglio di una linea pesa più di cento KB, e di righe se ne apre una. */
@@ -1584,13 +1623,28 @@ async function scaricaAvvisi(codice) {
 /* Il testo arriva da Trenord e va messo con esc(): sono comunicazioni scritte a
    mano in sala operativa, e ci finiscono dentro indirizzi e virgolette. */
 function vociAvviso(a) {
-  const d = a.date ? new Date(a.date) : null;
-  const quando = d && !isNaN(d)
-    ? d.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }) : '';
   return `<li>
-    ${quando ? `<span class="data-avviso">${esc(quando)}</span>` : ''}
+    ${quandoScritto(a) ? `<span class="data-avviso">${esc(quandoScritto(a))}</span>` : ''}
     <span class="testo-avviso">${esc(a.text)}</span>
   </li>`;
+}
+
+/* Quando è stata scritta, con l'ora.
+
+   Senza l'ora non si leggeva: le tre comunicazioni di una sera portano tutte
+   "8 settembre" e diventano indistinguibili, mentre la differenza fra quella
+   delle 18:41 e quella delle 18:46 è tutta la notizia. Di oggi si scrive la
+   sola ora — il giorno lo si sa — e dei giorni prima il giorno e l'ora, come
+   fa Trenord. */
+function quandoScritto(a) {
+  const d = a.date ? new Date(a.date) : null;
+  if (!d || isNaN(d)) return '';
+  const ora = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const oggi = new Date();
+  const stessoGiorno = d.getDate() === oggi.getDate()
+    && d.getMonth() === oggi.getMonth() && d.getFullYear() === oggi.getFullYear();
+  if (stessoGiorno) return ora;
+  return `${d.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })}, ${ora}`;
 }
 
 /* Lo scheletro tiene anche il posto della campanella: senza, all'arrivo dei

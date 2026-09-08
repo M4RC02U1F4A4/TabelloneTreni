@@ -100,7 +100,12 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 				// fonte con un orario: senza, non c'è niente da raccontare.
 				continue
 			}
-			avvisi := r.AvvisiDi(codice)
+			// Solo "STATO DELLA LINEA": è quello che sta succedendo adesso. Gli
+			// avvisi programmati — variazioni d'orario, scioperi, i PDF —
+			// restano pubblicati per settimane e non sono una notizia che
+			// giustifichi una vibrazione, tanto meno la prima volta che il
+			// servizio li vede dopo un riavvio.
+			avvisi := diCircolazione(r.AvvisiDi(codice))
 			adessoVisto := Visto{Stato: stato, Avvisi: impronteDi(avvisi)}
 
 			prima, gia := ab.Visto[codice]
@@ -121,14 +126,22 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 				visto[codice], cambiato = adessoVisto, true
 				continue
 			}
-			// Da qui in giù si parla, e fuori dalla fascia non si parla. Il
-			// visto resta indietro di proposito: è quello che tiene la notizia
-			// in sospeso invece di consumarla mentre nessuno ascolta.
-			if !inAscolto {
-				continue
-			}
 			freschi := nuoviAvvisi(avvisi, prima.Avvisi)
 			if stato == prima.Stato && len(freschi) == 0 {
+				continue
+			}
+			// Fuori dalla fascia non si parla. Il visto resta indietro di
+			// proposito: è quello che tiene la notizia in sospeso invece di
+			// consumarla mentre nessuno ascolta.
+			//
+			// Si scrive nel log solo qui, dove qualcosa è stato davvero
+			// trattenuto: una riga a ogni giro per ogni abbonato sarebbe
+			// rumore, e questa invece è la riga che serve quando qualcuno dice
+			// "non mi è arrivato niente".
+			if !inAscolto {
+				log.Printf("%s rimandato per %s: fuori fascia, da lui sono le %s (%s)",
+					codice, breve(ab.Sottoscrizione.Endpoint),
+					adesso.In(ab.fuso()).Format("Mon 15:04"), ab.fasceScritte())
 				continue
 			}
 			m := messaggio{Titolo: r.NomeDi(codice), URL: destinazione(codice), Tag: "linea-" + codice}
@@ -147,6 +160,10 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 				m.Corpo = taglia(freschi[0].Testo, 180)
 			}
 			if corpo, err := json.Marshal(m); err == nil {
+				// Una riga anche sull'invio riuscito. Senza, "spedita" e
+				// "spedita e non consegnata" sono indistinguibili dai log, e
+				// ogni segnalazione riparte da zero.
+				log.Printf("%s notifica a %s: %s", codice, breve(ab.Sottoscrizione.Endpoint), m.Corpo)
 				n.manda(ctx, ab, corpo)
 			}
 			// Il visto avanza comunque, riuscito l'invio o no. Non avanzare
@@ -159,6 +176,21 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 			n.abbonati.SegnaVisto(ab.Sottoscrizione.Endpoint, visto)
 		}
 	}
+}
+
+// diCircolazione tiene le sole comunicazioni della sezione "STATO DELLA LINEA".
+//
+// Una sezione che non conosciamo la si tiene: è la parte di sorgente che
+// potrebbe cambiare sotto, e tacere su qualcosa di sconosciuto è il modo di
+// scoprirlo tardi.
+func diCircolazione(avvisi []trenord.Avviso) []trenord.Avviso {
+	var out []trenord.Avviso
+	for _, a := range avvisi {
+		if a.Sezione != trenord.SezioneAvvisi {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func impronteDi(avvisi []trenord.Avviso) []string {

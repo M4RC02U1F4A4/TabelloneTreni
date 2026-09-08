@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,44 @@ func impronta(testo string) string {
 	h := fnv.New64a()
 	h.Write([]byte(testo))
 	return strconv.FormatUint(h.Sum64(), 36)
+}
+
+// breve è come un abbonamento compare nel log: le ultime cifre del suo
+// indirizzo, che bastano a distinguere due telefoni.
+//
+// L'indirizzo intero non ci va: è la chiave con cui si spedisce a quel
+// telefono, e un log è il posto sbagliato dove tenerla.
+func breve(endpoint string) string {
+	if len(endpoint) <= 8 {
+		return "…"
+	}
+	return "…" + endpoint[len(endpoint)-8:]
+}
+
+// fasceScritte è come le fasce compaiono nel log, per poterle confrontare con
+// quelle che l'interfaccia mostra: è il solo modo di accorgersi che il
+// telefono e il servizio non stanno dicendo la stessa cosa.
+func (ab Abbonamento) fasceScritte() string {
+	if len(ab.Fasce) == 0 {
+		return "nessuna fascia: sempre"
+	}
+	fuso := "Europe/Rome per difetto"
+	if ab.Zona != "" {
+		fuso = ab.Zona
+	}
+	parti := make([]string, 0, len(ab.Fasce))
+	for _, f := range ab.Fasce {
+		g := "tutti i giorni"
+		if len(f.Giorni) > 0 {
+			n := make([]string, 0, len(f.Giorni))
+			for _, x := range f.Giorni {
+				n = append(n, strconv.Itoa(x))
+			}
+			g = "giorni " + strings.Join(n, ",")
+		}
+		parti = append(parti, fmt.Sprintf("%s-%s %s", f.Da, f.A, g))
+	}
+	return strings.Join(parti, "; ") + " — " + fuso
 }
 
 // InAscolto dice se adesso è un momento in cui questo abbonato vuole sapere le
@@ -227,6 +266,20 @@ func (a *Abbonati) Dimentica(endpoint string) {
 	}
 	delete(a.m, endpoint)
 	a.scrivi()
+}
+
+// Riepilogo descrive ogni abbonamento in una riga, per il log d'avvio.
+func (a *Abbonati) Riepilogo() []string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	out := make([]string, 0, len(a.m))
+	for _, ab := range a.m {
+		out = append(out, fmt.Sprintf("%s: %d linee (%s) — %s",
+			breve(ab.Sottoscrizione.Endpoint), len(ab.Linee),
+			strings.Join(ab.Linee, " "), ab.fasceScritte()))
+	}
+	slices.Sort(out)
+	return out
 }
 
 // PerLinea restituisce chi segue quella linea.

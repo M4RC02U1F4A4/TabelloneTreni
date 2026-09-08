@@ -219,3 +219,73 @@ assert.strictEqual(testo(null), '', 'prima della prima lettura pure');
 
 console.log('freschezza: ok — 10 casi su barretta e testo');
 
+
+/* ------------------------------------- le due sezioni delle comunicazioni */
+
+/* La pagina di Trenord tiene due elenchi — "STATO DELLA LINEA" e "AVVISI" — e
+   arrivano mescolati in una lista sola. Qui si controlla che nella riga di una
+   linea finisca la sola circolazione, dal più recente, e con l'ora. */
+
+const sezioni = new Function(
+  `${ritaglia('const SEZIONE_AVVISI', 'function vociAvviso')}
+   return { diCircolazione, quandoAvviso };`)();
+
+// I cinque avvisi veri della RE_5 dell'8 settembre 2026, mescolati come li
+// manda Trenord: tre di circolazione fuori ordine, due programmati.
+const re5 = [
+  { date: '2026-09-08T16:41:00Z', section: 2, text: '2536 non è ancora partito' },
+  { date: '2026-09-08T16:46:54Z', section: 2, text: '2506 oggi non partirà' },
+  { date: '2026-09-08T16:42:48Z', section: 2, text: '2504 viaggia in ritardo' },
+  { date: '2026-09-02T12:58:00Z', section: 1, text: 'variazioni fino al 13 settembre' },
+  { date: '2026-09-01T16:29:27Z', section: 1, text: 'sciopero CUB e SGB' },
+];
+
+const tenuti = sezioni.diCircolazione(re5);
+assert.strictEqual(tenuti.length, 3, 'restano le sole tre di circolazione');
+assert.ok(!tenuti.some((a) => a.section === 1), 'nessun programmato fra i tenuti');
+// Il più recente in cima: 18:46, poi 18:42, poi 18:41.
+assert.deepStrictEqual(tenuti.map((a) => a.text), [
+  '2506 oggi non partirà',
+  '2504 viaggia in ritardo',
+  '2536 non è ancora partito',
+], 'ordinate dalla più recente');
+
+// Una sezione che non conosciamo si tiene: se la sorgente cambia sotto, una
+// riga in più è meglio di una notizia scomparsa in silenzio.
+assert.strictEqual(
+  sezioni.diCircolazione([{ date: '2026-09-08T10:00:00Z', text: 'x' }]).length, 1,
+  'senza sezione si tiene');
+assert.strictEqual(
+  sezioni.diCircolazione([{ date: '2026-09-08T10:00:00Z', section: 7, text: 'x' }]).length, 1,
+  'sezione sconosciuta si tiene');
+
+// Senza data va in fondo, non in cima: non è il candidato a essere il più
+// recente solo perché non si sa quando è stato scritto.
+const senzaData = sezioni.diCircolazione([
+  { section: 2, text: 'senza data' },
+  { date: '2026-09-08T16:41:00Z', section: 2, text: 'con data' },
+]);
+assert.deepStrictEqual(senzaData.map((a) => a.text), ['con data', 'senza data'],
+  'quella senza data resta in fondo');
+
+/* --------------------------------------------- l'ora delle comunicazioni */
+
+const quando = new Function(
+  `${ritaglia('function quandoScritto', '/* Lo scheletro tiene')}; return quandoScritto;`)();
+
+// Di oggi la sola ora: il giorno lo si sa, e ripeterlo su tre righe di seguito
+// era proprio ciò che le rendeva indistinguibili.
+const oggi = new Date();
+oggi.setHours(18, 46, 0, 0);
+assert.strictEqual(quando({ date: oggi.toISOString() }), '18:46', 'di oggi solo l\'ora');
+
+// Dei giorni prima il giorno e l'ora, come scrive Trenord.
+assert.strictEqual(quando({ date: '2026-09-02T12:58:00Z' }), '2 settembre, 14:58',
+  'dei giorni prima giorno e ora');
+
+// Senza data, o con una data che non si legge, niente etichetta: meglio la
+// riga senza data che una data inventata.
+assert.strictEqual(quando({}), '', 'senza data niente etichetta');
+assert.strictEqual(quando({ date: 'non una data' }), '', 'data illeggibile: niente');
+
+console.log('sezioni: ok — 8 casi sul filtro e l\'ordine + 4 sull\'ora');
