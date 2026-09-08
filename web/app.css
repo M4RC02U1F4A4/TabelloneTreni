@@ -416,23 +416,34 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   corner-shape: squircle;
 }
 
+/* Ambra scritta, non ambra piena.
+
+   Era uno slab pieno a tutta larghezza, l'unico blocco saturo della pagina, e
+   da quando i due campi si ricordano non è più quasi sempre disabilitato: è
+   sempre acceso, quindi sempre il protagonista. Ma sulla home ci sono due
+   strade per arrivare a un tabellone — toccare una tratta salvata, che si fa
+   tutte le mattine, e compilare il modulo, che si fa quando si va in un posto
+   nuovo — e l'ambra piena diceva che la seconda è quella importante.
+
+   Il tono è quello che i tasti accesi in intestazione hanno già: stessa
+   ricetta, così le due cose accese dell'app si somigliano. */
 .principale {
   display: block; width: 100%;
-  padding: 14px; border: 0; border-radius: var(--raggio);
-  background: var(--accento); color: #10131a;
+  padding: 14px; border-radius: var(--raggio);
+  border: 1px solid color-mix(in srgb, var(--accento) 55%, transparent);
+  background: color-mix(in srgb, var(--accento) 12%, var(--piano));
+  color: var(--accento);
   font-weight: 650; font-size: 16px;
 }
-/* Disabilitato non è "acceso ma sbiadito": l'ambra piena al 45% diventa un
-   senape spento, e su una home appena aperta — dove il pulsante è disabilitato
-   perché la stazione di partenza non c'è ancora — sembrava rotto. Senza
-   riempimento si legge per quello che è: non ancora pronto. */
+/* Disabilitato non è "acceso ma sbiadito": l'ambra al 45% diventava un senape
+   spento che sembrava rotto. Senza tinta si legge per quello che è, non ancora
+   pronto — e il bordo resta al suo posto, così passando da spento ad acceso il
+   pulsante non cambia altezza. */
 .principale:disabled {
+  border-color: var(--bordo);
   background: var(--piano-alto);
   color: var(--tenue);
   cursor: default;
-}
-@media (prefers-color-scheme: light) {
-  .principale { color: #fff; }
 }
 
 .btn-testo { background: none; border: 0; color: var(--accento); padding: 6px; font-size: 15px; }
