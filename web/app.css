@@ -104,7 +104,6 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 }
 .sottotitolo .fermo::before { background: var(--tenue); }
 
-
 /* Le icone sono quadrate e centrate sulla loro griglia: il centraggio del
    contenitore basta, non serve nessuna correzione ottica per glifo. */
 .icona { display: block; width: 20px; height: 20px; }
