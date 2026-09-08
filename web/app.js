@@ -1023,8 +1023,10 @@ function rigaFreschezza() {
 /* Le parti del sottotitolo, senza i puntini orfani di quelle che non ci sono.
    Ne manca sempre almeno una: la freschezza tace quando il dato è fresco, e
    l'origine c'è solo sui treni che ne hanno una. */
-const sottotitolo = (...parti) =>
-  `<div class="sottotitolo">${parti.filter(Boolean).join(' · ')}</div>`;
+const sottotitolo = (...parti) => {
+  const dette = parti.filter(Boolean);
+  return dette.length ? `<div class="sottotitolo">${dette.join(' · ')}</div>` : '';
+};
 
 /* La barretta, che sta sul filo sotto l'intestazione invece che dentro la riga
    di testo: a tutta larghezza il minuto si legge di sfuggita, senza cercarlo.
@@ -1798,14 +1800,17 @@ function disegnaRisultati() {
   const questa = { f: stato.da, t: stato.arrivi ? null : stato.a, a: stato.arrivi || undefined };
   const salvato = ePreferito(questa);
 
-  /* Solo "Partenze" o "Arrivi", senza contare quanti ne ha lasciati passare il
-     filtro. Il filtro lo si è scelto: dire "40 partenze, 7 per te" racconta a
-     chi guarda quello che ha appena chiesto lui.
+  /* "Partenze" non si scrive: sono il caso normale — dalla ricerca, da una
+     tratta salvata, dal tasto partenze — e il caso normale non si annuncia. Chi
+     è arrivato qui sa già di guardare delle partenze, perché è quello che ha
+     chiesto un tocco fa.
 
-     La parola serve lo stesso, e non è ridondante col titolo: sul tabellone di
-     una stazione sola il titolo è il nome della stazione e basta, e partenze e
-     arrivi si distinguono solo da qui. */
-  const cosa = stato.arrivi ? 'Arrivi' : 'Partenze';
+     "Arrivi" invece sì. È l'eccezione, e c'è un modo di arrivarci in cui non
+     si ricorda di averla chiesta: una stazione salvata fra i preferiti come
+     arrivi, riaperta il mese dopo. Lì il titolo è il nome della stazione e
+     basta, e senza questa parola due tabelloni identici direbbero il
+     contrario l'uno dell'altro. */
+  const cosa = stato.arrivi ? 'Arrivi' : '';
 
   testa.innerHTML = `
     <div class="testa-riga">
@@ -1913,12 +1918,13 @@ const legendaChiusa = () => leggi('tt.legenda', false);
 
 function legenda(d) {
   if (!conMisure(d) || legendaChiusa()) return '';
-  return `<p class="legenda">
-    <span class="scarto rfi campione"></span> tabellone RFI
-    <span class="scarto vt campione"></span> misurato sul treno
-    <button class="chiudi-legenda" type="button" data-chiudi-legenda
-            aria-label="Ho capito, non mostrarla più">✕</button>
-  </p>`;
+  return `<div class="legenda">
+    <p class="premessa">Su alcuni treni il ritardo arriva da due parti, e non
+      sempre dicono lo stesso numero.</p>
+    <p><span class="scarto rfi campione"></span> quello scritto sul tabellone di RFI</p>
+    <p><span class="scarto vt campione"></span> quello misurato sul treno in corsa</p>
+    <button class="btn-testo" type="button" data-chiudi-legenda>Ho capito</button>
+  </div>`;
 }
 
 function rigaTreno(t, d, misure) {

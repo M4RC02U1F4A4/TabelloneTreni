@@ -558,19 +558,25 @@ summary.riga-treno::-webkit-details-marker { display: none; }
   border: 1px solid currentColor;
 }
 
+/* La legenda è un blocco e non una riga, ed è una scelta che si paga volentieri
+   proprio perché il blocco se ne va: finché c'è, tanto vale che spieghi per
+   davvero — perché ci sono due numeri, non solo quale è quale — e che il modo
+   di mandarlo via sia una parola invece di una ✕ da interpretare. Una ✕ in
+   fondo a una riga grigia si legge come "chiudi questo avviso", che è
+   un'azione, mentre qui la domanda è se hai capito. */
 .legenda {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  margin: 0 0 var(--gap); padding: 0 2px;
+  margin: 0 0 var(--gap);
+  padding: 12px 14px;
+  background: var(--piano-alto);
+  border-radius: var(--raggio);
   color: var(--tenue); font-size: 12.5px;
 }
-/* La ✕ va in fondo alla riga, e con un'area toccabile più alta del testo: la
-   riga è di dodici pixel e mezzo, un pollice ne vuole di più. I margini
-   negativi le ridanno indietro, così la legenda non si alza per farle posto. */
-.chiudi-legenda {
-  margin-left: auto; margin-block: -8px;
-  padding: 8px 2px 8px 10px;
-  background: none; border: 0; color: var(--tenue); font-size: 13px;
-}
+.legenda p { margin: 0; display: flex; align-items: center; gap: 8px; }
+.legenda p + p { margin-top: 6px; }
+.legenda .premessa { display: block; margin-bottom: 10px; line-height: 1.45; }
+/* Il campione non si stringe quando il testo accanto va a capo. */
+.legenda .campione { flex: none; }
+.legenda .btn-testo { display: block; margin: 6px 0 -6px auto; }
 
 /* ---------- i treni seguiti ---------- */
 
