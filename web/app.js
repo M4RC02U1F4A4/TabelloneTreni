@@ -977,21 +977,31 @@ document.addEventListener('visibilitychange', () => {
   else aggiornaEta();
 });
 
-/* Quanto è vecchio il dato, e ogni quanto si rinnova.
+/* Quanto è vecchio il dato, e quanto manca alla prossima lettura.
 
-   La cadenza sta scritta perché senza non c'era modo di saperla: si leggeva
-   "quaranta secondi fa" senza poter capire se il prossimo giro fosse fra venti
-   secondi o mai. Detta una volta, la riga smette di essere un numero che
-   invecchia sotto gli occhi e diventa una promessa che si può verificare.
+   La cadenza era scritta — "· ogni minuto" in fondo alla riga — ed era brutta:
+   tre frammenti incollati da due puntini, con l'ultimo che penzolava senza
+   grammatica. La dice la barretta, che si svuota nell'arco del minuto e si
+   riempie a ogni lettura: si guarda una volta e si è capito il ritmo, senza
+   una parola in più su una riga che ne ha già abbastanza.
 
    Un modo per forzare la rilettura non c'è, ed è voluto: un tabellone che si
    può rileggere ogni due secondi invita a rileggerlo ogni due secondi, e RFI
-   pubblica lo stesso dato per un minuto intero. */
+   pubblica lo stesso dato per un minuto intero.
+
+   Il ritardo negativo è quello che tiene la barretta onesta. L'animazione
+   riparte da capo a ogni disegno, e disegna() la chiama una dozzina di gestori
+   di tocco — aprire le fermate di un treno rimetterebbe la barretta piena
+   mentendo sul tempo passato. Ancorandola a scaricatoIl, l'animazione parte già
+   a metà strada e dice sempre la verità, comunque la pagina sia stata
+   ridisegnata. */
 function rigaFreschezza() {
   // Anche prima della prima lettura, quando eta() non ha ancora niente da dire:
   // "aggiornato " con l'orario mancante si legge come un dato che manca.
   if (stato.caricamento || !stato.scaricatoIl) return '<span class="fermo">aggiornamento…</span>';
-  return `<span class="vivo">aggiornato <span id="eta">${eta()}</span></span> · ogni minuto`;
+  const trascorso = Math.min(Date.now() - stato.scaricatoIl, RINFRESCO);
+  return `<span class="ciclo" style="--trascorso:-${trascorso}ms"><i></i></span>` +
+    `aggiornato <span id="eta">${eta()}</span>`;
 }
 
 /* La rilettura di un treno seguito, che il timer rifà una volta al minuto. */

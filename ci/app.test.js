@@ -169,3 +169,38 @@ assert.ok(/ignoto/.test(cellaBinario('', null)), 'senza binario resta il trattin
 
 console.log('binario: ok — 6 casi + 2 di escaping + 6 sulla cella');
 
+/* ------------------------------------ la barretta che conta il minuto */
+
+/* La barretta mente in silenzio se il ritardo negativo si scollega da quando
+ * il dato è stato letto: resta piena, e chi guarda crede che il tabellone si
+ * sia appena riletto. Nessuno se ne accorgerebbe guardando lo schermo. */
+const rigaFreschezza = new Function('stato', 'eta', 'RINFRESCO',
+  `${ritaglia('function rigaFreschezza()', '/* La rilettura di un treno')}; return rigaFreschezza;`);
+
+const RINFRESCO = 60_000;
+const riga = (ms, caricamento = false) => rigaFreschezza(
+  { caricamento, scaricatoIl: ms === null ? 0 : Date.now() - ms },
+  () => 'poco fa', RINFRESCO)();
+
+const ritardo = (html) => Number((html.match(/--trascorso:(-?\d+)ms/) || [])[1]);
+
+// Appena letto: barretta piena, cioè nessuno scorrimento già consumato.
+assert.ok(Math.abs(ritardo(riga(0))) < 50, 'appena letto la barretta parte piena');
+
+// A metà minuto deve partire da metà, non da capo.
+const meta = ritardo(riga(30_000));
+assert.ok(meta < -29_000 && meta > -31_000, `a metà minuto il ritardo è ${meta}`);
+
+// Oltre il minuto — l'app è stata in secondo piano — si ferma a vuota invece
+// di ripartire: un giro in più direbbe che il dato è appena arrivato.
+assert.strictEqual(ritardo(riga(5 * 60_000)), -RINFRESCO, 'oltre il minuto resta a fondo corsa');
+
+// Mentre carica, e prima della prima lettura, la barretta non c'è.
+assert.ok(!/ciclo/.test(riga(1000, true)), 'in caricamento niente barretta');
+assert.ok(!/ciclo/.test(riga(null)), 'prima della prima lettura niente barretta');
+
+// E "ogni minuto" non si scrive più a parole.
+assert.ok(!/ogni minuto/.test(riga(1000)), 'la cadenza non è più scritta');
+
+console.log('freschezza: ok — 6 casi sulla barretta');
+
