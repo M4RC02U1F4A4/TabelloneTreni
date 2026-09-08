@@ -1887,10 +1887,10 @@ function scarti(t, riservaVT) {
   // ViaggiaTreno. Il posto si riserva solo se in lista una misura c'è: quando
   // non ne ha nessuno sarebbe una colonna vuota per tutto il tabellone.
   const seconda = live !== null
-    ? `<span class="scarto vt">${segnoRitardo(live)}</span>`
+    ? `<span class="scarto vt" title="misurato sul treno">${segnoRitardo(live)}</span>`
     : (riservaVT ? '<span class="scarto vt vuota"></span>' : '');
   return `<span class="scarti">
-    <span class="scarto rfi">${segnoRitardo(ritardoRFI(t))}</span>
+    <span class="scarto rfi" title="tabellone RFI">${segnoRitardo(ritardoRFI(t))}</span>
     ${seconda}
   </span>`;
 }
@@ -1899,12 +1899,25 @@ function scarti(t, riservaVT) {
 const conMisure = (d) => d.trains.some((t) => ritardoLive(t) !== null);
 
 /* La legenda compare solo se almeno un treno porta la misura di ViaggiaTreno:
-   con la sola colonna di RFI non ci sarebbero due colori da spiegare. */
+   con la sola colonna di RFI non ci sarebbero due colori da spiegare.
+
+   E si chiude. È una didascalia di primo utilizzo — spiega un codice colore che
+   si impara una volta — ma stava sopra ogni tabellone di ogni giorno, nel posto
+   che appartiene alla prima partenza. Chiusa non torna: la scelta è di chi
+   guarda, non un conto alla rovescia deciso qui.
+
+   Il titolo sulle pastiglie è la via di ritorno per chi la chiude e poi non
+   ricorda: non è granché su un telefono, dove non si passa sopra con il dito,
+   ma non costa niente e su un portatile risponde. */
+const legendaChiusa = () => leggi('tt.legenda', false);
+
 function legenda(d) {
-  if (!conMisure(d)) return '';
+  if (!conMisure(d) || legendaChiusa()) return '';
   return `<p class="legenda">
     <span class="scarto rfi campione"></span> tabellone RFI
     <span class="scarto vt campione"></span> misurato sul treno
+    <button class="chiudi-legenda" type="button" data-chiudi-legenda
+            aria-label="Ho capito, non mostrarla più">✕</button>
   </p>`;
 }
 
@@ -2129,6 +2142,7 @@ app.addEventListener('click', (e) => {
       f[i].giorni = giorni.includes(g) ? giorni.filter((x) => x !== g) : [...giorni, g].sort();
     });
   }
+  else if (t.closest('[data-chiudi-legenda]')) { scrivi('tt.legenda', true); disegna(); }
   else if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
   else if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
