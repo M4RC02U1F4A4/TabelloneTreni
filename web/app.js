@@ -37,7 +37,9 @@ const STATI = [
 ];
 const statoLinea = (n) => STATI[n] || { classe: 'ignoto', etichetta: 'stato ignoto' };
 
-const RINFRESCO = 60_000;   // come chiesto: una volta al minuto
+// Una volta al minuto, come chiesto — e adesso è scritto nel sottotitolo,
+// quindi cambiarlo qui vuol dire cambiare la promessa che rigaFreschezza() fa.
+const RINFRESCO = 60_000;
 const RISULTATI_MAX = 60;   // oltre, la lista diventa inutile da scorrere
 
 const stato = {
@@ -199,7 +201,6 @@ const ICONE = {
   // riempimento deve prendere la campana e lasciare fuori il battaglio,
   // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
   orologio: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  ricarica: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4.5V9h-4.5"/>',
   campana: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>' +
     '<path fill="none" d="M13.73 21a2 2 0 0 1-3.46 0"/>',
 };
@@ -976,53 +977,27 @@ document.addEventListener('visibilitychange', () => {
   else aggiornaEta();
 });
 
-/* Quanto è vecchio il dato, e insieme il modo per rinfrescarlo.
+/* Quanto è vecchio il dato, e ogni quanto si rinnova.
 
-   Diceva solo la prima metà: chi guardava un tabellone sapeva che era di
-   quaranta secondi fa e non aveva nessuna leva — né per averlo adesso, né per
-   sapere quando sarebbe arrivato il prossimo giro. Rendere toccabile la riga
-   che parla di freschezza risponde a tutte e due le domande con lo stesso
-   gesto, e non aggiunge un comando nuovo da nessuna parte: la seconda domanda
-   smette di avere importanza quando la risposta è "quando vuoi tu".
+   La cadenza sta scritta perché senza non c'era modo di saperla: si leggeva
+   "quaranta secondi fa" senza poter capire se il prossimo giro fosse fra venti
+   secondi o mai. Detta una volta, la riga smette di essere un numero che
+   invecchia sotto gli occhi e diventa una promessa che si può verificare.
 
-   Il pallino verde resta fuori dal pulsante: è uno stato, non una cosa da
-   toccare. */
+   Un modo per forzare la rilettura non c'è, ed è voluto: un tabellone che si
+   può rileggere ogni due secondi invita a rileggerlo ogni due secondi, e RFI
+   pubblica lo stesso dato per un minuto intero. */
 function rigaFreschezza() {
   // Anche prima della prima lettura, quando eta() non ha ancora niente da dire:
-  // "aggiornato " con l'orario mancante e una freccina accanto invita a toccare
-  // proprio mentre sta già caricando.
+  // "aggiornato " con l'orario mancante si legge come un dato che manca.
   if (stato.caricamento || !stato.scaricatoIl) return '<span class="fermo">aggiornamento…</span>';
-  return `<span class="vivo"><button class="aggiorna" type="button" data-aggiorna
-    title="Aggiorna adesso">aggiornato <span id="eta">${eta()}</span>${
-    icona('ricarica')}</button></span>`;
+  return `<span class="vivo">aggiornato <span id="eta">${eta()}</span></span> · ogni minuto`;
 }
 
-/* Rilegge adesso quello che la vista sta mostrando, e fa ripartire il conto
-   alla rovescia: toccare "aggiornato" al cinquantanovesimo secondo non deve
-   far arrivare il giro automatico un secondo dopo. */
-function aggiornaAdesso() {
-  const r = leggiRotta();
-  if (r.vista === 'risultati') {
-    avviaTimer(caricaTabellone);
-    caricaTabellone();
-  } else if (r.vista === 'treno') {
-    const rileggi = rilettura(r.treno);
-    avviaTimer(rileggi);
-    rileggi();
-  }
-}
-
-/* La rilettura di un treno seguito. Dice anche che è in corso: prima non lo
-   diceva perché nessuno poteva chiederla, ma un pulsante che non risponde
-   finché non arriva la risposta si tocca due volte. */
-const rilettura = (treno) => () => {
-  stato.caricamento = true;
-  disegna();
-  return caricaViaggioSeguito(treno, true).finally(() => {
-    stato.caricamento = false;
-    if (leggiRotta().vista === 'treno') { stato.scaricatoIl = Date.now(); disegna(); }
-  });
-};
+/* La rilettura di un treno seguito, che il timer rifà una volta al minuto. */
+const rilettura = (treno) => () => caricaViaggioSeguito(treno, true).then(() => {
+  if (leggiRotta().vista === 'treno') { stato.scaricatoIl = Date.now(); disegna(); }
+});
 
 function eta() {
   if (!stato.scaricatoIl) return '';
@@ -2123,7 +2098,6 @@ app.addEventListener('click', (e) => {
       f[i].giorni = giorni.includes(g) ? giorni.filter((x) => x !== g) : [...giorni, g].sort();
     });
   }
-  else if (t.closest('[data-aggiorna]')) aggiornaAdesso();
   else if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
   else if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
