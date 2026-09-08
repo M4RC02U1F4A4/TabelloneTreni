@@ -8,6 +8,7 @@ import (
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
@@ -268,6 +269,7 @@ type liveFinta struct {
 	andamenti    int
 	chiestoPer   string
 	viaggio      *vt.Andamento
+	viaggiPer    map[string]*vt.Andamento
 	errAndamento error
 }
 
@@ -283,9 +285,16 @@ func (r *liveFinta) Treni(ctx context.Context, codice string, arrivi bool) (map[
 	return r.misure, r.err
 }
 
+// Le fermate mancanti si chiedono per tutti i treni insieme: senza il
+// lucchetto il contatore e la mappa li leggerebbero più goroutine in parallelo.
 func (r *liveFinta) Andamento(ctx context.Context, codOrigine, numero string, data int64) (*vt.Andamento, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.andamenti++
 	r.chiestoPer = fmt.Sprintf("%s|%s|%d", codOrigine, numero, data)
+	if r.viaggiPer != nil {
+		return r.viaggiPer[numero], r.errAndamento
+	}
 	return r.viaggio, r.errAndamento
 }
 
@@ -743,5 +752,276 @@ func TestViaggioSenzaSecondaFonte(t *testing.T) {
 	a, err := s.Viaggio(context.Background(), "S01700", "2247", 1788645600000)
 	if err != nil || a != nil {
 		t.Fatalf("viaggio = %+v, err = %v", a, err)
+	}
+}
+
+// --- i treni di cui RFI non pubblica le fermate -----------------------------
+
+// Nel tabellone di prova sei treni su quaranta non hanno l'elenco "FERMA A:":
+// cinque cancellati, la cui casella dei dettagli è vuota, e uno con un ritardo
+// annunciato ma non quantificato. Cercando la destinazione solo lì dentro
+// spariscono dalla tratta, ed è proprio il giorno di sciopero — quando i
+// cancellati sono tanti — che uno guarda la tratta.
+const (
+	trenoCancellato   = "24578" // cancellato, per VARESE
+	trenoAltroverso   = "2984"  // cancellato, per GALLARATE: non passa da Varese
+	trenoInRitardo    = "2975"  // "RITARDO" ma non cancellato, per MILANO CENTRALE
+	trenoNonTracciato = "24176" // cancellato, e ViaggiaTreno non lo conosce
+	centrale          = 1728
+	codiceSaronno     = "S01050" // una fermata intermedia qualsiasi
+)
+
+// oraRoma è un orario di ViaggiaTreno: un istante, che il filtro deve stampare
+// nel fuso dei treni italiani e non in quello di chi guarda il tabellone.
+func oraRoma(h, m int) time.Time { return time.Date(2026, 3, 5, h, m, 0, 0, roma) }
+
+// liveConFermate è ViaggiaTreno che conosce i treni che RFI pubblica senza
+// fermate: il cancellato per Varese ci passa davvero, quello per Gallarate no,
+// e di uno non sa niente.
+func liveConFermate() *liveFinta {
+	gari := stations.Default.ByID(garibaldi).VT
+	partenza := vt.Fermata{Codice: gari, Nome: "MILANO P.TA GARIBALDI", Programmata: oraRoma(17, 25)}
+	return &liveFinta{
+		misure: map[string]vt.Treno{
+			trenoCancellato:   {CodOrigine: gari, DataPartenza: 1},
+			trenoAltroverso:   {CodOrigine: gari, DataPartenza: 1},
+			trenoInRitardo:    {CodOrigine: gari, DataPartenza: 1},
+			trenoNonTracciato: {CodOrigine: gari, DataPartenza: 1},
+		},
+		viaggiPer: map[string]*vt.Andamento{
+			trenoCancellato: {Fermate: []vt.Fermata{
+				partenza,
+				{Codice: codiceSaronno, Nome: "SARONNO", Programmata: oraRoma(17, 55)},
+				{Codice: stations.Default.ByID(varese).VT, Nome: "VARESE", Programmata: oraRoma(18, 20)},
+			}},
+			trenoAltroverso: {Fermate: []vt.Fermata{
+				partenza,
+				{Codice: codiceSaronno, Nome: "SARONNO", Programmata: oraRoma(17, 50)},
+			}},
+			trenoInRitardo: {Fermate: []vt.Fermata{
+				partenza,
+				{Codice: stations.Default.ByID(centrale).VT, Nome: "MILANO CENTRALE", Programmata: oraRoma(17, 40)},
+			}},
+		},
+	}
+}
+
+func trenoDi(r *Result, numero string) *rfi.Train {
+	for i := range r.Trains {
+		if r.Trains[i].Number == numero {
+			return &r.Trains[i]
+		}
+	}
+	return nil
+}
+
+// La lista filtrata deve restare una sottosequenza del tabellone: l'ordine è
+// quello degli orari di partenza, ed è l'unico ordine in cui si legge.
+func ordineDelTabellone(t *testing.T, tutti, filtrati []rfi.Train) {
+	i := 0
+	for _, tr := range filtrati {
+		for i < len(tutti) && tutti[i].Number != tr.Number {
+			i++
+		}
+		if i == len(tutti) {
+			t.Fatalf("treno %s fuori dall'ordine del tabellone", tr.Number)
+		}
+		i++
+	}
+}
+
+// Il caso del segnalatore: un treno cancellato non ha fermate sul tabellone, ma
+// deve comparire sulla sua tratta, altrimenti "è cancellato" e "non è in questa
+// fascia oraria" si assomigliano troppo.
+func TestTrenoCancellatoCompareSullaTratta(t *testing.T) {
+	live := liveConFermate()
+	s, _ := servizioConLive("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, varese)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := trenoDi(r, trenoCancellato)
+	if tr == nil {
+		t.Fatalf("treno %s assente dalla tratta per Varese", trenoCancellato)
+	}
+	if !tr.Cancelled {
+		t.Error("il treno deve restare cancellato: è l'unica cosa che si va a vedere")
+	}
+	if tr.Arrival != "18:20" {
+		t.Errorf("arrivo = %q, atteso 18:20", tr.Arrival)
+	}
+	// Di un treno cancellato non c'è nessun viaggio da seguire, e il frontend
+	// apre la scheda solo se ci sono fermate.
+	if len(tr.Stops) != 0 {
+		t.Errorf("fermate = %v, attese nessuna su un treno cancellato", tr.Stops)
+	}
+
+	tutti, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordineDelTabellone(t, tutti.Trains, r.Trains)
+}
+
+// Un treno senza fermate pubblicate non è per questo un treno che va bene per
+// qualunque destinazione: se ViaggiaTreno dice che da lì non passa, resta fuori
+// come prima.
+func TestTrenoCancellatoAltroversoNonCompare(t *testing.T) {
+	live := liveConFermate()
+	s, _ := servizioConLive("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, varese)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr := trenoDi(r, trenoAltroverso); tr != nil {
+		t.Errorf("treno %s (per Gallarate) nella tratta per Varese", trenoAltroverso)
+	}
+	if tr := trenoDi(r, trenoNonTracciato); tr != nil {
+		t.Errorf("treno %s, che ViaggiaTreno non conosce, nella tratta", trenoNonTracciato)
+	}
+}
+
+// Il treno senza fermate non è sempre un cancellato: 2975 ha un ritardo
+// annunciato e non quantificato, e RFI non gli stampa il popup. Lì le fermate
+// vanno riempite, altrimenti la sua scheda è la sola che non si apre.
+func TestTrenoSenzaFermateNonCancellatoTieneLeFermate(t *testing.T) {
+	live := liveConFermate()
+	s, _ := servizioConLive("partenze-1715.html", live)
+
+	r, err := s.Get(context.Background(), garibaldi, false, centrale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := trenoDi(r, trenoInRitardo)
+	if tr == nil {
+		t.Fatalf("treno %s assente dalla tratta per Milano Centrale", trenoInRitardo)
+	}
+	if tr.Cancelled {
+		t.Error("il treno non è cancellato")
+	}
+	if tr.Arrival != "17:40" {
+		t.Errorf("arrivo = %q, atteso 17:40", tr.Arrival)
+	}
+	// La stazione da cui si guarda il tabellone non è una fermata successiva:
+	// l'elenco di ViaggiaTreno parte dall'origine del treno e va tagliato.
+	if len(tr.Stops) != 1 || tr.Stops[0].Name != "MILANO CENTRALE" {
+		t.Fatalf("fermate = %+v, attesa la sola Milano Centrale", tr.Stops)
+	}
+	// Il frontend evidenzia la fermata scelta confrontando l'orario: se i due
+	// non combaciano, la tratta si vede ma non si capisce dove.
+	if tr.Stops[0].Time != tr.Arrival {
+		t.Errorf("fermata alle %q, arrivo alle %q: il frontend non le accoppia",
+			tr.Stops[0].Time, tr.Arrival)
+	}
+}
+
+// La seconda fonte è una lettura in più, non una da cui dipendere: rotta, il
+// filtro deve tornare esattamente quello di prima.
+func TestViaggiaTrenoRottoNonCambiaIlFiltro(t *testing.T) {
+	senza, _ := servizio("partenze-1715.html")
+	atteso, err := senza.Get(context.Background(), garibaldi, false, rogoredo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	live := liveConFermate()
+	live.errAndamento = errors.New("connessione rifiutata")
+	s, _ := servizioConLive("partenze-1715.html", live)
+	r, err := s.Get(context.Background(), garibaldi, false, rogoredo)
+	if err != nil {
+		t.Fatalf("l'errore della seconda fonte è arrivato fino in cima: %v", err)
+	}
+	if len(r.Trains) != len(atteso.Trains) {
+		t.Fatalf("%d treni con ViaggiaTreno rotto, %d senza", len(r.Trains), len(atteso.Trains))
+	}
+	for i := range r.Trains {
+		if r.Trains[i].Number != atteso.Trains[i].Number || r.Trains[i].Arrival != atteso.Trains[i].Arrival {
+			t.Errorf("treno %d: %s alle %s, atteso %s alle %s", i,
+				r.Trains[i].Number, r.Trains[i].Arrival,
+				atteso.Trains[i].Number, atteso.Trains[i].Arrival)
+		}
+	}
+}
+
+// Le fermate di un treno non cambiano durante la giornata: chiederle una volta
+// per treno basta. In un giorno di sciopero sono una ventina di richieste a un
+// servizio lento, e il tabellone si rinfresca ogni mezzo minuto.
+func TestFermateSupplentiInCache(t *testing.T) {
+	live := liveConFermate()
+	s, _ := servizioConLive("partenze-1715.html", live)
+
+	for i := 0; i < 3; i++ {
+		if _, err := s.Get(context.Background(), garibaldi, false, varese); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Quattro: i treni senza fermate di cui il tabellone ha le coordinate. Fra
+	// questi c'è trenoNonTracciato, che ViaggiaTreno non conosce: se l'esito
+	// negativo non finisse in cache, quello si richiederebbe ogni volta.
+	if live.andamenti != 4 {
+		t.Errorf("richieste ad Andamento = %d, attese 4", live.andamenti)
+	}
+}
+
+// --- il treno che si sdoppia ------------------------------------------------
+
+// sorgenteFissa serve un tabellone costruito a mano: nel tabellone salvato non
+// c'è un treno sdoppiato, e quel caso va riprodotto.
+type sorgenteFissa struct{ board rfi.Board }
+
+func (s *sorgenteFissa) Fetch(ctx context.Context, placeID int, arrivals bool) (*rfi.Board, error) {
+	b := s.board
+	b.Trains = append([]rfi.Train(nil), s.board.Trains...)
+	return &b, nil
+}
+
+const monza = 1841
+
+// Sullo stesso tabellone lo stesso numero può comparire su due righe: un treno
+// che si sdoppia, con due destinazioni e due stati — visto a Milano Centrale in
+// un giorno di sciopero, il 25512 per Chiasso regolare e il 25512 per Locarno
+// cancellato. Le fermate risolte per la riga che non ne ha non devono finire su
+// quella che ce le ha già: verrebbe tenuta o scartata su un percorso non suo.
+func TestTrenoSdoppiatoNonScambiaLeFermate(t *testing.T) {
+	src := &sorgenteFissa{board: rfi.Board{
+		PlaceID: centrale,
+		Station: "MILANO CENTRALE",
+		Trains: []rfi.Train{
+			{Number: "25512", Terminus: "CHIASSO", Time: "09:43", Stops: []rfi.Stop{
+				{Name: "MONZA", Time: "09:58"},
+				{Name: "COMO S.GIOVANNI", Time: "10:25"},
+			}},
+			{Number: "25512", Terminus: "LOCARNO", Time: "09:43", Cancelled: true},
+		},
+	}}
+	// ViaggiaTreno conosce un solo 25512, e quello che conosce non passa da
+	// Monza: è la lettura che tocca alla riga cancellata.
+	live := &liveFinta{
+		misure: map[string]vt.Treno{"25512": {CodOrigine: "S01700", DataPartenza: 1}},
+		viaggiPer: map[string]*vt.Andamento{"25512": {Fermate: []vt.Fermata{
+			{Codice: stations.Default.ByID(centrale).VT, Nome: "MILANO CENTRALE", Programmata: oraRoma(9, 43)},
+			{Codice: codiceSaronno, Nome: "SARONNO", Programmata: oraRoma(10, 15)},
+		}}},
+	}
+	s := New(src, stations.Default).ConLive(live)
+
+	r, err := s.Get(context.Background(), centrale, false, monza)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Trains) != 1 {
+		t.Fatalf("%d treni per Monza, atteso il solo 25512 per Chiasso: %+v", len(r.Trains), r.Trains)
+	}
+	tr := r.Trains[0]
+	if tr.Terminus != "CHIASSO" || tr.Cancelled {
+		t.Errorf("è passata la riga sbagliata: %s, cancellato=%v", tr.Terminus, tr.Cancelled)
+	}
+	if tr.Arrival != "09:58" {
+		t.Errorf("arrivo = %q, atteso 09:58 come lo stampa RFI", tr.Arrival)
+	}
+	if len(tr.Stops) != 2 || tr.Stops[0].Name != "MONZA" {
+		t.Errorf("fermate = %+v, attese le due di RFI: la riga ha preso il percorso dell'altra", tr.Stops)
 	}
 }

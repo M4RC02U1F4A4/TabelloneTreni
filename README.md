@@ -10,6 +10,7 @@ con l'orario a cui ci arrivano.
 - **toccando un treno si vede dov'è adesso**, con gli orari reali delle fermate che ha già servito
 - **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
 - **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. Toccandola si apre e si legge per intero
+- **i treni cancellati restano nella tratta**, con la scritta *soppresso*, anche quando RFI non pubblica le loro fermate — che è sempre, ed è il giorno di sciopero il giorno in cui serve saperlo
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
 - le tratte si salvano fra i preferiti e stanno in cima alla home
@@ -440,6 +441,51 @@ di testo che copre tre mesi. Una stazione che non risponde si salta in silenzio
 — un banner giallo che dice che il banner giallo non funziona è peggio del
 banner che manca.
 
+### I treni di cui RFI non pubblica le fermate
+
+Il filtro per destinazione tiene un treno se trova la stazione di arrivo fra le
+sue fermate successive, quelle che RFI stampa nel popup della riga. Ma **quel
+popup non c'è per tutti i treni**, e i treni cancellati non ce l'hanno mai: la
+loro cella dei dettagli è letteralmente vuota. Con la tratta impostata
+sparivano, e chi aspetta un treno cancellato non poteva distinguere «è
+cancellato» da «non è in questa fascia oraria» — cioè non poteva sapere l'unica
+cosa che in un giorno di sciopero conta.
+
+Non è un problema dei cancellati: è un problema di **chi non ha l'elenco
+fermate**. Campione preso a Milano Centrale in un giorno di sciopero, 22 treni
+in partenza: 6 cancellati, e nessuno dei sei con le fermate. Ma senza fermate
+c'era anche il 2975, non cancellato, con `RITARDO` scritto al posto dei minuti:
+spariva dalla tratta pure lui.
+
+Per quei treni le fermate si chiedono a **ViaggiaTreno**, e l'aggancio alla
+destinazione è sul **codice stazione**, non sul nome: è un confronto esatto,
+mentre il riconoscimento delle abbreviazioni deve indovinare, e su un treno che
+non compare da nessun'altra parte conviene la strada che non indovina.
+L'elenco di ViaggiaTreno parte dall'origine del treno, che di solito è prima
+della stazione da cui lo si guarda, e va tagliato lì: senza il taglio la scheda
+mostrerebbe fermate già passate, e la destinazione risulterebbe servita anche
+da un treno che da lì è già transitato.
+
+Sul treno cancellato le fermate restano **vuote**: la scheda non si apre, e non
+c'è nessun viaggio da seguire. Sugli altri si riempiono, così la riga si apre
+come tutte quelle di cui le fermate le ha pubblicate RFI.
+
+Le liste hanno una cache **senza scadenza**, con il giorno di partenza nella
+chiave: le fermate di un treno sono le stesse per tutta la giornata — a
+differenza di dove si trova, che è il motivo per cui la cache dei viaggi vive
+trenta secondi — e la voce di ieri non la cerca più nessuno. In cache va anche
+**l'esito negativo**: in un giorno di sciopero ViaggiaTreno non conosce metà dei
+treni cancellati, e senza ricordarselo si ripeterebbero venti richieste a vuoto
+ogni mezzo minuto, per sempre.
+
+A cache fredda sono una ventina di richieste a un servizio che ha otto secondi
+di timeout, quindi partono insieme e **non si aspettano oltre due secondi e
+mezzo**: i treni non ancora risolti compaiono al rinfresco dopo, dalla cache.
+Una tratta quasi completa subito è più utile di una completa fra otto secondi,
+che nessuno resta a guardare. Le richieste, però, non vengono annullate quando
+si smette di aspettarle: finiscono di riempire la cache, che è quello che rende
+utile il giro successivo.
+
 ## Farlo girare
 
 ```sh
@@ -523,11 +569,23 @@ go run ./cmd/genstations
   dice, e lì la campanella serve solo a tenere la linea in cima.
 - **I bollini coprono la sola Lombardia.** Sono le linee di Trenord: un treno
   RFI fuori regione non ha nessuno stato di linea associato.
-
 - **Gli avvisi in home vengono dal solo tabellone partenze.** I due versi ne
   pubblicano di diversi, ma raddoppiare le pagine scaricate per una striscia non
   vale quello che si guadagna: un avviso che RFI mette solo sugli arrivi in home
   non si vede.
+- **Sul treno sdoppiato il filtro può sbagliare una delle due righe.** Lo stesso
+  numero compare due volte sul tabellone, con due destinazioni e due stati — a
+  Milano Centrale il 25512, alle 09:43, per Chiasso e per Locarno — ma
+  ViaggiaTreno di quel numero conosce un treno solo. Le due righe leggono quindi
+  la stessa lettura. Le fermate risolte si riscrivono per riga e non per numero,
+  così una non si prende il percorso dell'altra, ma quale delle due sia quella
+  che ViaggiaTreno descrive non è deducibile dai dati disponibili. È la stessa
+  ambiguità che c'è già sul ritardo.
+- **Un treno cancellato che ViaggiaTreno non conosce resta fuori dalla tratta.**
+  Le sue fermate non le pubblica nessuno, e tenerlo comunque vorrebbe dire
+  mostrare in mezzo alla tratta dei treni che vanno da un'altra parte: in un
+  giorno di sciopero, a una stazione grande, sarebbero venti cancellati per
+  Roma e Torino in mezzo a cinque treni utili.
 
 ## Rilasci
 

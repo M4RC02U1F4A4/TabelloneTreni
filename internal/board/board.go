@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,15 @@ type Service struct {
 	// dito di chi tocca la stessa scheda due volte di seguito.
 	muAnd  sync.Mutex
 	viaggi map[string]*viaggio
+
+	// Cache delle sole fermate, per i treni di cui RFI non le pubblica.
+	// Separata da viaggi perché ha una scadenza diversa: dove si trova un treno
+	// cambia di minuto in minuto — ed è per questo che viaggi vive trenta
+	// secondi — mentre le fermate di un treno sono le stesse per tutto il
+	// giorno. Il giorno di partenza sta nella chiave, quindi la voce di ieri
+	// non viene più cercata da nessuno e un TTL non serve.
+	muFer   sync.Mutex
+	fermate map[string][]vt.Fermata
 }
 
 type viaggio struct {
@@ -78,6 +88,7 @@ func New(src Source, cat *stations.Catalogo) *Service {
 		catalogo: cat,
 		cache:    map[chiave]*voce{},
 		viaggi:   map[string]*viaggio{},
+		fermate:  map[string][]vt.Fermata{},
 	}
 }
 
@@ -138,12 +149,46 @@ func (s *Service) Get(ctx context.Context, from int, arrivals bool, to int) (*Re
 	}
 
 	m := s.catalogo.Matcher(to)
+	// RFI non pubblica le fermate di tutti i treni: quelle dei cancellati non
+	// ci sono affatto, e su qualche altro treno la cella dei dettagli è vuota.
+	// Cercarle solo lì dentro li farebbe sparire dalla tratta, e chi aspetta un
+	// treno cancellato non potrebbe distinguere "è cancellato" da "non è in
+	// questa fascia oraria" — è il caso, in un giorno di sciopero, che ha fatto
+	// nascere questa seconda lettura.
+	supplenti := s.fermateSupplenti(ctx, from, arrivals, b, dest)
+	codiciDest := dest.CodiciVT()
+
+	// La lista filtrata deve restare nell'ordine del tabellone, che è quello
+	// degli orari: le fermate mancanti si risolvono tutte prima, qui si scorre
+	// b.Trains una volta sola.
 	filtrati := make([]rfi.Train, 0, len(b.Trains))
-	for _, t := range b.Trains {
+	for riga, t := range b.Trains {
 		if fermata := trovaFermata(m, t); fermata != nil {
 			t.Arrival = fermata.Time
 			filtrati = append(filtrati, t)
+			continue
 		}
+		if len(t.Stops) > 0 {
+			continue
+		}
+		// Le fermate risolte si prendono per riga, non per numero: lo stesso
+		// numero può comparire su due righe del tabellone — un treno che si
+		// sdoppia, con due destinazioni e due stati — e riscrivere tutte le
+		// righe con quel numero metterebbe su una il percorso dell'altra.
+		fermate := supplenti[riga]
+		i := indiceFermata(fermate, codiciDest)
+		if i < 0 {
+			continue
+		}
+		t.Arrival = orario(fermate[i].Programmata)
+		// Sul treno cancellato le fermate restano vuote: il frontend apre la
+		// scheda solo se ce ne sono, e di un treno cancellato non c'è nessun
+		// viaggio da seguire. Sugli altri si riempiono, così la riga si apre
+		// come tutte quelle di cui le fermate le ha pubblicate RFI.
+		if !t.Cancelled {
+			t.Stops = fermateRFI(fermate)
+		}
+		filtrati = append(filtrati, t)
 	}
 	// Copia superficiale: il Board sotto sta in cache ed è condiviso, non si
 	// può sostituirgli la lista dei treni sotto i piedi.
@@ -164,6 +209,193 @@ func trovaFermata(m *stations.Matcher, t rfi.Train) *rfi.Stop {
 		}
 	}
 	return nil
+}
+
+// FermateMax è quante liste di fermate restano in cache. Sono i treni di cui
+// RFI non pubblica le fermate, visti da tutte le stazioni chieste oggi: pochi,
+// ma senza un tetto il processo le accumula finché resta acceso.
+//
+// ponytail: tetto a 500 voci e scarto di una voce qualsiasi, come per gli
+// andamenti. Se un giorno le stazioni chieste fossero tante, si alza il numero;
+// un ordine di scarto vero (LRU) solo se si vedesse rifare le stesse richieste.
+const FermateMax = 500
+
+// AttesaFermate è quanto si aspetta ViaggiaTreno prima di rispondere comunque.
+//
+// A cache fredda, in un giorno di sciopero, sono una ventina di richieste a un
+// servizio che ha otto secondi di timeout: aspettarle tutte vorrebbe dire una
+// pagina che si apre in otto secondi. I treni non ancora risolti semplicemente
+// non compaiono in questa passata e arrivano dalla cache al rinfresco dopo,
+// mezzo minuto più tardi — una tratta quasi completa subito è più utile di una
+// completa fra otto secondi, che nessuno resta a guardare.
+const AttesaFermate = 2500 * time.Millisecond
+
+// fermateSupplenti chiede a ViaggiaTreno le fermate dei treni per cui RFI non
+// le pubblica e le restituisce per indice di riga del tabellone, già tagliate a
+// quelle che il treno ha ancora davanti: è quello che RFI stampa nel popup
+// della riga.
+//
+// Restituisce nil in tutti i casi in cui questa strada non è percorribile —
+// nessuna seconda fonte, destinazione senza codice ViaggiaTreno, tabellone
+// senza treni da risolvere — e allora il filtro si comporta come prima. Nessun
+// errore risale: è una lettura in più, non una da cui dipendere.
+func (s *Service) fermateSupplenti(ctx context.Context, placeID int, arrivals bool, b *rfi.Board, dest *stations.Station) map[int][]vt.Fermata {
+	if s.live == nil || dest.VT == "" {
+		return nil
+	}
+	live := s.misureDi(placeID, arrivals)
+
+	type richiesta struct {
+		riga   int
+		numero string
+		chiave string
+		treno  vt.Treno
+	}
+	var da []richiesta
+	for riga, t := range b.Trains {
+		if len(t.Stops) > 0 {
+			continue
+		}
+		numero := strings.TrimSpace(t.Number)
+		// La mappa di ViaggiaTreno porta un treno per numero, e di un treno
+		// sdoppiato ne conosce uno solo: le due righe leggono quindi le stesse
+		// coordinate, e su una delle due il filtro può sbagliare percorso. Non
+		// è risolvibile con i dati che ci sono — RFI e ViaggiaTreno non hanno
+		// altro identificatore in comune — ed è la stessa scelta che unisci fa
+		// già per il ritardo misurato.
+		m, ok := live[numero]
+		if !ok || m.CodOrigine == "" || m.DataPartenza == 0 {
+			continue
+		}
+		da = append(da, richiesta{riga, numero, chiaveViaggio(m.CodOrigine, numero, m.DataPartenza), m})
+	}
+	if len(da) == 0 {
+		return nil
+	}
+
+	// Le richieste che mancano partono tutte insieme: in fila costerebbero la
+	// somma di una ventina di servizi lenti. Il contesto non è quello di chi ha
+	// chiesto la pagina — se se ne va, le goroutine finiscono comunque di
+	// riempire la cache, che è quello che rende utile il rinfresco dopo.
+	ctxFer, annulla := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+	var wg sync.WaitGroup
+	// Due righe con lo stesso numero chiedono le stesse coordinate: la
+	// richiesta si fa una volta, il risultato lo leggono entrambe.
+	chiesti := map[string]bool{}
+	for _, r := range da {
+		s.muFer.Lock()
+		_, gia := s.fermate[r.chiave]
+		s.muFer.Unlock()
+		if gia || chiesti[r.chiave] {
+			continue
+		}
+		chiesti[r.chiave] = true
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a, err := s.live.Andamento(ctxFer, r.treno.CodOrigine, r.numero, r.treno.DataPartenza)
+			if err != nil {
+				// L'errore non si memorizza: è il servizio che non risponde
+				// adesso, non un treno che non esiste, e fra mezzo minuto la
+				// stessa domanda può avere una risposta.
+				log.Printf("fermate da ViaggiaTreno per il treno %s: %v", r.numero, err)
+				return
+			}
+			var fermate []vt.Fermata
+			if a != nil {
+				fermate = a.Fermate
+			}
+			s.muFer.Lock()
+			defer s.muFer.Unlock()
+			// Anche l'esito negativo va in cache: in un giorno di sciopero
+			// ViaggiaTreno non conosce venti treni su quaranta, e senza
+			// ricordarselo si ripeterebbero venti richieste a vuoto ogni mezzo
+			// minuto, per sempre.
+			sfoltisci(s.fermate, FermateMax)
+			s.fermate[r.chiave] = fermate
+		}()
+	}
+
+	fatto := make(chan struct{})
+	go func() { wg.Wait(); annulla(); close(fatto) }()
+	select {
+	case <-fatto:
+	case <-time.After(AttesaFermate):
+	}
+
+	codiciPartenza := s.catalogo.ByID(placeID).CodiciVT()
+	out := make(map[int][]vt.Fermata, len(da))
+	s.muFer.Lock()
+	defer s.muFer.Unlock()
+	for _, r := range da {
+		fermate := s.fermate[r.chiave]
+		if len(fermate) == 0 {
+			continue
+		}
+		// L'elenco di ViaggiaTreno parte dall'origine del treno, che spesso è
+		// prima della stazione da cui lo si guarda: senza il taglio la scheda
+		// mostrerebbe fermate già passate, e la destinazione risulterebbe
+		// servita anche da un treno che da lì è già transitato. Se la stazione
+		// non c'è nell'elenco si tiene tutto: meglio una fermata di troppo che
+		// un treno che sparisce dalla tratta.
+		if i := indiceFermata(fermate, codiciPartenza); i >= 0 {
+			fermate = fermate[i+1:]
+		}
+		out[r.riga] = fermate
+	}
+	return out
+}
+
+// indiceFermata trova una stazione fra le fermate di ViaggiaTreno.
+//
+// L'aggancio è sul codice stazione, che è un confronto esatto: il Matcher deve
+// invece ricondurre a una stazione le abbreviazioni che RFI stampa, e su un
+// treno che non compare da nessun'altra parte conviene la strada che non deve
+// indovinare. I codici sono più di uno quando la stazione ha due livelli.
+func indiceFermata(fermate []vt.Fermata, codici []string) int {
+	for i := range fermate {
+		if slices.Contains(codici, fermate[i].Codice) {
+			return i
+		}
+	}
+	return -1
+}
+
+// fermateRFI riscrive le fermate di ViaggiaTreno nella forma del tabellone.
+// L'orario è quello previsto, come nel popup di RFI: quello reale ce l'hanno
+// solo le fermate già servite, e a una lista di fermate future non serve.
+func fermateRFI(fermate []vt.Fermata) []rfi.Stop {
+	out := make([]rfi.Stop, 0, len(fermate))
+	for _, f := range fermate {
+		out = append(out, rfi.Stop{Name: f.Nome, Time: orario(f.Programmata)})
+	}
+	return out
+}
+
+// roma è il fuso in cui vanno letti gli orari dei treni italiani: quelli che
+// arrivano da ViaggiaTreno sono istanti, e chi guarda il tabellone può stare
+// altrove. Il database dei fusi è dentro il binario (vedi l'import in main.go);
+// se anche così mancasse, un orario sbagliato di un'ora sarebbe peggio di
+// nessun orario, quindi non se ne mostra nessuno.
+var roma, erroreFuso = time.LoadLocation("Europe/Rome")
+
+func orario(t time.Time) string {
+	if t.IsZero() || erroreFuso != nil {
+		return ""
+	}
+	return t.In(roma).Format("15:04")
+}
+
+// sfoltisci tiene una cache sotto il suo tetto buttando una voce qualsiasi.
+// Sono tutte equivalenti — scadute o quasi — e tenere un ordine di scarto
+// costerebbe più di quanto valga.
+func sfoltisci[T any](m map[string]T, max int) {
+	for len(m) >= max {
+		for k := range m {
+			delete(m, k)
+			break
+		}
+	}
 }
 
 func (s *Service) tabellone(ctx context.Context, placeID int, arrivals bool) (*rfi.Board, error) {
@@ -329,15 +561,7 @@ func (s *Service) Andamento(ctx context.Context, placeID int, arrivals bool, num
 	}
 	numero = strings.TrimSpace(numero)
 
-	s.mu.Lock()
-	v := s.cache[chiave{placeID, arrivals}]
-	s.mu.Unlock()
-	if v == nil {
-		return nil, nil
-	}
-	v.mu.Lock()
-	t, ok := v.live[numero]
-	v.mu.Unlock()
+	t, ok := s.misureDi(placeID, arrivals)[numero]
 	if !ok || t.CodOrigine == "" || t.DataPartenza == 0 {
 		return nil, nil
 	}
@@ -359,7 +583,7 @@ func (s *Service) Viaggio(ctx context.Context, codOrigine, numero string, data i
 	}
 	numero = strings.TrimSpace(numero)
 
-	k := fmt.Sprintf("%s|%s|%d", codOrigine, numero, data)
+	k := chiaveViaggio(codOrigine, numero, data)
 	s.muAnd.Lock()
 	if c := s.viaggi[k]; c != nil && time.Now().Before(c.scadeIl) {
 		s.muAnd.Unlock()
@@ -374,14 +598,30 @@ func (s *Service) Viaggio(ctx context.Context, codOrigine, numero string, data i
 
 	s.muAnd.Lock()
 	defer s.muAnd.Unlock()
-	// Tetto banale: si butta una voce qualsiasi. Sono tutte equivalenti e
-	// scadute o quasi, e tenere un ordine costerebbe più di quanto valga.
-	for len(s.viaggi) >= AndamentoMax {
-		for kk := range s.viaggi {
-			delete(s.viaggi, kk)
-			break
-		}
-	}
+	sfoltisci(s.viaggi, AndamentoMax)
 	s.viaggi[k] = &viaggio{andamento: a, scadeIl: time.Now().Add(TTL)}
 	return a, nil
+}
+
+// misureDi restituisce quello che ViaggiaTreno ha detto dei treni di un
+// tabellone già in cache: da qui vengono le coordinate — stazione di origine e
+// giorno di partenza — con cui si chiede il viaggio di un treno singolo. La
+// mappa non viene più modificata dopo essere entrata in cache, quindi si
+// restituisce com'è invece di ricopiarla.
+func (s *Service) misureDi(placeID int, arrivals bool) map[string]vt.Treno {
+	s.mu.Lock()
+	v := s.cache[chiave{placeID, arrivals}]
+	s.mu.Unlock()
+	if v == nil {
+		return nil
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.live
+}
+
+// chiaveViaggio identifica un treno come lo identifica ViaggiaTreno: il numero
+// da solo non basta, perché torna ogni giorno e su relazioni diverse.
+func chiaveViaggio(codOrigine, numero string, data int64) string {
+	return fmt.Sprintf("%s|%s|%d", codOrigine, numero, data)
 }
