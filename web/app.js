@@ -1197,13 +1197,31 @@ function bannerAvvisi() {
     .filter((s) => miei.has(s.placeId) && s.notices && s.notices.length);
   if (!st.length) return '';
 
+  // Lo stesso avviso capita spesso su due stazioni insieme: un cantiere fra due
+  // fermate lo pubblicano tutt'e due, con lo stesso testo. Ripeterlo una volta
+  // per stazione occuperebbe il doppio dello spazio per dire una cosa sola,
+  // quindi si raggruppa sul testo — che la Map tiene nell'ordine in cui è
+  // comparso — e le stazioni diventano l'etichetta sopra. Il confronto è sul
+  // testo esatto: RFI lo scrive a mano, e due avvisi che dicono la stessa cosa
+  // con una parola diversa restano due avvisi, perché non sta a noi decidere
+  // che siano lo stesso.
+  const perTesto = new Map();
+  for (const s of st) {
+    for (const t of s.notices) {
+      // Un Set e non una lista: se la stessa stazione ripete un avviso, il suo
+      // nome non va scritto due volte nella stessa etichetta.
+      if (!perTesto.has(t)) perTesto.set(t, new Set());
+      perTesto.get(t).add(s.station);
+    }
+  }
+
   // Chiuso il nome della stazione non c'è: la striscia scorre e allungarla con
   // un'etichetta per ogni avviso rubarebbe il posto al testo che conta.
-  const striscia = st.flatMap((s) => s.notices).join('  ·  ');
-  const voci = st.flatMap((s) => s.notices.map((t) => `<li>
-      <span class="stazione-avviso">${esc(s.station)}</span>
+  const striscia = [...perTesto.keys()].join('  ·  ');
+  const voci = [...perTesto].map(([t, stazioni]) => `<li>
+      <span class="stazione-avviso">${esc([...stazioni].join(' · '))}</span>
       <span class="testo-avviso">${esc(t)}</span>
-    </li>`)).join('');
+    </li>`).join('');
 
   return `<details class="avvisi-stazione" data-avvisi${avvisiStazioneAperti ? ' open' : ''}>
     <summary>

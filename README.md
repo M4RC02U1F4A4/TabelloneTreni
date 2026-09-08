@@ -432,6 +432,13 @@ ogni avviso — `ASCENSORI BINARI 14/15 FUORI SERVIZIO` senza sapere dove non è
 un'informazione. Sotto `prefers-reduced-motion` non scorre affatto: resta ferma
 e troncata, e per leggerla si apre.
 
+Un avviso che vale per due stazioni compare **una volta sola**, con entrambi i
+nomi nell'etichetta: un cantiere fra due fermate le stazioni lo pubblicano
+tutt'e due, con lo stesso testo, e ripeterlo una volta per stazione occuperebbe
+il doppio dello spazio per dire una cosa sola. Il raggruppamento è sul testo
+esatto: due avvisi che dicono la stessa cosa con una parola diversa restano due
+avvisi, perché non sta all'app decidere che siano lo stesso.
+
 Gli avvisi si chiedono per le **stazioni di partenza dei preferiti**, distinte,
 al massimo otto. Senza preferiti non c'è niente da chiedere e nessuna richiesta
 parte. Hanno una cache propria da **dieci minuti**, più lunga di quella da
