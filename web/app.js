@@ -1798,22 +1798,14 @@ function disegnaRisultati() {
   const questa = { f: stato.da, t: stato.arrivi ? null : stato.a, a: stato.arrivi || undefined };
   const salvato = ePreferito(questa);
 
-  /* Quanti treni ha lasciato passare il filtro, detto dove il sottotitolo già
-     dice cosa si sta guardando. Era una nota sopra la lista, e una nota sopra
-     la lista è una riga tolta alla prima partenza — che è la ragione per cui
-     questa schermata si apre.
+  /* Solo "Partenze" o "Arrivi", senza contare quanti ne ha lasciati passare il
+     filtro. Il filtro lo si è scelto: dire "40 partenze, 7 per te" racconta a
+     chi guarda quello che ha appena chiesto lui.
 
-     "40 partenze, 12 per te" e non "12 partenze su 40": i due numeri sono gli
-     stessi ma in quest'ordine si leggono come una frase — quante ne partono,
-     quante ti riguardano — invece che come una frazione da sciogliere.
-
-     A zero treni resta la parola sola: il conteggio lo dà già, e meglio, lo
-     stato vuoto in mezzo alla pagina. */
-  const nomi = stato.arrivi ? ['arrivo', 'arrivi'] : ['partenza', 'partenze'];
-  const passati = d && d.filtered ? d.trains.length : 0;
-  const cosa = passati > 0
-    ? `${d.total} ${nomi[d.total === 1 ? 0 : 1]}, ${passati} per te`
-    : (stato.arrivi ? 'Arrivi' : 'Partenze');
+     La parola serve lo stesso, e non è ridondante col titolo: sul tabellone di
+     una stazione sola il titolo è il nome della stazione e basta, e partenze e
+     arrivi si distinguono solo da qui. */
+  const cosa = stato.arrivi ? 'Arrivi' : 'Partenze';
 
   testa.innerHTML = `
     <div class="testa-riga">
