@@ -1328,7 +1328,13 @@ function sezioneLinee() {
     </div>`;
 
   if (stato.linee === null) {
-    return `<section class="sezione">${testa}<ul class="lista">${rigaLineaScheletro()}</ul></section>`;
+    // Nella forma di quello che sta arrivando, non in quella di una riga di
+    // lista: le righe ormai compaiono solo nei giorni storti, e uno scheletro
+    // di riga si sarebbe alzato quasi sempre portandosi via la sua altezza.
+    return `<section class="sezione">${testa}
+      <div class="barra-linee scheletro"><span style="flex:1"></span></div>
+      <p class="conta-linee scheletro" aria-hidden="true"><span class="barra b-meta"></span></p>
+      </section>`;
   }
   if (stato.lineeErrore) {
     // Sottovoce: che manchino i bollini non deve sembrare che sia rotto il
@@ -1337,19 +1343,21 @@ function sezioneLinee() {
       <p class="nota">Stato delle linee non disponibile.</p></section>`;
   }
 
-  /* Solo le linee seguite. Prima si aggiungevano anche quelle in difficoltà
-     che uno non segue: in una brutta giornata erano dieci righe di linee che
-     non c'entrano niente con dove si va, e mangiavano la home per dare una
-     notizia che non riguardava nessuno.
+  /* Una riga per ogni linea seguita che ha qualcosa che non va, e nient'altro.
 
-     Quello che le sostituisce è la barra, che di righe ne occupa zero: se il
-     rosso c'è si vede, e "Tutte" è lì accanto per andarlo a leggere. */
-  const righe = stato.linee.filter((l) => seguita(l.code));
+     Le linee in difficoltà che uno non segue non ci sono mai state utili: in
+     una brutta giornata erano dieci righe su linee che non c'entrano con dove
+     si va. Ma nemmeno le proprie linee quando vanno bene: "regolare" scritto
+     tre volte è la risposta a una domanda che nessuno ha fatto, e la si legge
+     ogni giorno per i due giorni all'anno in cui cambia.
+
+     Così la sezione tace quando non c'è niente da dire, e nel giorno storto
+     resta solo la linea da guardare. Il quadro generale lo tiene la barra, che
+     di righe ne occupa zero. */
+  const righe = stato.linee.filter((l) => seguita(l.code) && l.status > 0);
 
   return `<section class="sezione">${testa}${barraLinee(stato.linee)}
-    ${righe.length
-      ? `<ul class="lista">${righe.map(rigaLinea).join('')}</ul>`
-      : '<p class="nota">Nessuna linea seguita. Accendi una campanella da «Tutte» per tenerla qui.</p>'}</section>`;
+    ${righe.length ? `<ul class="lista">${righe.map(rigaLinea).join('')}</ul>` : ''}</section>`;
 }
 
 /* Il colpo d'occhio sulle 65 linee, che una lista di zero righe non dà: la

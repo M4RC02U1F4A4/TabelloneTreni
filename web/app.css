@@ -276,6 +276,9 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
    grave su sessantacinque sarebbe una fetta di due pixel invisibile, cioè
    esattamente il caso per cui questa barra esiste. */
 .barra-linee span { background: var(--tenue); min-width: 8px; }
+/* In attesa la barra è una sola tacca, e va nel grigio degli scheletri: il
+   tenue delle linee senza stato la farebbe leggere come un dato arrivato. */
+.barra-linee.scheletro span { background: var(--piano-alto); }
 .barra-linee .regolare { background: var(--verde); }
 .barra-linee .critico { background: var(--ambra); }
 .barra-linee .grave { background: var(--rosso); }
