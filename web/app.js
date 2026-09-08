@@ -884,6 +884,11 @@ async function cambiaRotta() {
     stato.dati = null;
     stato.errore = null;
     stato.arrivi = false;
+    // L'orario dell'ultima lettura è lo stesso campo che usa il tabellone:
+    // senza azzerarlo, la barretta della home partirebbe dal minuto del
+    // tabellone appena lasciato. Torna a esistere quando i treni seguiti sono
+    // stati letti davvero.
+    stato.scaricatoIl = 0;
     try {
       await caricaStazioni();
     } catch (e) {
@@ -1078,9 +1083,18 @@ function disegna() {
 }
 
 function disegnaHome() {
+  /* La barretta del minuto anche qui, e solo quando c'è un treno seguito: è
+     l'unica cosa della home che si rilegge da sola: i bollini delle linee e gli
+     avvisi di stazione si rifanno tornando sull'app, non a tempo. Senza treni
+     seguiti la home è ferma, e una barretta che conta un giro che non arriva
+     sarebbe una bugia.
+
+     Sta sotto l'intestazione come sul tabellone, cioè appena sopra le schede
+     seguite, che sono la prima sezione e quelle che conta. */
   testa.innerHTML = `
     <div class="testa-riga"><h1 class="titolo">Tabellone Treni</h1></div>
-    <div class="sottotitolo">Partenze e arrivi RFI, filtrati per dove devi andare</div>`;
+    <div class="sottotitolo">Partenze e arrivi RFI, filtrati per dove devi andare</div>
+    ${seguiti().length ? barraCiclo() : ''}`;
 
   const fav = preferitiOrdinati();
   if (!fav.length) modificaPreferiti = false;
