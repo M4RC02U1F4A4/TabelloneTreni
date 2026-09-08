@@ -150,12 +150,19 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 /* Sta in cima alla home e scorre come il tabellone vero da cui arriva. Il
    colore è l'ambra dei bollini di gravità e non l'accento, che nel tema chiaro
    diventa blu: un avviso di stazione non è un elemento di interfaccia da
-   toccare, è un cartello giallo, e in entrambi i temi deve leggersi così. */
+   toccare, è un cartello giallo, e in entrambi i temi deve leggersi così.
+
+   Ed è proprio per non farlo sembrare da toccare che è una striscia e non un
+   riquadro. Chiuso dentro un bordo tondo su tutti e quattro i lati, con
+   l'ambra piena e il testo in grassetto, era la cosa più accesa della pagina e
+   aveva la forma del pulsante che sta sotto: aprendo l'app si toccava
+   l'avviso. La barra a sinistra dice la stessa cosa — c'è una comunicazione,
+   ed è gialla — senza promettere che porti da qualche parte. */
 .avvisi-stazione {
   margin-bottom: 18px;
-  border: 1px solid color-mix(in srgb, var(--ambra) 45%, transparent);
-  background: color-mix(in srgb, var(--ambra) 13%, var(--piano));
-  border-radius: var(--raggio);
+  border-left: 3px solid var(--ambra);
+  background: color-mix(in srgb, var(--ambra) 8%, var(--piano));
+  border-radius: 0 var(--raggio) var(--raggio) 0;
   color: var(--ambra);
 }
 .avvisi-stazione summary {
@@ -397,7 +404,15 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   background: var(--accento); color: #10131a;
   font-weight: 650; font-size: 16px;
 }
-.principale:disabled { opacity: 0.45; }
+/* Disabilitato non è "acceso ma sbiadito": l'ambra piena al 45% diventa un
+   senape spento, e su una home appena aperta — dove il pulsante è disabilitato
+   perché la stazione di partenza non c'è ancora — sembrava rotto. Senza
+   riempimento si legge per quello che è: non ancora pronto. */
+.principale:disabled {
+  background: var(--piano-alto);
+  color: var(--tenue);
+  cursor: default;
+}
 @media (prefers-color-scheme: light) {
   .principale { color: #fff; }
 }
