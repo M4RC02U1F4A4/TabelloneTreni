@@ -1163,6 +1163,29 @@ function numeroBinario(p) {
   return m ? `${esc(m[1])}<small>${esc(m[2])}</small>` : esc(p);
 }
 
+/* La cella del binario.
+
+   Sotto la cifra non c'è più scritto "bin.": in una colonna che sta accanto a
+   un'ora e a una destinazione, un numero dentro una pastiglia è il binario, e
+   dirlo sotto ogni riga di ogni tabellone è una parola che nessuno legge due
+   volte. Resta per chi ascolta la pagina, dove un "2" da solo non vuol dire
+   niente.
+
+   La didascalia ricompare quando ha qualcosa da dire che il numero non dice:
+   "era 3" a binario cambiato. È il caso per cui quello slot esiste davvero, ed
+   è anche il motivo per cui non l'ho tolto del tutto. */
+function cellaBinario(platform, cambio) {
+  if (!platform) {
+    return '<div class="binario">' +
+      '<span class="ignoto" title="Binario non ancora assegnato">–</span></div>';
+  }
+  return `<div class="binario${cambio ? ' cambiato' : ''}">
+    <span class="solo-lettori">binario</span>
+    <span class="num">${numeroBinario(platform)}</span>
+    ${cambio ? `<span class="cap">${esc(cambio)}</span>` : ''}
+  </div>`;
+}
+
 /* Il provvedimento, quando c'è. Sta in cima alla scheda perché cambia il senso
    di tutto quello che c'è sotto: un +5 su un treno soppresso è la bugia
    peggiore che questa scheda possa raccontare, e non si corregge stampandolo
@@ -1201,12 +1224,7 @@ function corpoSeguito(d, lettoIl) {
           f.scheduled ? `<span class="quando">· ${esc(f.scheduled)}</span>` : ''}`
         : 'viaggio concluso'}</span>
     </div>
-    <div class="binario${cambio ? ' cambiato' : ''}">
-      ${f && f.platform
-        ? `<span class="num">${numeroBinario(f.platform)}</span>
-           <span class="cap">${cambio ? esc(cambio) : 'bin.'}</span>`
-        : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
-    </div>
+    ${cellaBinario(f && f.platform, cambio)}
     <div class="adesso">${doveAdesso(d, lettoIl)}</div>`;
 }
 
@@ -1886,11 +1904,7 @@ function rigaTreno(t, d, misure) {
       <div class="destinazione">${d.arrivals ? '<span class="da">da</span> ' : ''}${esc(titolo(t.terminus))}</div>
       <span class="meta">${dettagli}</span>
     </div>
-    <div class="binario${cambio ? ' cambiato' : ''}">
-      ${t.platform ? `<span class="num">${numeroBinario(t.platform)}</span>
-                      <span class="cap">${cambio ? esc(cambio) : 'bin.'}</span>`
-                   : '<span class="ignoto" title="Binario non ancora assegnato">–</span>'}
-    </div>
+    ${cellaBinario(t.platform, cambio)}
     ${espandibile ? `<span class="apri" aria-hidden="true">${icona('gallone')}</span>` : ''}
     ${t.notes ? `<div class="avviso">${esc(t.notes)}</div>` : ''}`;
 

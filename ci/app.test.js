@@ -151,5 +151,21 @@ for (const [dato, atteso] of [
 assert.strictEqual(numeroBinario('<b>x'), '&lt;b&gt;x');
 assert.strictEqual(numeroBinario('3 <b>x'), '3<small>&lt;b&gt;x</small>');
 
-console.log('binario: ok — 6 casi + 2 di escaping');
+// Sotto la cifra non deve più comparire "bin.", ma la didascalia deve tornare
+// quando il binario cambia — e la parola resta per chi ascolta la pagina.
+const cellaBinario = new Function('esc',
+  `${ritaglia('function numeroBinario', '/* Il provvedimento')}; return cellaBinario;`)(esc);
+
+const normale = cellaBinario('2', null);
+assert.ok(!/bin\./.test(normale), 'la didascalia "bin." non va più scritta');
+assert.ok(/solo-lettori">binario</.test(normale), 'la parola resta per lo screen reader');
+assert.ok(!/class="cap"/.test(normale), 'senza cambio non c\'è didascalia visibile');
+
+const cambiato = cellaBinario('5', 'era 3');
+assert.ok(/class="cap">era 3</.test(cambiato), 'a binario cambiato la didascalia torna');
+assert.ok(/binario cambiato"/.test(cambiato), 'e la cella si marca come cambiata');
+
+assert.ok(/ignoto/.test(cellaBinario('', null)), 'senza binario resta il trattino');
+
+console.log('binario: ok — 6 casi + 2 di escaping + 6 sulla cella');
 

@@ -534,7 +534,7 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 
 /* Il numero grande qui non è un orario di partenza ma il ritardo, e da solo
    non si spiega: la didascalia sotto dice di cosa è il numero, con la stessa
-   geometria del "bin." nella colonna del binario. */
+   geometria che aveva il "bin." nella colonna del binario. */
 .orario .cap {
   display: block; margin-top: 1px;
   font-size: 10px; color: var(--tenue);
@@ -618,9 +618,8 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    accanto alla cifra ma non pesa quanto lei: il numero è quello che si cerca,
    la qualifica dice dove andarlo a prendere. */
 .binario .num small { font-size: 11px; font-weight: 600; margin-left: 3px; }
-/* Senza spaziatura fra le lettere: era l'ultimo residuo dell'etichettina
-   spaziata, e in questo slot ci finisce anche "era 3" quando il binario cambia
-   — cioè una frase, che spaziata si legge peggio. */
+/* Ormai la didascalia c'è solo a binario cambiato — "era 3", "ora 5" — cioè
+   quando ha da dire qualcosa che il numero non dice. */
 .binario .cap { display: block; font-size: 10px; color: var(--tenue); }
 /* Il binario non assegnato è la norma finché il treno non è vicino: merita un
    segno posato, non due righe di testo che gridano più del binario vero. */
