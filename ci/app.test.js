@@ -280,7 +280,15 @@ oggi.setHours(18, 46, 0, 0);
 assert.strictEqual(quando({ date: oggi.toISOString() }), '18:46', 'di oggi solo l\'ora');
 
 // Dei giorni prima il giorno e l'ora, come scrive Trenord.
-assert.strictEqual(quando({ date: '2026-09-02T12:58:00Z' }), '2 settembre, 14:58',
+//
+// La data si costruisce dai componenti locali e non da un istante UTC fisso:
+// scritta come "2026-09-02T12:58:00Z" l'attesa valeva solo su una macchina in
+// ora italiana, e il controllo cadeva sul runner, che sta in UTC. Del giorno si
+// verifica la forma e non il nome, che è quello che il fuso non può spostare.
+const vecchio = new Date();
+vecchio.setDate(vecchio.getDate() - 6);
+vecchio.setHours(14, 58, 0, 0);
+assert.match(quando({ date: vecchio.toISOString() }), /^\d{1,2} [a-zà-ù]+, 14:58$/,
   'dei giorni prima giorno e ora');
 
 // Senza data, o con una data che non si legge, niente etichetta: meglio la
