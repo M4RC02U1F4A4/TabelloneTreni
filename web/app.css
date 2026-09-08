@@ -105,17 +105,16 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 .sottotitolo .fermo::before { background: var(--tenue); }
 
 /* Quanto manca alla prossima lettura, senza dirlo a parole: la barretta si
-   svuota nell'arco del minuto e torna piena quando il dato arriva. Prende il
-   posto del pallino verde e ne occupa poco più.
+   svuota nell'arco del minuto e torna piena quando il dato arriva. Sta sul filo
+   sotto l'intestazione e ne prende il posto, quindi non costa niente in
+   altezza — e a tutta larghezza il minuto si coglie senza andarlo a cercare.
 
    Il ritardo arriva dal JS come valore negativo, calcolato su quando il dato è
    stato letto: così l'animazione parte da dove deve anche quando la pagina si
    ridisegna a metà minuto, che succede a ogni tocco. */
 .ciclo {
-  display: inline-block; vertical-align: 1px;
-  width: 22px; height: 4px; margin-right: 6px;
-  border-radius: 2px; overflow: hidden;
-  background: var(--bordo);
+  position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px; overflow: hidden;
 }
 .ciclo i {
   display: block; height: 100%;

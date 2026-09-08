@@ -981,7 +981,7 @@ document.addEventListener('visibilitychange', () => {
 
    La cadenza era scritta — "· ogni minuto" in fondo alla riga — ed era brutta:
    tre frammenti incollati da due puntini, con l'ultimo che penzolava senza
-   grammatica. La dice la barretta, che si svuota nell'arco del minuto e si
+   grammatica. La dice barraCiclo(), che si svuota nell'arco del minuto e si
    riempie a ogni lettura: si guarda una volta e si è capito il ritmo, senza
    una parola in più su una riga che ne ha già abbastanza.
 
@@ -998,10 +998,20 @@ document.addEventListener('visibilitychange', () => {
 function rigaFreschezza() {
   // Anche prima della prima lettura, quando eta() non ha ancora niente da dire:
   // "aggiornato " con l'orario mancante si legge come un dato che manca.
-  if (stato.caricamento || !stato.scaricatoIl) return '<span class="fermo">aggiornamento…</span>';
+  if (stato.caricamento || !stato.scaricatoIl) return 'aggiornamento…';
+  return `aggiornato <span id="eta">${eta()}</span>`;
+}
+
+/* La barretta, che sta sul filo sotto l'intestazione invece che dentro la riga
+   di testo: a tutta larghezza il minuto si legge di sfuggita, senza cercarlo.
+   Prende il posto del bordo, quindi non costa una riga di layout.
+
+   Va in fondo all'intestazione perché lì il posizionamento assoluto si aggancia
+   a .testa, che è sticky e quindi fa da riferimento. */
+function barraCiclo() {
+  if (stato.caricamento || !stato.scaricatoIl) return '';
   const trascorso = Math.min(Date.now() - stato.scaricatoIl, RINFRESCO);
-  return `<span class="ciclo" style="--trascorso:-${trascorso}ms"><i></i></span>` +
-    `aggiornato <span id="eta">${eta()}</span>`;
+  return `<div class="ciclo" style="--trascorso:-${trascorso}ms" aria-hidden="true"><i></i></div>`;
 }
 
 /* La rilettura di un treno seguito, che il timer rifà una volta al minuto. */
@@ -1315,7 +1325,8 @@ function disegnaTreno(t) {
               aria-label="${salvato ? 'Smetti di seguire questo treno' : 'Segui questo treno'}"
               >${icona('segnalibro', salvato)}</button>
     </div>
-    <div class="sottotitolo">${d && d.origin ? `da ${esc(d.origin)} · ` : ''}${rigaFreschezza()}</div>`;
+    <div class="sottotitolo">${d && d.origin ? `da ${esc(d.origin)} · ` : ''}${rigaFreschezza()}</div>
+    ${barraCiclo()}`;
 
   if (!d) {
     app.innerHTML = v && v.stato === 'errore'
@@ -1792,10 +1803,8 @@ function disegnaRisultati() {
       <button class="tasto" type="button" data-preferito aria-pressed="${salvato}"
               aria-label="${salvato ? 'Togli dai preferiti' : 'Aggiungi ai preferiti'}">${icona('stella', salvato)}</button>
     </div>
-    <div class="sottotitolo">
-      ${esc(cosa)} ·
-      ${rigaFreschezza()}
-    </div>`;
+    <div class="sottotitolo">${esc(cosa)} · ${rigaFreschezza()}</div>
+    ${barraCiclo()}`;
 
   if (!d) {
     app.innerHTML = stato.errore

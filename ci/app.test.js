@@ -174,33 +174,38 @@ console.log('binario: ok — 6 casi + 2 di escaping + 6 sulla cella');
 /* La barretta mente in silenzio se il ritardo negativo si scollega da quando
  * il dato è stato letto: resta piena, e chi guarda crede che il tabellone si
  * sia appena riletto. Nessuno se ne accorgerebbe guardando lo schermo. */
-const rigaFreschezza = new Function('stato', 'eta', 'RINFRESCO',
-  `${ritaglia('function rigaFreschezza()', '/* La rilettura di un treno')}; return rigaFreschezza;`);
+const pezzoFreschezza = ritaglia('function rigaFreschezza()', '/* La rilettura di un treno');
+const nuovaFreschezza = (n) => new Function('stato', 'eta', 'RINFRESCO',
+  `${pezzoFreschezza}; return ${n};`);
 
 const RINFRESCO = 60_000;
-const riga = (ms, caricamento = false) => rigaFreschezza(
-  { caricamento, scaricatoIl: ms === null ? 0 : Date.now() - ms },
-  () => 'poco fa', RINFRESCO)();
+const contesto = (ms, caricamento = false) =>
+  [{ caricamento, scaricatoIl: ms === null ? 0 : Date.now() - ms }, () => 'poco fa', RINFRESCO];
+
+const barra = (ms, caricamento = false) => nuovaFreschezza('barraCiclo')(...contesto(ms, caricamento))();
+const testo = (ms, caricamento = false) => nuovaFreschezza('rigaFreschezza')(...contesto(ms, caricamento))();
 
 const ritardo = (html) => Number((html.match(/--trascorso:(-?\d+)ms/) || [])[1]);
 
 // Appena letto: barretta piena, cioè nessuno scorrimento già consumato.
-assert.ok(Math.abs(ritardo(riga(0))) < 50, 'appena letto la barretta parte piena');
+assert.ok(Math.abs(ritardo(barra(0))) < 50, 'appena letto la barretta parte piena');
 
 // A metà minuto deve partire da metà, non da capo.
-const meta = ritardo(riga(30_000));
+const meta = ritardo(barra(30_000));
 assert.ok(meta < -29_000 && meta > -31_000, `a metà minuto il ritardo è ${meta}`);
 
 // Oltre il minuto — l'app è stata in secondo piano — si ferma a vuota invece
 // di ripartire: un giro in più direbbe che il dato è appena arrivato.
-assert.strictEqual(ritardo(riga(5 * 60_000)), -RINFRESCO, 'oltre il minuto resta a fondo corsa');
+assert.strictEqual(ritardo(barra(5 * 60_000)), -RINFRESCO, 'oltre il minuto resta a fondo corsa');
 
 // Mentre carica, e prima della prima lettura, la barretta non c'è.
-assert.ok(!/ciclo/.test(riga(1000, true)), 'in caricamento niente barretta');
-assert.ok(!/ciclo/.test(riga(null)), 'prima della prima lettura niente barretta');
+assert.strictEqual(barra(1000, true), '', 'in caricamento niente barretta');
+assert.strictEqual(barra(null), '', 'prima della prima lettura niente barretta');
 
-// E "ogni minuto" non si scrive più a parole.
-assert.ok(!/ogni minuto/.test(riga(1000)), 'la cadenza non è più scritta');
+// Il testo non porta più né la cadenza scritta né il pallino: li dice la barra.
+assert.ok(!/ogni minuto/.test(testo(1000)), 'la cadenza non è più scritta');
+assert.ok(!/vivo|ciclo/.test(testo(1000)), 'nel testo non resta nessun indicatore');
+assert.strictEqual(testo(1000, true), 'aggiornamento…');
 
-console.log('freschezza: ok — 6 casi sulla barretta');
+console.log('freschezza: ok — 8 casi sulla barretta');
 
