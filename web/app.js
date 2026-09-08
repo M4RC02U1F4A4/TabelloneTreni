@@ -217,6 +217,12 @@ function scrivi(chiave, valore) {
 
 const preferiti = () => leggi('tt.preferiti', []);
 const chiaveTratta = (p) => `${p.f}>${p.t || ''}${p.a ? '>a' : ''}`;
+/* La stessa chiave, per il tabellone che si sta guardando. Ha un nome suo
+   perché è il punto in cui due forme diverse — un preferito salvato e una
+   rotta letta dall'URL — devono dare la stessa stringa: se smettessero di
+   combaciare non si romperebbe niente a schermo, la home resterebbe
+   nell'ordine di prima e in silenzio. */
+const chiaveRotta = (r) => chiaveTratta({ f: r.da, t: r.a, a: r.arrivi });
 
 function alternaPreferito(p) {
   const k = chiaveTratta(p);
@@ -863,6 +869,9 @@ async function cambiaRotta() {
   }
 
   stato.da = r.da; stato.a = r.a; stato.arrivi = r.arrivi;
+  // Quale tratta si sta guardando: in home il preferito che le corrisponde
+  // torna in cima.
+  scrivi('tt.ultima', chiaveRotta(r));
   stato.dati = null;
   stato.errore = null;
   // Schede aperte e viaggi valgono per il tabellone che si sta lasciando.
@@ -965,13 +974,10 @@ function disegnaHome() {
     <div class="testa-riga"><h1 class="titolo">Tabellone Treni</h1></div>
     <div class="sottotitolo">Partenze e arrivi RFI, filtrati per dove devi andare</div>`;
 
-  const fav = preferiti();
+  const fav = preferitiOrdinati();
   if (!fav.length) modificaPreferiti = false;
 
-  app.innerHTML = `
-    ${bannerAvvisi()}
-    ${sezioneSeguiti()}
-    ${fav.length ? `
+  const salvate = `
     <section class="sezione">
       <div class="testa-sezione">
         <h2 class="etichetta-sezione">Preferiti</h2>
@@ -979,8 +985,9 @@ function disegnaHome() {
           ${modificaPreferiti ? 'Fine' : 'Modifica'}</button>
       </div>
       <ul class="lista">${fav.map((p) => rigaPreferito(p)).join('')}</ul>
-    </section>` : ''}
+    </section>`;
 
+  const ricerca = `
     <section class="sezione">
       <h2 class="etichetta-sezione">Nuova ricerca</h2>
       <div class="gruppo">
@@ -994,8 +1001,9 @@ function disegnaHome() {
       <button class="principale" type="button" data-vai ${stato.da ? '' : 'disabled'}>
         Vedi i treni
       </button>
-    </section>
+    </section>`;
 
+  const tabellone = `
     <section class="sezione">
       <h2 class="etichetta-sezione">Tabellone di una stazione</h2>
       <div class="coppia">
@@ -1006,9 +1014,35 @@ function disegnaHome() {
           ${icona('giu')}<span>Arrivi</span>
         </button>
       </div>
-    </section>
+    </section>`;
 
-    ${sezioneLinee()}`;
+  /* Chi ha già delle tratte salvate apre l'app per guardarle, non per
+     compilare un modulo: quelle e lo stato delle linee stanno in cima, e la
+     ricerca — che si usa quando si va in un posto nuovo, cioè di rado — scende
+     in fondo.
+
+     Senza preferiti l'ordine si rovescia. Aprire con i bollini delle linee
+     lascerebbe la prima schermata di chi arriva per la prima volta senza
+     niente da fare, e la ricerca lì è l'unica cosa che c'è da fare. */
+  const corpo = fav.length
+    ? [salvate, sezioneLinee(), ricerca, tabellone]
+    : [ricerca, tabellone, sezioneLinee()];
+
+  app.innerHTML = `${bannerAvvisi()}${sezioneSeguiti()}${corpo.join('')}`;
+}
+
+/* Il preferito guardato per ultimo va in cima. La mattina si guarda l'andata e
+   la sera il ritorno: riaprendo l'app la direzione di adesso è già la prima,
+   senza doverla chiedere e senza una preferenza da impostare.
+
+   Solo il primo si sposta, gli altri restano nell'ordine in cui erano. E si
+   sposta al disegno, non nel salvataggio: l'ordine in memoria resta quello in
+   cui le tratte sono state aggiunte, che è quello che "Modifica" mostra. */
+function preferitiOrdinati() {
+  const fav = preferiti();
+  const ultima = leggi('tt.ultima', '');
+  const i = fav.findIndex((p) => chiaveTratta(p) === ultima);
+  return i > 0 ? [fav[i], ...fav.slice(0, i), ...fav.slice(i + 1)] : fav;
 }
 
 /* I treni seguiti stanno sopra a tutto il resto, ed è l'unica sezione che si
