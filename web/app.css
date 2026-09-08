@@ -31,6 +31,12 @@
   --vt-fondo: #0d3230;
   --raggio: 12px;
   --gap: 10px;
+  /* Il verde della barretta del minuto, smorzato. Non è var(--verde) con
+     un'opacità qualunque: nel chiaro quel verde ha già poco contrasto sul
+     fondo, e la stessa percentuale che nello scuro sta comoda là sotto
+     scenderebbe sotto la soglia dei 3:1 che gli elementi grafici devono
+     tenere. Due valori, uno per tema, entrambi intorno a 3.4:1. */
+  --ciclo: color-mix(in srgb, var(--verde) 50%, transparent);
 }
 @media (prefers-color-scheme: light) {
   :root {
@@ -48,6 +54,7 @@
     --rfi-fondo: #ffeecd;
     --vt-testo: #04635c;
     --vt-fondo: #d3f2ef;
+    --ciclo: color-mix(in srgb, var(--verde) 80%, transparent);
   }
 }
 
@@ -116,9 +123,15 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   position: absolute; left: 0; right: 0; bottom: -1px;
   height: 2px; overflow: hidden;
 }
+/* Verde smorzato, non verde pieno. A tutta larghezza e in tinta piena era la
+   cosa più accesa della schermata, per il fatto meno importante che ci sia —
+   quando scatta il prossimo giro automatico — e una barra verde satura sotto
+   un'intestazione si legge come "sto caricando" invece che come "manca mezzo
+   minuto". Smorzata resta percepibile con la coda dell'occhio, che è tutto
+   quello che deve fare, e smette di competere con il titolo. */
 .ciclo i {
   display: block; height: 100%;
-  background: var(--verde);
+  background: var(--ciclo);
   animation-name: svuota;
   animation-duration: 60s;
   animation-timing-function: linear;

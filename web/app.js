@@ -37,9 +37,18 @@ const STATI = [
 ];
 const statoLinea = (n) => STATI[n] || { classe: 'ignoto', etichetta: 'stato ignoto' };
 
-// Una volta al minuto, come chiesto — e adesso è scritto nel sottotitolo,
-// quindi cambiarlo qui vuol dire cambiare la promessa che rigaFreschezza() fa.
+// Una volta al minuto, come chiesto — ed è quanto ci mette la barretta sotto
+// l'intestazione a svuotarsi, quindi cambiarlo qui cambia anche quello che
+// quella barretta promette.
 const RINFRESCO = 60_000;
+
+/* Oltre quanto una lettura è "vecchia", cioè da dire. Fresca non si dice:
+   "letto adesso" sarebbe una riga in più che non informa nessuno, e sotto
+   l'intestazione c'è già la barretta a contare. Serve nei casi in cui a
+   schermo c'è un dato che non è di adesso — l'app riaperta senza rete, o un
+   aggiornamento andato male — e sono proprio quelli in cui tacere farebbe
+   passare il vecchio per nuovo. */
+const VECCHIA = 2 * 60_000;
 const RISULTATI_MAX = 60;   // oltre, la lista diventa inutile da scorrere
 
 const stato = {
@@ -999,8 +1008,23 @@ function rigaFreschezza() {
   // Anche prima della prima lettura, quando eta() non ha ancora niente da dire:
   // "aggiornato " con l'orario mancante si legge come un dato che manca.
   if (stato.caricamento || !stato.scaricatoIl) return 'aggiornamento…';
-  return `aggiornato <span id="eta">${eta()}</span>`;
+  // Fresco non si dice. La barretta conta già quel minuto, e "aggiornato 30
+  // secondi fa" scritto accanto è lo stesso minuto letto dall'altro verso: due
+  // volte la stessa cosa, su una riga che ne ha già abbastanza.
+  //
+  // Si parla solo quando il dato è rimasto indietro — l'app tenuta in secondo
+  // piano, o un giro andato a vuoto senza rete — che è il caso in cui tacere
+  // farebbe passare il vecchio per nuovo. È la stessa regola di etaLettura()
+  // sulle schede dei treni seguiti, e la stessa soglia.
+  if (Date.now() - stato.scaricatoIl < VECCHIA) return '';
+  return `letto <span id="eta">${eta()}</span>`;
 }
+
+/* Le parti del sottotitolo, senza i puntini orfani di quelle che non ci sono.
+   Ne manca sempre almeno una: la freschezza tace quando il dato è fresco, e
+   l'origine c'è solo sui treni che ne hanno una. */
+const sottotitolo = (...parti) =>
+  `<div class="sottotitolo">${parti.filter(Boolean).join(' · ')}</div>`;
 
 /* La barretta, che sta sul filo sotto l'intestazione invece che dentro la riga
    di testo: a tutta larghezza il minuto si legge di sfuggita, senza cercarlo.
@@ -1175,13 +1199,6 @@ function doveAdesso(d, lettoIl) {
   return `rilevato a ${esc(titolo(l.station))}${l.time ? ` alle ${esc(l.time)}` : ''}${etaLettura(lettoIl)}`;
 }
 
-/* Quanto è vecchia questa lettura, ma solo quando è vecchia. Fresca non si
-   dice: "letto adesso" su ogni scheda sarebbe una riga in più che non informa
-   nessuno. Serve nei due casi in cui la scheda mostra un dato che non è di
-   adesso — riaperta senza rete, o con l'ultimo aggiornamento andato male — e
-   sono proprio quelli in cui tacere farebbe passare il vecchio per nuovo. */
-const VECCHIA = 2 * 60_000;
-
 function etaLettura(lettoIl) {
   if (!lettoIl || Date.now() - lettoIl < VECCHIA) return '';
   const m = Math.round((Date.now() - lettoIl) / 60_000);
@@ -1325,7 +1342,7 @@ function disegnaTreno(t) {
               aria-label="${salvato ? 'Smetti di seguire questo treno' : 'Segui questo treno'}"
               >${icona('segnalibro', salvato)}</button>
     </div>
-    <div class="sottotitolo">${d && d.origin ? `da ${esc(d.origin)} · ` : ''}${rigaFreschezza()}</div>
+    ${sottotitolo(d && d.origin ? `da ${esc(d.origin)}` : '', rigaFreschezza())}
     ${barraCiclo()}`;
 
   if (!d) {
@@ -1806,7 +1823,7 @@ function disegnaRisultati() {
       <button class="tasto" type="button" data-preferito aria-pressed="${salvato}"
               aria-label="${salvato ? 'Togli dai preferiti' : 'Aggiungi ai preferiti'}">${icona('stella', salvato)}</button>
     </div>
-    <div class="sottotitolo">${esc(cosa)} · ${rigaFreschezza()}</div>
+    ${sottotitolo(esc(cosa), rigaFreschezza())}
     ${barraCiclo()}`;
 
   if (!d) {

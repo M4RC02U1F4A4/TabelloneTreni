@@ -175,12 +175,14 @@ console.log('binario: ok — 6 casi + 2 di escaping + 6 sulla cella');
  * il dato è stato letto: resta piena, e chi guarda crede che il tabellone si
  * sia appena riletto. Nessuno se ne accorgerebbe guardando lo schermo. */
 const pezzoFreschezza = ritaglia('function rigaFreschezza()', '/* La rilettura di un treno');
-const nuovaFreschezza = (n) => new Function('stato', 'eta', 'RINFRESCO',
+const nuovaFreschezza = (n) => new Function('stato', 'eta', 'RINFRESCO', 'VECCHIA',
   `${pezzoFreschezza}; return ${n};`);
 
 const RINFRESCO = 60_000;
+const VECCHIA = 2 * 60_000;
 const contesto = (ms, caricamento = false) =>
-  [{ caricamento, scaricatoIl: ms === null ? 0 : Date.now() - ms }, () => 'poco fa', RINFRESCO];
+  [{ caricamento, scaricatoIl: ms === null ? 0 : Date.now() - ms },
+   () => `${Math.round(ms / 60_000)} minuti fa`, RINFRESCO, VECCHIA];
 
 const barra = (ms, caricamento = false) => nuovaFreschezza('barraCiclo')(...contesto(ms, caricamento))();
 const testo = (ms, caricamento = false) => nuovaFreschezza('rigaFreschezza')(...contesto(ms, caricamento))();
@@ -202,10 +204,14 @@ assert.strictEqual(ritardo(barra(5 * 60_000)), -RINFRESCO, 'oltre il minuto rest
 assert.strictEqual(barra(1000, true), '', 'in caricamento niente barretta');
 assert.strictEqual(barra(null), '', 'prima della prima lettura niente barretta');
 
-// Il testo non porta più né la cadenza scritta né il pallino: li dice la barra.
-assert.ok(!/ogni minuto/.test(testo(1000)), 'la cadenza non è più scritta');
-assert.ok(!/vivo|ciclo/.test(testo(1000)), 'nel testo non resta nessun indicatore');
+// Fresco il testo tace: la barretta conta già quel minuto, e ripeterlo a
+// parole sarebbe la stessa cosa detta due volte.
+assert.strictEqual(testo(1000), '', 'fresco non si dice');
+assert.strictEqual(testo(60_000), '', 'nemmeno a un minuto, che è cadenza normale');
+// Vecchio invece sì: è il caso in cui tacere farebbe passare il vecchio per nuovo.
+assert.strictEqual(testo(4 * 60_000), 'letto <span id="eta">4 minuti fa</span>',
+  'vecchio si dice, e resta agganciato a #eta perché continui a scorrere');
 assert.strictEqual(testo(1000, true), 'aggiornamento…');
 
-console.log('freschezza: ok — 8 casi sulla barretta');
+console.log('freschezza: ok — 9 casi su barretta e testo');
 
