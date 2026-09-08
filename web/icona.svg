@@ -1,11 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Tabellone Treni">
   <!-- Il fondo copre tutto il riquadro perché l'icona è anche maskable: Android
-       la ritaglia a piacere, e il disegno sta dentro il cerchio di sicurezza. -->
+       la ritaglia a piacere, e il disegno sta dentro il cerchio di sicurezza
+       (raggio 205 dal centro; qui l'angolo più lontano è a 174). -->
   <rect width="512" height="512" fill="#0b0e13"/>
+  <!-- Tre righe di tabellone, ognuna spezzata in due: il blocchetto dell'ora,
+       in ambra, e la barra della destinazione. È la colonna a farla leggere
+       come un orario. La versione precedente aveva tre barre intere, e a 60
+       pixel — la misura a cui un'icona si guarda davvero — tre barre
+       orizzontali sono un menù hamburger, non un tabellone. -->
   <g fill="#ffb020">
-    <rect x="112" y="152" width="216" height="36" rx="8"/>
-    <rect x="112" y="238" width="152" height="36" rx="8"/>
-    <rect x="112" y="324" width="184" height="36" rx="8"/>
+    <rect x="118" y="150" width="72" height="40" rx="10"/>
+    <rect x="118" y="236" width="72" height="40" rx="10"/>
+    <rect x="118" y="322" width="72" height="40" rx="10"/>
   </g>
-  <circle cx="372" cy="170" r="18" fill="#3ddc97"/>
+  <!-- Le destinazioni sono spente ma non troppo: sul fondo quasi nero un
+       grigio più scuro di questo sparisce a 40 pixel e restano tre trattini. -->
+  <g fill="#4d5a70">
+    <rect x="212" y="150" width="182" height="40" rx="10"/>
+    <rect x="212" y="236" width="130" height="40" rx="10"/>
+    <rect x="212" y="322" width="158" height="40" rx="10"/>
+  </g>
 </svg>
