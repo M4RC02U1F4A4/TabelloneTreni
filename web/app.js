@@ -19,7 +19,8 @@ const API = {
   // le fermate e la scheda la accende. È lo stesso parametro del tabellone.
   viaggio: (t) =>
     `api/journey?origin=${encodeURIComponent(t.o)}&number=${encodeURIComponent(t.n)}&date=${t.d}`
-    + (t.a ? `&to=${encodeURIComponent(t.a)}` : ''),
+    + (t.a ? `&to=${encodeURIComponent(t.a)}` : '')
+    + (t.f ? `&from=${encodeURIComponent(t.f)}` : ''),
   linee: 'api/lines',
   avvisiLinea: (codice) => `api/lines/notices?line=${encodeURIComponent(codice)}`,
   avvisiStazione: (id) => `api/notices?stations=${id.join(',')}`,
@@ -406,10 +407,16 @@ function idrataViaggi() {
 // Gallarate, la scheda seguita non più. Salvata, il server marca quella fermata
 // fra le altre e la lista la accende — la stessa `chosen` che il tabellone usa
 // già, senza niente di nuovo di là.
-const daSeguire = (d, a) => ({
+const daSeguire = (d, a, f) => ({
   o: d.id.origin, n: d.id.number, d: d.id.date,
   cat: d.category, capolinea: d.terminus,
   ...(a ? { a } : {}),
+  // E il tabellone da cui lo si è seguito. È quello che permette alla scheda di
+  // essere la riga di quel tabellone, con il ritardo che RFI pubblica: senza,
+  // resta la sola misura di ViaggiaTreno, che su un regionale non ancora
+  // partito non esiste — ed era il motivo per cui la scheda diceva "non ancora
+  // partito" a chi il treno lo stava perdendo.
+  ...(f ? { f } : {}),
 });
 
 /* Un treno seguito si toglie da sé, in due momenti.
@@ -516,7 +523,9 @@ async function caricaViaggioSeguito(t, forza) {
   // fermata accesa. Si risolve qui, che è l'unico punto per cui passano tutte
   // le letture — dalla home e dalla scheda aperta.
   const salvato = seguiti().find((x) => chiaveTreno(x) === k);
-  const chiesto = t.a ? t : { ...t, a: salvato && salvato.a };
+  const chiesto = t.a && t.f
+    ? t
+    : { ...t, a: t.a || (salvato && salvato.a), f: t.f || (salvato && salvato.f) };
   try {
     const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(15_000) });
     if (controllaVersione(r)) return;
@@ -1197,28 +1206,6 @@ const etichettaTreno = (d) => {
    benissimo essere un posto in cui il treno non ferma. */
 const prossimaFermata = (d) => (d.stops || []).find((f) => !f.passed) || null;
 
-/* Il numero grande della scheda, che è il ritardo — ma solo quando un ritardo
-   esiste.
-
-   Finché il treno non è stato rilevato da nessuna parte non esiste: è la stessa
-   regola della pastiglia ciano sul tabellone, e uno zero al suo posto sarebbe
-   una puntualità che nessuno ha visto. Lì al posto del ritardo va l'ora a cui
-   deve partire, che è l'unica cosa vera che si sappia di lui; a viaggio finito
-   va l'ora a cui è arrivato davvero, che è il motivo per cui lo si seguiva. */
-function numeroGrande(d) {
-  const fermate = d.stops || [];
-  if (d.arrived) {
-    const fine = fermate[fermate.length - 1] || {};
-    return { testo: fine.actual || fine.scheduled || '–', cap: 'arrivato' };
-  }
-  if (!d.tracked) {
-    const partenza = fermate[0] && fermate[0].scheduled;
-    return partenza ? { testo: partenza, cap: 'parte' } : { testo: '–', cap: '' };
-  }
-  const min = d.delay || 0;
-  return { testo: segnoRitardo(min), cap: 'ritardo', inRitardo: min > 0 };
-}
-
 /* Dov'è adesso, detto per esteso. Sta su una riga sua, sotto tutto il resto:
    è una frase, non un dato incolonnato, e spezzata in mezzo agli altri campi
    si leggerebbe peggio. */
@@ -1298,24 +1285,47 @@ function fasciaProvvedimento(d) {
    binario arriva alla prossima fermata. Sono le stesse in home e sulla scheda
    aperta, quindi le compone una funzione sola. */
 function corpoSeguito(d, lettoIl) {
-  const n = numeroGrande(d);
-  const f = prossimaFermata(d);
-  const cambio = f && f.platformScheduled ? `era ${f.platformScheduled}` : '';
   return `
     ${fasciaProvvedimento(d)}
-    <div class="orario">
-      <span class="ora">${esc(n.testo)}</span>
-      ${n.cap ? `<span class="cap">${esc(n.cap)}</span>` : ''}
-    </div>
-    <div class="dove">
-      <div class="destinazione">${etichettaTreno(d)}</div>
-      <span class="meta prossima">${f
-        ? `<span class="nome">prossima ${esc(f.name)}</span>${
-          f.scheduled ? `<span class="quando">· ${esc(f.scheduled)}</span>` : ''}`
-        : 'viaggio concluso'}</span>
-    </div>
-    ${cellaBinario(f && f.platform, cambio)}
+    ${corpoRiga(rigaSeguita(d), false, false)}
     <div class="adesso">${doveAdesso(d, lettoIl)}</div>`;
+}
+
+/* La riga di tabellone di un treno seguito.
+
+   Finché il treno è sul tabellone della stazione da cui lo si segue, è quella
+   vera, servita dal server: porta le due letture del ritardo, il soppresso, il
+   binario cambiato e l'ora di arrivo a destinazione, tutto già unito. È il
+   motivo per cui la scheda in home e la riga in elenco ora si somigliano —
+   sono lo stesso pezzo, non due che si assomigliano.
+
+   Partito, dal tabellone sparisce, e in quella forma non resta che la misura
+   sul treno, che a quel punto esiste. La si mette da sola, dichiarando che del
+   tabellone non si sa niente: inventare uno zero ambra vorrebbe dire far dire a
+   RFI che l'ha visto in orario. */
+function rigaSeguita(d) {
+  if (d.row) return d.row;
+
+  const fermate = d.stops || [];
+  const salita = fermate.find((f) => f.boarding) || fermate[0] || {};
+  const prossima = prossimaFermata(d);
+  const scesa = fermate.find((f) => f.chosen);
+  const binario = prossima || salita;
+  return {
+    senzaRFI: true,
+    number: d.number,
+    category: d.category,
+    terminus: d.terminus,
+    // L'ora è quella della fermata da cui si sale, non del capolinea da cui il
+    // treno viene: su un intercity preso a Rogoredo sono due cose diverse.
+    time: salita.actual || salita.scheduled || '',
+    liveDelay: d.tracked ? (d.delay || 0) : undefined,
+    platform: binario.platform || '',
+    platformChanged: !!binario.platformScheduled,
+    platformScheduled: binario.platformScheduled,
+    platformActual: binario.platform,
+    arrival: scesa ? (scesa.actual || scesa.scheduled || '') : '',
+  };
 }
 
 function schedaSeguito(t) {
@@ -1339,8 +1349,10 @@ function schedaSeguito(t) {
     </a></li>`;
   }
 
+  const riga = rigaSeguita(d);
   const classi = ['treno'];
-  if (numeroGrande(d).inRitardo) classi.push('in-ritardo');
+  if (riga.cancelled) classi.push('soppresso');
+  else if (ritardoVero(riga) > 0) classi.push('in-ritardo');
   if (d.arrived) classi.push('concluso');
   return `<li class="${classi.join(' ')}">
     <a class="riga-treno seguito senza-gallone" href="${link}">
@@ -1362,7 +1374,9 @@ function disegnaTreno(t) {
   // La destinazione però viene sempre dal segnalibro: qui non c'è un tabellone
   // da cui leggerla, e ripremere la stella non deve perderla.
   const segnalibro = seguiti().find((x) => chiaveTreno(x) === k);
-  const oggetto = d ? daSeguire(d, (segnalibro || t).a) : (segnalibro || t);
+  const oggetto = d
+    ? daSeguire(d, (segnalibro || t).a, (segnalibro || t).f)
+    : (segnalibro || t);
 
   testa.innerHTML = `
     <div class="testa-riga">
@@ -1383,8 +1397,10 @@ function disegnaTreno(t) {
     return;
   }
 
+  const riga = rigaSeguita(d);
   const classi = ['treno'];
-  if (numeroGrande(d).inRitardo) classi.push('in-ritardo');
+  if (riga.cancelled) classi.push('soppresso');
+  else if (ritardoVero(riga) > 0) classi.push('in-ritardo');
   if (d.arrived) classi.push('concluso');
   app.innerHTML = `
     <div class="${classi.join(' ')}"><div class="riga-treno seguito senza-gallone">${corpoSeguito(d, v.lettoIl)}</div></div>
@@ -1947,7 +1963,15 @@ const scheletro = () => `<li class="treno scheletro" aria-hidden="true">
    qualche parte: lì una misura non esiste, e uno zero al suo posto sarebbe una
    puntualità che nessuno ha visto. */
 const ritardoLive = (t) => (typeof t.liveDelay === 'number' ? t.liveDelay : null);
-const ritardoRFI = (t) => (t.cancelled ? null : (typeof t.delay === 'number' ? t.delay : 0));
+/* Il ritardo secondo il tabellone. Zero quando RFI non scrive un numero, perché
+   RFI il ritardo lo stampa comunque: la casella vuota vuol dire "in orario".
+
+   Null invece quando una lettura del tabellone non c'è affatto — `senzaRFI` —
+   che è il caso di un treno seguito già partito, sparito dal tabellone della
+   stazione da cui lo si seguiva. Lì uno zero ambra sarebbe una puntualità che
+   nessuno ha dichiarato. */
+const ritardoRFI = (t) =>
+  (t.cancelled || t.senzaRFI ? null : (typeof t.delay === 'number' ? t.delay : 0));
 /* Il ritardo che conta per il colore dell'ora: la misura sul treno quando c'è,
    altrimenti quel che dice il tabellone. */
 const ritardoVero = (t) => (ritardoLive(t) ?? ritardoRFI(t));
@@ -1962,6 +1986,14 @@ function scarti(t, riservaVT) {
   if (t.status) return `<span class="scarto solo">${esc(t.status.toLowerCase())}</span>`;
 
   const live = ritardoLive(t);
+  // Senza la lettura del tabellone resta la sola misura sul treno, da sola: è
+  // il treno seguito che è già partito, e a quel punto ViaggiaTreno lo sta
+  // misurando. Se non misura nemmeno lui non si scrive niente, che è la verità.
+  if (ritardoRFI(t) === null) {
+    return live !== null
+      ? `<span class="scarto vt solo" title="misurato sul treno">${segnoRitardo(live)}</span>`
+      : '';
+  }
   // Posto vuoto al posto della misura mancante: senza, la pastiglia di RFI
   // scivolerebbe a destra, proprio dove sulle altre righe c'è quella di
   // ViaggiaTreno. Il posto si riserva solo se in lista una misura c'è: quando
@@ -2002,6 +2034,55 @@ function legenda(d) {
   </div>`;
 }
 
+/* Il corpo di una riga di tabellone: l'ora con le letture del ritardo, dove va
+   il treno, il binario, e l'avviso se c'è.
+
+   Lo usa anche la scheda di un treno seguito, che è la stessa cosa guardata da
+   un'altra porta. Prima erano due composizioni separate e divergevano: sul
+   tabellone il ritardo era in pastiglia e con due fonti, sulla scheda era un
+   numero grande con una fonte sola — e su un treno che ViaggiaTreno non aveva
+   ancora rilevato quella fonte non diceva niente, così la scheda annunciava
+   "non ancora partito" mentre la riga, a uno schermo di distanza, dava lo
+   stesso treno in ritardo di un quarto d'ora. */
+function corpoRiga(t, arrivi, riservaVT) {
+  const dettagli = [
+    t.arrival ? `<span class="arrivo">arrivo ${esc(t.arrival)}</span>` : '',
+    esc([t.category, t.number].filter(Boolean).join(' ')),
+    t.arrival ? '' : esc(vettoreDi(t)),
+  ].filter(Boolean).join(' · ');
+  return `
+    <div class="orario">
+      <span class="ora ${t.cancelled ? 'barrato' : ''}">${esc(t.time)}</span>
+      ${scarti(t, riservaVT)}
+    </div>
+    <div class="dove">
+      <div class="destinazione">${arrivi ? '<span class="da">da</span> ' : ''}${esc(titolo(t.terminus))}</div>
+      <span class="meta">${dettagli}</span>
+    </div>
+    ${cellaBinario(t.platform, cambioBinario(t))}
+    ${t.notes ? `<div class="avviso">${esc(t.notes)}</div>` : ''}`;
+}
+
+/* Il binario cambiato: si dice da quale, non solo che è successo.
+
+   Quale dei due numeri sia la novità dipende da chi è avanti fra le due fonti.
+   Se il tabellone mostra già quello nuovo, la cosa da aggiungere è quello
+   vecchio, per chi si è incamminato prima; se invece è rimasto indietro sul
+   previsto, la cosa da aggiungere è quello nuovo. Fuori da questi due casi le
+   due fonti dicono tre numeri diversi, e allora l'unica cosa onesta è dire che
+   è cambiato senza pretendere di sapere in quale direzione. */
+function cambioBinario(t) {
+  if (!t.platformChanged) return null;
+  if (t.platform === t.platformActual && t.platformScheduled) return `era ${t.platformScheduled}`;
+  if (t.platform === t.platformScheduled && t.platformActual) return `ora ${t.platformActual}`;
+  return 'cambiato';
+}
+
+/* Su alcuni treni RFI ripete la categoria anche come vettore
+   ("INTERCITY NOTTE · INTERCITY NOTTE"): si scrive una volta sola. */
+const vettoreDi = (t) =>
+  (t.carrier && canon(t.carrier) !== canon(t.category || '') ? t.carrier : '');
+
 function rigaTreno(t, d, misure) {
   const soppresso = t.cancelled;
   const classi = ['treno'];
@@ -2009,49 +2090,10 @@ function rigaTreno(t, d, misure) {
   else if (t.boarding) classi.push('parte');
   if (!soppresso && ritardoVero(t) > 0) classi.push('in-ritardo');
 
-  const scarto = scarti(t, misure);
-
-  // Su alcuni treni RFI ripete la categoria anche come vettore
-  // ("INTERCITY NOTTE · INTERCITY NOTTE"): si scrive una volta sola.
-  const vettore = t.carrier && canon(t.carrier) !== canon(t.category || '') ? t.carrier : '';
-  // Con l'orario di arrivo la riga non ci sta tutta e verrebbe troncata: cede
-  // il posto il vettore, che è il campo che informa meno — RFI stesso lo mostra
-  // come logo, e su una tratta regionale è quasi sempre lo stesso.
-  const dettagli = [
-    t.arrival ? `<span class="arrivo">arrivo ${esc(t.arrival)}</span>` : '',
-    esc([t.category, t.number].filter(Boolean).join(' ')),
-    t.arrival ? '' : esc(vettore),
-  ].filter(Boolean).join(' · ');
-
-  // Il binario cambiato: si dice da quale, non solo che è successo.
-  //
-  // Quale dei due numeri sia la novità dipende da chi è avanti fra le due
-  // fonti. Se il tabellone mostra già quello nuovo, la cosa da aggiungere è
-  // quello vecchio, per chi si è incamminato prima; se invece è rimasto
-  // indietro sul previsto, la cosa da aggiungere è quello nuovo. Fuori da
-  // questi due casi le due fonti dicono tre numeri diversi, e allora l'unica
-  // cosa onesta è dire che è cambiato senza pretendere di sapere in quale
-  // direzione.
-  let cambio = null;
-  if (t.platformChanged) {
-    if (t.platform === t.platformActual && t.platformScheduled) cambio = `era ${t.platformScheduled}`;
-    else if (t.platform === t.platformScheduled && t.platformActual) cambio = `ora ${t.platformActual}`;
-    else cambio = 'cambiato';
-  }
-
   const espandibile = t.stops && t.stops.length > 0;
   const contenuto = `
-    <div class="orario">
-      <span class="ora ${soppresso ? 'barrato' : ''}">${esc(t.time)}</span>
-      ${scarto}
-    </div>
-    <div class="dove">
-      <div class="destinazione">${d.arrivals ? '<span class="da">da</span> ' : ''}${esc(titolo(t.terminus))}</div>
-      <span class="meta">${dettagli}</span>
-    </div>
-    ${cellaBinario(t.platform, cambio)}
-    ${espandibile ? `<span class="apri" aria-hidden="true">${icona('gallone')}</span>` : ''}
-    ${t.notes ? `<div class="avviso">${esc(t.notes)}</div>` : ''}`;
+    ${corpoRiga(t, d.arrivals, misure)}
+    ${espandibile ? `<span class="apri" aria-hidden="true">${icona('gallone')}</span>` : ''}`;
 
   const riga = `riga-treno${espandibile ? ' espandibile' : ''}`;
   if (!espandibile) {
@@ -2104,7 +2146,7 @@ function bottoneSegui(d) {
   if (!d.id || !d.id.origin) return '';
   // Sugli arrivi `stato.a` non è una destinazione — quel tabellone non ne ha
   // una — e passarla vorrebbe dire accendere una fermata a caso.
-  const t = daSeguire(d, stato.arrivi ? null : stato.a);
+  const t = daSeguire(d, stato.arrivi ? null : stato.a, stato.da);
   const gia = eSeguito(t);
   // Le coordinate viaggiano nell'attributo come JSON: sono tre più
   // l'etichetta, e cinque attributi separati sarebbero cinque cose da tenere

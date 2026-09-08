@@ -297,3 +297,60 @@ assert.strictEqual(quando({}), '', 'senza data niente etichetta');
 assert.strictEqual(quando({ date: 'non una data' }), '', 'data illeggibile: niente');
 
 console.log('sezioni: ok — 8 casi sul filtro e l\'ordine + 4 sull\'ora');
+
+/* ------------------------------- la riga di un treno seguito */
+
+/* La scheda di un treno seguito è la riga del suo tabellone: finché il treno è
+   lì, quella vera, con le due letture del ritardo. Partito, dal tabellone
+   sparisce e resta la sola misura sul treno. */
+
+const scheda = new Function(`
+  const prossimaFermata = (d) => (d.stops || []).find((f) => !f.passed) || null;
+  ${ritaglia('function rigaSeguita', 'function schedaSeguito')}
+  return rigaSeguita;`)();
+
+// Con la riga del tabellone si usa quella, intatta: è già l'unione delle due
+// fonti fatta dal server, e rifarla qui vorrebbe dire due verità.
+const vera = { number: '24566', time: '19:34', delay: 3, liveDelay: 1, platform: '2 SOT' };
+assert.strictEqual(scheda({ row: vera }), vera, 'con la riga si usa la riga');
+
+// Partito: nessuna riga. L'ora è quella della fermata da cui si sale, non del
+// capolinea da cui il treno viene.
+const partito = scheda({
+  tracked: true, delay: 7, number: '2536', category: 'REG', terminus: 'PORTO CERESIO',
+  stops: [
+    { name: 'LECCE', scheduled: '12:06', actual: '12:07', passed: true },
+    { name: 'MILANO PORTA GARIBALDI', scheduled: '18:32', actual: '18:40', passed: true, boarding: true },
+    { name: 'RHO FIERA', scheduled: '18:43', platform: '4', chosen: true },
+  ],
+});
+assert.strictEqual(partito.senzaRFI, true, 'dichiara che del tabellone non sa niente');
+assert.strictEqual(partito.time, '18:40', 'l\'ora è quella della salita, non dell\'origine');
+assert.strictEqual(partito.liveDelay, 7, 'porta la misura sul treno');
+assert.strictEqual(partito.platform, '4', 'il binario è quello della prossima fermata');
+assert.strictEqual(partito.arrival, '18:43', 'l\'arrivo è alla fermata scelta');
+
+// Non rilevato e senza riga: nessuna misura da nessuna delle due parti, e non
+// se ne inventa una.
+const muto = scheda({ tracked: false, delay: 0, stops: [{ scheduled: '19:00' }] });
+assert.strictEqual(muto.liveDelay, undefined, 'senza rilevamento nessuna misura');
+
+/* --------------------------- e le pastiglie su una riga senza tabellone */
+
+const pastiglie = new Function(`
+  const esc = (s) => String(s);
+  ${ritaglia('const ritardoLive', 'const conMisure')}
+  return { scarti, ritardoRFI };`)();
+
+// Su una riga senza lettura RFI la pastiglia ambra non si scrive: uno zero
+// sarebbe una puntualità che RFI non ha mai dichiarato.
+assert.strictEqual(pastiglie.ritardoRFI({ senzaRFI: true }), null, 'senza tabellone: null');
+assert.strictEqual(pastiglie.ritardoRFI({}), 0, 'col tabellone e senza numero: in orario');
+
+const soloVT = pastiglie.scarti({ senzaRFI: true, liveDelay: 7 }, false);
+assert.ok(/scarto vt/.test(soloVT) && /\+7/.test(soloVT), 'resta la misura sul treno');
+assert.ok(!/scarto rfi/.test(soloVT), 'nessuna pastiglia del tabellone');
+// Nessuna delle due: non si scrive niente, che è la verità.
+assert.strictEqual(pastiglie.scarti({ senzaRFI: true }, false), '', 'senza misure niente');
+
+console.log('scheda seguita: ok — 6 casi sulla riga + 5 sulle pastiglie');

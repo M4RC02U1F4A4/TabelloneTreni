@@ -312,3 +312,40 @@ func TestChiRinunciaNonButtaIlLavoro(t *testing.T) {
 		t.Fatalf("in cache = %+v, atteso l'avviso letto", a)
 	}
 }
+
+// Il giro di lettura non si fida della cache, e deve rileggere ogni volta.
+//
+// Guardandola, la cadenza si dimezzava da sé: la scadenza si scrive dopo la
+// lettura, quindi cade qualche secondo più tardi dell'inizio del giro, e il
+// giro successivo — che parte esattamente un intervallo dopo — la trovava
+// valida per un pelo. Il dettaglio si rileggeva un giro su due, cioè ogni
+// dieci minuti invece di cinque: misurato in produzione l'8 settembre 2026, un
+// avviso pubblicato alle 18:46 è stato riconosciuto alle 18:55.
+func TestIlGiroDiLetturaRileggeSempre(t *testing.T) {
+	fonte := &sorgenteAvvisiFinta{avvisi: []trenord.Avviso{avviso("lavori")}}
+	ab, _ := ApriAbbonati("")
+	if err := ab.Registra(abbonamento("https://push.example/uno", "S2")); err != nil {
+		t.Fatal(err)
+	}
+	svc := Nuovo(fonte).ConNotifiche(ab, nil)
+	linee := linee("S2", trenord.Regolare)
+
+	for giro := 1; giro <= 3; giro++ {
+		svc.leggiDettagli(context.Background(), linee)
+		if n := fonte.quante(); n != giro {
+			t.Fatalf("dopo %d giri le letture sono %d, attese %d", giro, n, giro)
+		}
+	}
+
+	// Chi apre una riga nell'app, invece, la cache la usa: è lì che serve, a
+	// difendere Trenord da un tocco ripetuto.
+	prima := fonte.quante()
+	for range 5 {
+		if _, err := svc.ChiediDettaglio(context.Background(), "S2"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := fonte.quante(); n != prima {
+		t.Errorf("letture = %d, attese %d: il tocco nell'app ha ignorato la cache", n, prima)
+	}
+}

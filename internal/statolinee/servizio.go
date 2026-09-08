@@ -141,7 +141,18 @@ func (s *Servizio) daInterrogare(linee []trenord.Linea) []trenord.Linea {
 
 func (s *Servizio) leggiDettagli(ctx context.Context, linee []trenord.Linea) {
 	for _, l := range s.daInterrogare(linee) {
-		if _, err := s.ChiediDettaglio(ctx, l.Codice); err != nil {
+		// Il giro di lettura non guarda la cache: è il suo mestiere essere
+		// aggiornato, e la cache serve a difendere Trenord da chi apre una riga
+		// nell'app, non a far salta il giro.
+		//
+		// Guardandola, la cadenza si dimezzava da sé: la scadenza si scrive
+		// *dopo* la lettura, quindi cade qualche secondo più tardi dell'inizio
+		// del giro, e il giro successivo — che parte esattamente un intervallo
+		// dopo — la trovava valida per un pelo e passava oltre. Il dettaglio si
+		// rileggeva un giro su due, cioè ogni dieci minuti: misurato l'8
+		// settembre, un avviso pubblicato alle 18:46 è stato riconosciuto alle
+		// 18:55, e nel frattempo chi lo aspettava non sapeva niente.
+		if _, err := s.dettaglio(ctx, l.Codice, true); err != nil {
 			log.Printf("dettaglio di %s: %v", l.Codice, err)
 		}
 	}
@@ -155,6 +166,12 @@ func (s *Servizio) leggiDettagli(ctx context.Context, linee []trenord.Linea) {
 // giro di lettura è abbastanza per non chiedere due volte la stessa cosa, e
 // abbastanza poco perché chi apre una riga veda quello che c'è adesso.
 func (s *Servizio) ChiediDettaglio(ctx context.Context, codice string) ([]trenord.Avviso, error) {
+	return s.dettaglio(ctx, codice, false)
+}
+
+// dettaglio è ChiediDettaglio con la scelta se fidarsi della cache. Il giro di
+// lettura non se ne fida — vedi leggiDettagli — chi apre una riga sì.
+func (s *Servizio) dettaglio(ctx context.Context, codice string, forza bool) ([]trenord.Avviso, error) {
 	fonte, ok := s.sorgente.(SorgenteAvvisi)
 	if !ok {
 		return nil, nil
@@ -172,7 +189,7 @@ func (s *Servizio) ChiediDettaglio(ctx context.Context, codice string) ([]trenor
 	// chiede un'altra va per conto suo.
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if time.Now().Before(r.scadeIl) {
+	if !forza && time.Now().Before(r.scadeIl) {
 		return s.registro.AvvisiDi(codice), nil
 	}
 

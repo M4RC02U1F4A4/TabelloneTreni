@@ -15,12 +15,14 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
@@ -296,6 +298,11 @@ type fermataJSON struct {
 	// ancora un'informazione — altrimenti sarebbe lo stesso numero due volte.
 	Platform          string `json:"platform,omitempty"`
 	PlatformScheduled string `json:"platformScheduled,omitempty"`
+	// Boarding marca la fermata da cui si sale, cioè il tabellone da cui il
+	// treno è stato aperto o seguito. Serve al client per sapere quale delle
+	// dieci righe del viaggio è quella che lo riguarda: la sua ora di partenza
+	// è quella, non quella del capolinea da cui il treno viene.
+	Boarding bool `json:"boarding,omitempty"`
 }
 
 // viaggioJSON è la forma in cui il viaggio di un treno arriva al client, la
@@ -306,7 +313,7 @@ type fermataJSON struct {
 // Un treno che ViaggiaTreno non conosce o non traccia non è un errore: è la
 // normalità per metà del tabellone, e la risposta lo dice con `tracked: false`
 // invece che con un 404 che il client dovrebbe distinguere da un guasto.
-func viaggioJSON(a *vt.Andamento, codiceScelta string) map[string]any {
+func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string) map[string]any {
 	if a == nil {
 		return map[string]any{"tracked": false}
 	}
@@ -326,8 +333,11 @@ func viaggioJSON(a *vt.Andamento, codiceScelta string) map[string]any {
 		if f.Passata {
 			voce.Actual, voce.Delay = orario(f.Effettiva), f.Ritardo
 		}
-		if codiceScelta != "" && f.Codice == codiceScelta {
+		if slices.Contains(codiciScelta, f.Codice) {
 			voce.Chosen = true
+		}
+		if slices.Contains(codiciSalita, f.Codice) {
+			voce.Boarding = true
 		}
 		fermate = append(fermate, voce)
 	}
@@ -370,18 +380,24 @@ func viaggioJSON(a *vt.Andamento, codiceScelta string) map[string]any {
 // fermataScelta traduce il PlaceId RFI della stazione dove si scende nel codice
 // con cui la stessa stazione compare fra le fermate di ViaggiaTreno. Vuoto se
 // la richiesta non la nomina o se le due fonti non si accoppiano lì.
-func (s *Server) fermataScelta(v string) string {
+// Restituisce tutti i codici con cui quella stazione può comparire fra le
+// fermate, e non uno solo: una stazione con la sotterranea ne ha due, e Milano
+// Porta Garibaldi è l'esempio che si incontra per primo. Confrontando il solo
+// codice di superficie, un treno che parte dal "2 SOT" non veniva agganciato a
+// nessuna delle sue fermate — né quella da cui si sale né quella dove si
+// scende.
+func (s *Server) fermataScelta(v string) []string {
 	if v == "" {
-		return ""
+		return nil
 	}
 	to, err := strconv.Atoi(v)
 	if err != nil || to <= 0 {
-		return ""
+		return nil
 	}
 	if st := s.catalogo.ByID(to); st != nil {
-		return st.VT
+		return st.CodiciVT()
 	}
-	return ""
+	return nil
 }
 
 // treno restituisce il viaggio di un treno del tabellone: dove si trova adesso
@@ -410,7 +426,10 @@ func (s *Server) treno(w http.ResponseWriter, r *http.Request) {
 		errore(w, http.StatusBadGateway, "andamento non disponibile")
 		return
 	}
-	rispondiViaggio(w, r, viaggioJSON(a, s.fermataScelta(q.Get("to"))))
+	// Qui la stazione da cui si sale è il tabellone stesso: è da lì che si è
+	// aperta la scheda.
+	rispondiViaggio(w, r, viaggioJSON(a,
+		s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from"))))
 }
 
 // Cosa si accetta come coordinate di un treno seguito.
@@ -465,7 +484,58 @@ func (s *Server) viaggio(w http.ResponseWriter, r *http.Request) {
 		errore(w, http.StatusBadGateway, "andamento non disponibile")
 		return
 	}
-	rispondiViaggio(w, r, viaggioJSON(a, s.fermataScelta(q.Get("to"))))
+	// `from` è il tabellone da cui il treno è stato seguito, e non l'origine
+	// del treno: è la stazione a cui chi guarda sale, che sulla RE_5 seguita da
+	// Porta Garibaldi sono la stessa cosa e su un intercity preso a Rogoredo no.
+	da, _ := strconv.Atoi(q.Get("from"))
+	viaggio := viaggioJSON(a, s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from")))
+	if riga := s.rigaTabellone(r.Context(), da, q.Get("to"), numero); riga != nil {
+		viaggio["row"] = riga
+	}
+	rispondiViaggio(w, r, viaggio)
+}
+
+// rigaTabellone è la riga di questo treno sul tabellone della stazione da cui
+// lo si segue: la stessa che si vede in elenco, con il ritardo che RFI pubblica
+// e la misura di ViaggiaTreno già unite.
+//
+// Serve perché il viaggio, da solo, porta una lettura sola. Un regionale che
+// non è ancora partito ViaggiaTreno non l'ha mai rilevato — nessuna misura,
+// nessun orario reale — mentre il tabellone della stazione lo dà in ritardo di
+// un quarto d'ora e in partenza: senza questa riga la scheda di un treno
+// seguito diceva "non ancora partito" a chi lo stava perdendo.
+//
+// Vale finché il treno è su quel tabellone, cioè fino a poco dopo che è
+// partito. Da lì in poi resta la misura di ViaggiaTreno, che a quel punto
+// esiste: nil non è un errore, è il caso normale a metà viaggio.
+func (s *Server) rigaTabellone(ctx context.Context, da int, a, numero string) *rfi.Train {
+	if da <= 0 {
+		return nil
+	}
+	// Con la destinazione il tabellone porta anche l'ora d'arrivo a casa tua,
+	// che è metà di quello che la riga dice. Il filtro però potrebbe non
+	// agganciare questo treno: in quel caso si riprova sul tabellone intero,
+	// che è cache dello stesso giro.
+	to, _ := strconv.Atoi(a)
+	for _, filtro := range [2]int{to, 0} {
+		res, err := s.svc.Get(ctx, da, false, filtro)
+		if err != nil {
+			// Il tabellone è il pezzo facoltativo di questa risposta: il
+			// viaggio c'è comunque, e un errore qui non deve togliere anche
+			// quello.
+			log.Printf("tabellone %d per il treno seguito %s: %v", da, numero, err)
+			return nil
+		}
+		for i := range res.Trains {
+			if strings.TrimSpace(res.Trains[i].Number) == numero {
+				return &res.Trains[i]
+			}
+		}
+		if filtro == 0 {
+			break
+		}
+	}
+	return nil
 }
 
 func rispondiViaggio(w http.ResponseWriter, r *http.Request, risposta map[string]any) {
