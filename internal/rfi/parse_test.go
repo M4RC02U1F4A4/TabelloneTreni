@@ -1,6 +1,7 @@
 package rfi
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -227,5 +228,58 @@ func TestAvvisiMultipliEVuoti(t *testing.T) {
 		if b.Notices[i] != atteso[i] {
 			t.Errorf("avviso %d = %q, atteso %q", i, b.Notices[i], atteso[i])
 		}
+	}
+}
+
+// Su un treno soppresso RFI nel popup della riga ci scrive "SOPPRESSO -", col
+// trattino di un motivo che non c'è. Mostrarlo voleva dire dire "soppresso" due
+// volte sulla stessa scheda, in due colori, uno dei due con un trattino orfano
+// in fondo. Ma la stessa nota con un motivo attaccato è invece l'unica cosa che
+// dice *perché*, e quella non si tocca.
+func TestNotaCheRipeteLaSoppressioneNonPassa(t *testing.T) {
+	casi := []struct {
+		nome  string
+		testo string
+		vuole string
+	}{
+		{"trattino orfano", "SOPPRESSO -", ""},
+		{"parola sola", "SOPPRESSO", ""},
+		{"minuscolo e spazi", "  soppresso  ", ""},
+		{"trattino lungo", "SOPPRESSO —", ""},
+		{"due punti", "CANCELLATO:", ""},
+		{"al femminile", "SOPPRESSA -", ""},
+		// Quello che conta: col motivo attaccato la nota resta intera.
+		{"col motivo", "SOPPRESSO - PER SCIOPERO", "SOPPRESSO - PER SCIOPERO"},
+		{"altra nota di servizio", "TRENO LIMITATO A SARONNO", "TRENO LIMITATO A SARONNO"},
+	}
+	for _, c := range casi {
+		t.Run(c.nome, func(t *testing.T) {
+			pagina := fmt.Sprintf(`<html><body>
+				<h1 id="nomeStazioneId">PROVA</h1>
+				<table><tbody>
+				<tr id="1" name="treno">
+					<td id="RStazione">TREVIGLIO</td>
+					<td id="ROrario">10:07</td>
+					<td id="RRitardo">Cancellato</td>
+					<td id="RDettagli"><div class="testoinfoaggiuntive">%s</div></td>
+				</tr>
+				</tbody></table></body></html>`, c.testo)
+
+			b, err := Parse(strings.NewReader(pagina), 1, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(b.Trains) != 1 {
+				t.Fatalf("treni = %d, ne voleva 1", len(b.Trains))
+			}
+			if got := b.Trains[0].Notes; got != c.vuole {
+				t.Errorf("notes = %q, voleva %q", got, c.vuole)
+			}
+			// La soppressione la legge la cella del ritardo, e quella resta:
+			// è la riga che si voleva togliere, non l'informazione.
+			if !b.Trains[0].Cancelled {
+				t.Error("il treno non risulta più soppresso")
+			}
+		})
 	}
 }

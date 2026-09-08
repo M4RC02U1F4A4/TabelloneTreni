@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"golang.org/x/net/html"
 )
@@ -149,7 +150,7 @@ func leggiDettagli(td *html.Node) ([]Stop, string) {
 			txt := pulisci(testo(n))
 			if i := strings.Index(txt, prefissoFerm); i >= 0 {
 				stops = append(stops, leggiFermate(txt[i+len(prefissoFerm):])...)
-			} else if txt != "" {
+			} else if txt != "" && !notaRidondante(txt) {
 				note = append(note, txt)
 			}
 			return
@@ -160,6 +161,33 @@ func leggiDettagli(td *html.Node) ([]Stop, string) {
 	}
 	visita(td)
 	return stops, strings.Join(note, " · ")
+}
+
+// notaRidondante dice se una nota di servizio non aggiunge niente a quello che
+// la cella del ritardo dice già.
+//
+// Su un treno soppresso RFI nel popup ci scrive "SOPPRESSO -", col trattino di
+// un motivo che non c'è: sullo schermo diventava un secondo "soppresso", in un
+// altro colore e sotto quello che l'app mostra già leggendo la cella del
+// ritardo. Se dopo la parola invece c'è qualcosa — "SOPPRESSO - PER SCIOPERO" —
+// quello è il motivo, ed è la cosa che si voleva sapere: la nota resta.
+//
+// Il confronto si fa sulle sole lettere, perché la punteggiatura di quel
+// trattino orfano non è garantita: si è visto un "-" secco, ma potrebbe essere
+// un "–" o dei due punti.
+func notaRidondante(s string) bool {
+	lettere := strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, s)
+	switch lettere {
+	case "soppresso", "soppressa", "soppressi", "soppresse",
+		"cancellato", "cancellata", "cancellati", "cancellate":
+		return true
+	}
+	return false
 }
 
 // leggiFermate scompone "MI BOVISA P. (21:41) - SARONNO (21:54) - ...".
