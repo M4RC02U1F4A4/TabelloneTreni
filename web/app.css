@@ -244,6 +244,46 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   background: none; border: 0; color: var(--rosso); font-size: 16px;
 }
 
+/* --- le due tessere del tabellone di stazione --- */
+
+/* Non sono voci di una lista: sono due modi di guardare la stessa stazione, e
+   affiancate si sceglie fra loro con un colpo d'occhio invece di leggere due
+   righe che iniziano uguali. Il tocco è tutta la tessera, che su un telefono
+   in mano al binario è il bersaglio che serve. */
+.coppia { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+.tessera {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 16px 10px;
+  background: var(--piano); border: 1px solid var(--bordo); border-radius: var(--raggio);
+  color: var(--testo); font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.tessera .icona { width: 20px; height: 20px; color: var(--accento); }
+
+/* --- lo stato della rete a colpo d'occhio --- */
+
+.barra-linee {
+  display: flex; gap: 2px; height: 6px;
+  border-radius: 3px; overflow: hidden;
+}
+/* La larghezza minima è quello che rende la barra onesta: senza, una linea
+   grave su sessantacinque sarebbe una fetta di due pixel invisibile, cioè
+   esattamente il caso per cui questa barra esiste. */
+.barra-linee span { background: var(--tenue); min-width: 8px; }
+.barra-linee .regolare { background: var(--verde); }
+.barra-linee .critico { background: var(--ambra); }
+.barra-linee .grave { background: var(--rosso); }
+/* I numeri scritti sotto: il colore da solo non è un'informazione per tutti, ed
+   è la stessa regola per cui ogni bollino ha accanto la sua parola. */
+.conta-linee {
+  margin: 8px 0 0 2px;
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  font-size: 12.5px; color: var(--tenue);
+}
+.conta-linee > span { display: flex; align-items: center; gap: 6px; }
+/* La lista sotto ha già il suo filo sopra: senza questo, fra i numeri e la
+   prima linea il vuoto sarebbe il doppio di quello fra le righe. */
+.conta-linee + .lista { margin-top: 12px; }
+
 /* --- lista: lo stato delle linee --- */
 
 /* La riga di una linea non si tocca: non porta da nessuna parte, e darle

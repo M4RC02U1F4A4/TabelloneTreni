@@ -958,22 +958,14 @@ function disegnaHome() {
 
     <section class="sezione">
       <h2 class="etichetta-sezione">Tabellone di una stazione</h2>
-      <ul class="lista">
-        <li class="riga">
-          <button class="riga-tocco" type="button" data-apri="partenze">
-            <span class="segno tenue">${icona('su')}</span>
-            <span class="testo">Partenze di una stazione</span>
-            <span class="chevron">${icona('gallone')}</span>
-          </button>
-        </li>
-        <li class="riga">
-          <button class="riga-tocco" type="button" data-apri="arrivi">
-            <span class="segno tenue">${icona('giu')}</span>
-            <span class="testo">Arrivi di una stazione</span>
-            <span class="chevron">${icona('gallone')}</span>
-          </button>
-        </li>
-      </ul>
+      <div class="coppia">
+        <button class="tessera" type="button" data-apri="partenze">
+          ${icona('su')}<span>Partenze</span>
+        </button>
+        <button class="tessera" type="button" data-apri="arrivi">
+          ${icona('giu')}<span>Arrivi</span>
+        </button>
+      </div>
     </section>
 
     ${sezioneLinee()}`;
@@ -1257,17 +1249,36 @@ function sezioneLinee() {
   const guai = stato.linee.filter((l) => l.status > 0 && !seguita(l.code));
   const righe = [...mie, ...guai];
 
-  if (!righe.length) {
-    return `<section class="sezione">${testa}
-      <ul class="lista"><li class="riga">
-        <span class="riga-tocco statica">
-          <span class="segno"><span class="bollino regolare"></span></span>
-          <span class="testo">Tutte le linee sono regolari</span>
-        </span>
-      </li></ul></section>`;
-  }
-  return `<section class="sezione">${testa}
-    <ul class="lista">${righe.map(rigaLinea).join('')}</ul></section>`;
+  return `<section class="sezione">${testa}${barraLinee(stato.linee)}
+    ${righe.length ? `<ul class="lista">${righe.map(rigaLinea).join('')}</ul>` : ''}</section>`;
+}
+
+/* Il colpo d'occhio sulle 65 linee, che una lista di zero righe non dà: la
+   barra dice quanta parte della rete è a posto, e sotto ci sono i numeri
+   scritti — la proporzione da sola non si conta, e una fetta rossa larga tre
+   pixel va comunque letta. Il minimo di larghezza è per lei: una linea grave
+   su sessantacinque è l'unica cosa che questa barra deve far vedere. */
+const ETICHETTE_CONTA = {
+  regolare: 'regolari',
+  critico: 'con criticità',
+  grave: 'con gravi criticità',
+  ignoto: 'senza stato',
+};
+
+function barraLinee(linee) {
+  const conta = new Map();
+  linee.forEach((l) => {
+    const c = statoLinea(l.status).classe;
+    conta.set(c, (conta.get(c) || 0) + 1);
+  });
+  const parti = ['regolare', 'critico', 'grave', 'ignoto'].filter((c) => conta.get(c));
+  if (!parti.length) return '';   // il server non ha mandato nessuna linea
+  const detto = parti.map((c) => `${conta.get(c)} ${ETICHETTE_CONTA[c]}`).join(', ');
+  return `<div class="barra-linee" role="img" aria-label="${esc(detto)}">
+      ${parti.map((c) => `<span class="${c}" style="flex:${conta.get(c)}"></span>`).join('')}
+    </div>
+    <p class="conta-linee" aria-hidden="true">${parti.map((c) =>
+      `<span><span class="bollino ${c}"></span>${conta.get(c)} ${ETICHETTE_CONTA[c]}</span>`).join('')}</p>`;
 }
 
 function rigaLinea(l, query) {
