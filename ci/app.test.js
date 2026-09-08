@@ -354,3 +354,69 @@ assert.ok(!/scarto rfi/.test(soloVT), 'nessuna pastiglia del tabellone');
 assert.strictEqual(pastiglie.scarti({ senzaRFI: true }, false), '', 'senza misure niente');
 
 console.log('scheda seguita: ok — 6 casi sulla riga + 5 sulle pastiglie');
+
+/* ------------------------------------------- distanze e proiezione */
+
+const geo = new Function(`
+  ${ritaglia('function metriFra', '/* La fermata del treno')}
+  ${ritaglia('function distanzaScritta', "/* Dov'è adesso")}
+  return { metriFra, distanzaScritta };`)();
+
+// Due stazioni di Milano che si guardano: Centrale e Porta Garibaldi sono
+// poco più di un chilometro in linea d'aria.
+const m = geo.metriFra(45.486347, 9.204528, 45.484917, 9.187683);
+assert.ok(m > 1250 && m < 1400, `Centrale-Garibaldi = ${Math.round(m)} m`);
+
+// E due che non si guardano affatto, per vedere che la formula tiene anche in
+// grande: Milano-Lecce in linea d'aria sono 926 km — cinque gradi di
+// latitudine fanno 572 km, nove di longitudine a quelle latitudini ne fanno
+// 729, e l'ipotenusa è quella. Non la distanza per strada, che è di più.
+const lontano = geo.metriFra(45.486347, 9.204528, 40.345660, 18.165724);
+assert.ok(lontano > 915_000 && lontano < 935_000, `Milano-Lecce = ${Math.round(lontano / 1000)} km`);
+
+// Lo stesso punto è a zero da sé: sembra ovvio, ma è il caso in cui una
+// formula scritta male restituisce NaN per una radice di un negativo.
+assert.strictEqual(Math.round(geo.metriFra(45.4, 9.2, 45.4, 9.2)), 0, 'da sé è zero');
+
+/* La distanza si scrive come la si dice: il GPS non ha la precisione del metro
+   e a nessuno serve sapere che sono 1348 metri. */
+for (const [metri, atteso] of [
+  // Sotto la precisione del GPS non si finge una cifra.
+  [12, 'meno di 50 m'], [49, 'meno di 50 m'],
+  [50, '50 m'], [120, '100 m'], [640, '650 m'], [949, '950 m'],
+  // La soglia guarda l'arrotondato: attraversandola il numero non torna
+  // indietro, che era il difetto — a 950 m scriveva "0,9 km".
+  [975, '1,0 km'], [1348, '1,3 km'], [25_600, '25,6 km'],
+]) {
+  assert.strictEqual(geo.distanzaScritta(metri), atteso, `${metri} m`);
+}
+// E la scala non torna mai indietro, su tutto l'intervallo che conta.
+let ultimo = 0;
+for (let d = 50; d < 30_000; d += 7) {
+  const km = geo.distanzaScritta(d).endsWith('km');
+  const n = km ? parseFloat(geo.distanzaScritta(d).replace(',', '.')) * 1000
+               : parseFloat(geo.distanzaScritta(d));
+  assert.ok(n >= ultimo, `a ${d} m la distanza scritta è diminuita`);
+  ultimo = n;
+}
+
+const mercatore = new Function(`
+  const MAPPA_Z = 13, TILE = 256;
+  ${ritaglia('function proietta', '/* La mappa viva')}
+  return proietta;`)();
+
+const N = 256 * 2 ** 13;
+// Il meridiano zero cade in mezzo al mondo, e così l'equatore.
+assert.ok(Math.abs(mercatore(0, 0).x - N / 2) < 0.01, 'longitudine 0 al centro');
+assert.ok(Math.abs(mercatore(0, 0).y - N / 2) < 0.01, 'latitudine 0 al centro');
+// Verso est la x cresce, verso nord la y *scende*: è il verso dello schermo, e
+// invertirlo è l'errore che ribalta la mappa sottosopra.
+assert.ok(mercatore(45, 10).x > mercatore(45, 9).x, 'a est la x cresce');
+assert.ok(mercatore(46, 9).y < mercatore(45, 9).y, 'a nord la y scende');
+// Due stazioni vicine cadono in pixel vicini: la scala è quella giusta, non
+// mille volte più grande o più piccola.
+const a = mercatore(45.486347, 9.204528), b = mercatore(45.484917, 9.187683);
+const px = Math.hypot(a.x - b.x, a.y - b.y);
+assert.ok(px > 60 && px < 130, `Centrale-Garibaldi = ${Math.round(px)} px a zoom 13`);
+
+console.log('mappa: ok — 11 casi su distanze e scrittura + 5 sulla proiezione');

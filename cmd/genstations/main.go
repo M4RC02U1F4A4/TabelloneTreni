@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
@@ -26,7 +27,8 @@ import (
 
 const (
 	urlRFI = "https://iechub.rfi.it/ArriviPartenze"
-	urlVT  = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/elencoStazioni/"
+	urlVT  = baseVT + "elencoStazioni/"
+	baseVT = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/"
 )
 
 // aliasManuali copre le fermate che nessun incrocio automatico risolve, perché
@@ -40,7 +42,16 @@ var aliasManuali = map[int][]string{
 
 func main() {
 	out := flag.String("o", "internal/stations/stations.json", "file da scrivere")
+	soloCoord := flag.Bool("coordinate", false,
+		"non rigenerare il catalogo: aggiungi le coordinate mancanti a quello che c'è")
 	flag.Parse()
+
+	if *soloCoord {
+		if err := aggiungiCoordinate(*out); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	rfi, err := scaricaRFI()
 	if err != nil {
@@ -80,6 +91,148 @@ func main() {
 	}
 	fmt.Printf("scritte %d stazioni in %s (%d con alias, %d col codice ViaggiaTreno, %d KB)\n",
 		len(elenco), *out, conAlias, conCodice, len(body)/1024)
+}
+
+/*
+aggiungiCoordinate arricchisce il catalogo che c'è già, invece di rifarlo.
+
+	ViaggiaTreno le pubblica una stazione per volta e in due passaggi — prima la
+	regione, poi il dettaglio — quindi sono un paio di migliaia di richieste: non
+	è roba da rifare a ogni giro, e soprattutto non è roba per cui valga la pena
+	ricostruire anche il resto del catalogo, che verrebbe da una lettura nuova di
+	RFI e cambierebbe cose che nessuno ha chiesto di cambiare.
+
+	Riprende da dove si era fermato: chiede solo le stazioni che hanno un codice
+	ViaggiaTreno e non hanno ancora le coordinate. Rilanciarlo dopo
+	un'interruzione costa solo quello che manca.
+*/
+func aggiungiCoordinate(percorso string) error {
+	raw, err := os.ReadFile(percorso)
+	if err != nil {
+		return err
+	}
+	var f struct {
+		Generated string              `json:"generated"`
+		Stations  []*stations.Station `json:"stations"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		return err
+	}
+
+	var mancanti []*stations.Station
+	for _, s := range f.Stations {
+		if s.VT != "" && s.Lat == 0 && s.Lon == 0 {
+			mancanti = append(mancanti, s)
+		}
+	}
+	log.Printf("catalogo: %d stazioni, %d da chiedere", len(f.Stations), len(mancanti))
+	if len(mancanti) == 0 {
+		return nil
+	}
+
+	// Poche alla volta e con una pausa: è il servizio di qualcun altro, e
+	// chiedergli duemila volte di fila il più in fretta possibile è il modo di
+	// farsi chiudere la porta a metà lavoro.
+	const paralleli = 4
+	cli := &http.Client{Timeout: 20 * time.Second}
+	sem := make(chan struct{}, paralleli)
+	var mu sync.Mutex
+	var fatte, falliti int
+	var wg sync.WaitGroup
+
+	for i, st := range mancanti {
+		wg.Add(1)
+		go func(i int, st *stations.Station) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			time.Sleep(time.Duration(i%paralleli) * 120 * time.Millisecond)
+
+			lat, lon, err := coordinateDi(cli, st.VT)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				falliti++
+				if falliti <= 5 {
+					log.Printf("%s (%s): %v", st.Name, st.VT, err)
+				}
+				return
+			}
+			st.Lat, st.Lon = lat, lon
+			fatte++
+			if fatte%200 == 0 {
+				log.Printf("… %d/%d", fatte, len(mancanti))
+			}
+		}(i, st)
+	}
+	wg.Wait()
+
+	body, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(percorso, body, 0o644); err != nil {
+		return err
+	}
+	conCoord := 0
+	for _, s := range f.Stations {
+		if s.Lat != 0 {
+			conCoord++
+		}
+	}
+	fmt.Printf("coordinate: %d nuove, %d non riuscite — %d stazioni su %d ora ce le hanno (%d KB)\n",
+		fatte, falliti, conCoord, len(f.Stations), len(body)/1024)
+	return nil
+}
+
+// coordinateDi legge lat/lon di una stazione. Servono due richieste: il
+// dettaglio vuole il numero della regione, che si scopre solo chiedendolo — con
+// un numero sbagliato risponde vuoto invece di sbagliare, cioè nel modo più
+// scomodo possibile.
+func coordinateDi(cli *http.Client, codiceVT string) (float64, float64, error) {
+	reg, err := prendiTesto(cli, baseVT+"regione/"+codiceVT)
+	if err != nil {
+		return 0, 0, fmt.Errorf("regione: %w", err)
+	}
+	reg = strings.TrimSpace(reg)
+	if reg == "" {
+		return 0, 0, fmt.Errorf("regione vuota")
+	}
+	corpo, err := prendiTesto(cli, baseVT+"dettaglioStazione/"+codiceVT+"/"+reg)
+	if err != nil {
+		return 0, 0, fmt.Errorf("dettaglio: %w", err)
+	}
+	var d struct {
+		Lat float64 `json:"lat"`
+		Lon float64 `json:"lon"`
+	}
+	if err := json.Unmarshal([]byte(corpo), &d); err != nil {
+		return 0, 0, fmt.Errorf("dettaglio illeggibile")
+	}
+	// Lo zero non è un posto: è il campo non compilato, e va trattato come un
+	// fallimento invece che scritto nel catalogo.
+	if d.Lat == 0 || d.Lon == 0 {
+		return 0, 0, fmt.Errorf("senza coordinate")
+	}
+	return d.Lat, d.Lon, nil
+}
+
+func prendiTesto(cli *http.Client, u string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "TabelloneTreni/genstations")
+	resp, err := cli.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return string(b), err
 }
 
 // scaricaRFI estrae le coppie PlaceId/nome dalla <select> della home. È l'unica

@@ -28,6 +28,13 @@ type Station struct {
 	// tabellone RFI. Non stanno nel catalogo su disco: si ricavano al
 	// caricamento, vedi collegaSotterranee.
 	VTAlt []string `json:"-"`
+	// Dove sta la stazione, per poterla disegnare su una mappa. Le raccoglie
+	// genstations da ViaggiaTreno, che è la sola delle due fonti a pubblicarle;
+	// sono zero per le stazioni che non si è riusciti a interrogare, e zero
+	// vuol dire "non lo sappiamo" — non il largo del golfo di Guinea, che è
+	// dove cadrebbe un puntino disegnato a quelle coordinate.
+	Lat float64 `json:"la,omitempty"`
+	Lon float64 `json:"lo,omitempty"`
 
 	forme []string // Name e Aliases in forma canonica, pronti al confronto
 }
@@ -42,6 +49,10 @@ type Catalogo struct {
 	Generated string
 	Elenco    []*Station
 	perID     map[int]*Station
+	// perVT ritrova una stazione dal codice ViaggiaTreno. Serve alle fermate di
+	// un viaggio, che ViaggiaTreno identifica solo con quel codice: è l'unico
+	// modo di attaccargli le coordinate.
+	perVT map[string]*Station
 }
 
 var Default *Catalogo
@@ -62,7 +73,11 @@ func Load(raw []byte) (*Catalogo, error) {
 	if len(f.Stations) == 0 {
 		return nil, fmt.Errorf("catalogo vuoto")
 	}
-	c := &Catalogo{Generated: f.Generated, Elenco: f.Stations, perID: make(map[int]*Station, len(f.Stations))}
+	c := &Catalogo{
+		Generated: f.Generated, Elenco: f.Stations,
+		perID: make(map[int]*Station, len(f.Stations)),
+		perVT: make(map[string]*Station, len(f.Stations)),
+	}
 	for _, s := range f.Stations {
 		s.forme = append(s.forme, Canon(s.Name))
 		for _, a := range s.Aliases {
@@ -71,6 +86,15 @@ func Load(raw []byte) (*Catalogo, error) {
 			}
 		}
 		c.perID[s.ID] = s
+		// Chi vince quando due tabelloni RFI condividono un codice — succede
+		// con superficie e sotterranea — è chi ha le coordinate: le stesse per
+		// entrambi a meno di poche decine di metri, ma una delle due potrebbe
+		// non averle affatto.
+		if s.VT != "" {
+			if gia := c.perVT[s.VT]; gia == nil || (gia.Lat == 0 && s.Lat != 0) {
+				c.perVT[s.VT] = s
+			}
+		}
 	}
 	sort.Slice(c.Elenco, func(i, j int) bool { return c.Elenco[i].Name < c.Elenco[j].Name })
 	c.collegaSotterranee()
@@ -123,6 +147,10 @@ func (s *Station) CodiciVT() []string {
 }
 
 func (c *Catalogo) ByID(id int) *Station { return c.perID[id] }
+
+// ByVT ritrova una stazione dal codice ViaggiaTreno. nil se quel codice non è
+// accoppiato a nessun tabellone RFI, che per una fermata di passaggio capita.
+func (c *Catalogo) ByVT(codice string) *Station { return c.perVT[codice] }
 
 // Matcher riconosce una stazione fra i nomi delle fermate di un treno.
 //

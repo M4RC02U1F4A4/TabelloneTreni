@@ -405,7 +405,7 @@ func TestViaggioCoordinateAccettate(t *testing.T) {
 // direttamente: montare una finta ViaggiaTreno sotto al server per leggere due
 // campi vorrebbe dire provare il cablaggio invece della regola.
 func TestIlProvvedimentoArrivaAlClient(t *testing.T) {
-	sano := viaggioJSON(&vt.Andamento{Stazione: "PROVA"}, nil, nil)
+	sano := viaggioJSON(&vt.Andamento{Stazione: "PROVA"}, nil, nil, nil)
 	if sano["disrupted"] != false {
 		t.Errorf("treno sano: disrupted = %v, atteso false", sano["disrupted"])
 	}
@@ -417,7 +417,7 @@ func TestIlProvvedimentoArrivaAlClient(t *testing.T) {
 
 	guasto := viaggioJSON(&vt.Andamento{
 		Stazione: "PROVA", ConProvvedimento: true, FermateSoppresse: 2,
-	}, nil, nil)
+	}, nil, nil, nil)
 	if guasto["disrupted"] != true {
 		t.Errorf("disrupted = %v, atteso true", guasto["disrupted"])
 	}
@@ -434,7 +434,7 @@ func TestSoloLaFermataSceltaSiAccende(t *testing.T) {
 		{Codice: "S01645", Nome: "DUE"},
 		{Codice: "S01820", Nome: "TRE"},
 	}}
-	fermate, ok := viaggioJSON(a, []string{"S01645"}, nil)["stops"].([]fermataJSON)
+	fermate, ok := viaggioJSON(a, []string{"S01645"}, nil, nil)["stops"].([]fermataJSON)
 	if !ok {
 		t.Fatal("le fermate non sono nella forma attesa")
 	}
@@ -445,7 +445,7 @@ func TestSoloLaFermataSceltaSiAccende(t *testing.T) {
 	}
 
 	// Nessuna scelta: nessuna accesa, che è il caso del tabellone senza filtro.
-	fermate, _ = viaggioJSON(a, nil, nil)["stops"].([]fermataJSON)
+	fermate, _ = viaggioJSON(a, nil, nil, nil)["stops"].([]fermataJSON)
 	for _, f := range fermate {
 		if f.Chosen {
 			t.Errorf("%s accesa senza fermata scelta", f.Name)

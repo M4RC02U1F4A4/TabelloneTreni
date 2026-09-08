@@ -303,6 +303,12 @@ type fermataJSON struct {
 	// dieci righe del viaggio è quella che lo riguarda: la sua ora di partenza
 	// è quella, non quella del capolinea da cui il treno viene.
 	Boarding bool `json:"boarding,omitempty"`
+	// Dove sta la fermata, quando il catalogo lo sa. Servono a disegnarla sulla
+	// mappa e a misurare quanto dista da chi guarda; mancano sulle fermate che
+	// non si è riusciti ad accoppiare a un tabellone RFI, e lì la mappa
+	// semplicemente non le segna.
+	Lat float64 `json:"lat,omitempty"`
+	Lon float64 `json:"lon,omitempty"`
 }
 
 // viaggioJSON è la forma in cui il viaggio di un treno arriva al client, la
@@ -313,7 +319,7 @@ type fermataJSON struct {
 // Un treno che ViaggiaTreno non conosce o non traccia non è un errore: è la
 // normalità per metà del tabellone, e la risposta lo dice con `tracked: false`
 // invece che con un 404 che il client dovrebbe distinguere da un guasto.
-func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string) map[string]any {
+func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string, dove func(string) (float64, float64)) map[string]any {
 	if a == nil {
 		return map[string]any{"tracked": false}
 	}
@@ -338,6 +344,9 @@ func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string) map[strin
 		}
 		if slices.Contains(codiciSalita, f.Codice) {
 			voce.Boarding = true
+		}
+		if dove != nil {
+			voce.Lat, voce.Lon = dove(f.Codice)
 		}
 		fermate = append(fermate, voce)
 	}
@@ -429,7 +438,7 @@ func (s *Server) treno(w http.ResponseWriter, r *http.Request) {
 	// Qui la stazione da cui si sale è il tabellone stesso: è da lì che si è
 	// aperta la scheda.
 	rispondiViaggio(w, r, viaggioJSON(a,
-		s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from"))))
+		s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from")), s.dovePassa))
 }
 
 // Cosa si accetta come coordinate di un treno seguito.
@@ -488,11 +497,22 @@ func (s *Server) viaggio(w http.ResponseWriter, r *http.Request) {
 	// del treno: è la stazione a cui chi guarda sale, che sulla RE_5 seguita da
 	// Porta Garibaldi sono la stessa cosa e su un intercity preso a Rogoredo no.
 	da, _ := strconv.Atoi(q.Get("from"))
-	viaggio := viaggioJSON(a, s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from")))
+	viaggio := viaggioJSON(a, s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from")), s.dovePassa)
 	if riga := s.rigaTabellone(r.Context(), da, q.Get("to"), numero); riga != nil {
 		viaggio["row"] = riga
 	}
 	rispondiViaggio(w, r, viaggio)
+}
+
+// dovePassa dà le coordinate di una fermata dal suo codice ViaggiaTreno. Zero
+// quando il catalogo non conosce quel codice o non ne ha le coordinate, e zero
+// vuol dire "non lo sappiamo": chi disegna non deve mettere un puntino al
+// largo dell'Africa.
+func (s *Server) dovePassa(codiceVT string) (float64, float64) {
+	if st := s.catalogo.ByVT(codiceVT); st != nil {
+		return st.Lat, st.Lon
+	}
+	return 0, 0
 }
 
 // rigaTabellone è la riga di questo treno sul tabellone della stazione da cui

@@ -90,6 +90,22 @@ const viaggi = new Map(); // numero treno -> { stato: 'attesa'|'ok'|'errore', da
    treno di stasera e quello di domattina. */
 const viaggiSeguiti = new Map(); // "origine|numero|giorno" -> { stato, dati }
 
+/* Dove sei, secondo il telefono.
+
+   Non è la posizione del treno presa da ViaggiaTreno: quella arriva come nome
+   di un luogo — "1°BIVIO FIDENZA OVEST" — che spesso non è una stazione e non
+   esiste in nessun elenco, quindi non si può mettere su una mappa. Il GPS
+   risponde invece alla domanda vera, che è quanto manca alla tua fermata.
+
+   La posizione non lascia il telefono: serve a disegnare e a fare una
+   sottrazione, e non c'è nessuna ragione per cui il server debba saperla. */
+let posizione = null;   // { lat, lon, metri, quando } oppure { errore }
+let guardiaGPS = null;  // l'identificativo di watchPosition, per poterlo spegnere
+
+// Chi l'ha già concessa una volta non se lo deve richiedere ogni volta: il
+// permesso lo tiene il browser, questa è solo l'intenzione dichiarata.
+const vuolePosizione = () => leggi('tt.posizione', false) === true;
+
 // Con "Modifica" attivo le righe dei preferiti mostrano la ✕. Fuori da quella
 // modalità non c'è: una ✕ accanto a una riga tappabile mette la cancellazione a
 // un dito dal gesto che si fa ogni giorno.
@@ -211,6 +227,7 @@ const ICONE = {
   // riempimento deve prendere la campana e lasciare fuori il battaglio,
   // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
   orologio: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  mira: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/>',
   campana: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>' +
     '<path fill="none" d="M13.73 21a2 2 0 0 1-3.46 0"/>',
 };
@@ -851,6 +868,10 @@ function apriLineaDaRotta(codice) {
 async function cambiaRotta() {
   const r = leggiRotta();
   fermaTimer();
+  // Il GPS vive quanto la scheda di un treno: è l'unica vista che lo usa, e
+  // tenerlo accesa altrove sarebbe batteria spesa per niente.
+  if (r.vista !== 'treno') { fermaPosizione(); posizione = null; mappa = null; }
+  else if (vuolePosizione()) avviaPosizione();
 
   if (r.vista === 'notifiche') {
     disegna();
@@ -1206,6 +1227,91 @@ const etichettaTreno = (d) => {
    benissimo essere un posto in cui il treno non ferma. */
 const prossimaFermata = (d) => (d.stops || []).find((f) => !f.passed) || null;
 
+/* Accende e spegne la lettura della posizione.
+
+   `watchPosition` e non `getCurrentPosition`: su un treno in movimento una
+   lettura sola invecchia in un minuto. Ma per lo stesso motivo va spenta
+   uscendo dalla scheda — tenerla viva per tutto il viaggio è batteria bruciata
+   per un dato che nessuno sta guardando. */
+function avviaPosizione() {
+  if (guardiaGPS !== null || !navigator.geolocation) return;
+  guardiaGPS = navigator.geolocation.watchPosition(
+    (p) => {
+      posizione = {
+        lat: p.coords.latitude, lon: p.coords.longitude,
+        metri: p.coords.accuracy, quando: Date.now(),
+      };
+      aggiornaVista();
+    },
+    (e) => {
+      // Un errore non cancella l'ultima posizione buona: in galleria il GPS
+      // cade, e "dov'eri un minuto fa" vale più di niente. Lo dichiara vecchio
+      // chi lo disegna.
+      if (!posizione || posizione.errore) {
+        posizione = { errore: e.code === e.PERMISSION_DENIED
+          ? 'Permesso negato: si riattiva dalle impostazioni del telefono.'
+          : 'Posizione non disponibile adesso.' };
+      }
+      aggiornaVista();
+    },
+    { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
+  );
+}
+
+function fermaPosizione() {
+  if (guardiaGPS === null) return;
+  navigator.geolocation.clearWatch(guardiaGPS);
+  guardiaGPS = null;
+}
+
+/* Quanti metri fra due punti, sulla sfera.
+
+   La formula dell'emisenoverso: su distanze da pochi chilometri qualsiasi
+   approssimazione andrebbe, ma questa costa cinque righe e non ha un limite
+   oltre il quale sbaglia. */
+function metriFra(aLat, aLon, bLat, bLon) {
+  const R = 6371000, rad = Math.PI / 180;
+  const p1 = aLat * rad, p2 = bLat * rad;
+  const dp = p2 - p1, dl = (bLon - aLon) * rad;
+  const x = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+/* La fermata del treno più vicina a dove sei.
+
+   Fra le fermate del viaggio e non fra tutte le stazioni d'Italia: la domanda
+   è "quanto manca alla mia", non "qual è la stazione più vicina in assoluto".
+   Le fermate senza coordinate restano fuori invece di finire a zero gradi. */
+function fermataPiuVicina(d) {
+  if (!posizione || posizione.errore) return null;
+  let vicina = null;
+  for (const f of d.stops || []) {
+    if (!f.lat || !f.lon) continue;
+    const m = metriFra(posizione.lat, posizione.lon, f.lat, f.lon);
+    if (!vicina || m < vicina.metri) vicina = { fermata: f, metri: m };
+  }
+  return vicina;
+}
+
+/* La distanza scritta come la si dice: in metri arrotondati a cinquanta finché
+   ci stanno, poi in chilometri con un decimale. "1348 m" è una precisione che
+   il GPS non ha e che a nessuno serve.
+
+   La soglia guarda il numero *arrotondato* e non quello vero: guardando quello
+   vero, a 950 metri si passava a "0,9 km" — attraversando la soglia il numero
+   sembrava diminuire, che è il genere di cosa che fa dubitare di tutto il
+   resto. Così invece 975 metri diventano "1,0 km" e la scala non torna mai
+   indietro.
+
+   Sotto i cinquanta metri non si scrive una cifra: il GPS ha una precisione di
+   decine di metri, e "0 m" sarebbe una misura che non ha. */
+function distanzaScritta(m) {
+  if (m < 50) return 'meno di 50 m';
+  const arrotondati = Math.round(m / 50) * 50;
+  if (arrotondati < 1000) return `${arrotondati} m`;
+  return `${(m / 1000).toFixed(1).replace('.', ',')} km`;
+}
+
 /* Dov'è adesso, detto per esteso. Sta su una riga sua, sotto tutto il resto:
    è una frase, non un dato incolonnato, e spezzata in mezzo agli altri campi
    si leggerebbe peggio. */
@@ -1404,11 +1510,251 @@ function disegnaTreno(t) {
   if (d.arrived) classi.push('concluso');
   app.innerHTML = `
     <div class="${classi.join(' ')}"><div class="riga-treno seguito senza-gallone">${corpoSeguito(d, v.lettoIl)}</div></div>
+    ${rigaPosizione(d)}
+    ${conMappa(d) ? '<div id="posto-mappa"></div>' : ''}
     ${d.stops && d.stops.length
       ? elencoFermate(d, 'aperta')
       : '<p class="nota">ViaggiaTreno non pubblica le fermate di questo treno.</p>'}
     ${salvato ? '' : `<p class="nota">Non stai seguendo questo treno: tocca il segnalibro
       in alto per tenerlo in cima alla home.</p>`}`;
+  // Dopo l'innerHTML, perché la mappa va agganciata a un posto che esiste: il
+  // nodo è quello di prima, spostato, non uno nuovo.
+  if (conMappa(d)) montaMappa(d, chiaveTreno(t));
+}
+
+/* La mappa si mostra solo dove ha qualcosa da dire: serve almeno una fermata
+   con le coordinate, e serve che la posizione sia stata concessa — una mappa
+   senza il puntino è una cartina, e la cartina non era la richiesta. */
+function conMappa(d) {
+  return vuolePosizione() && navigator.geolocation
+    && (d.stops || []).some((f) => f.lat && f.lon);
+}
+
+/* Quanto manca alla tua fermata, secondo il telefono.
+
+   Il permesso si chiede dentro il tocco: su iOS una richiesta fatta dopo un
+   `await` non conta più come gesto dell'utente, ed è la stessa regola per cui
+   la campanella chiede il permesso nel gestore del click. Quindi qui c'è un
+   bottone, non una richiesta automatica all'apertura della scheda — che
+   sarebbe anche un permesso chiesto senza spiegare a cosa serve. */
+function rigaPosizione(d) {
+  const conCoordinate = (d.stops || []).some((f) => f.lat && f.lon);
+  if (!conCoordinate) return '';
+
+  if (!navigator.geolocation) return '';
+  if (!vuolePosizione()) {
+    return `<p class="riga-gps">
+      <button class="btn-testo" type="button" data-gps>${icona('mira')} Quanto manca alla mia fermata</button>
+    </p>`;
+  }
+  if (!posizione) {
+    return '<p class="riga-gps attesa">cerco dove sei…</p>';
+  }
+  if (posizione.errore) {
+    return `<p class="riga-gps attesa">${esc(posizione.errore)}</p>`;
+  }
+  const v = fermataPiuVicina(d);
+  if (!v) return '<p class="riga-gps attesa">nessuna fermata di questo treno ha una posizione nota.</p>';
+  // La fermata più vicina può essere quella appena passata: allora "manca" è la
+  // parola sbagliata, e si dice soltanto quanto dista.
+  const verbo = v.fermata.passed ? 'sei a' : 'ti mancano';
+  return `<p class="riga-gps">${icona('mira')}
+    <span>${verbo} <b>${esc(distanzaScritta(v.metri))}</b> ${v.fermata.passed ? 'da' : 'per'}
+    ${esc(titolo(v.fermata.name))}</span>${etaPosizione()}</p>`;
+}
+
+/* L'età della posizione, ma solo quando è vecchia: in galleria il GPS cade, e
+   un puntino di dieci minuti fa spacciato per adesso è la bugia peggiore su un
+   treno in movimento. */
+function etaPosizione() {
+  if (!posizione || posizione.errore) return '';
+  const s = Math.round((Date.now() - posizione.quando) / 1000);
+  if (s < 90) return '';
+  const m = Math.round(s / 60);
+  return `<em> · letta ${m === 1 ? 'un minuto' : `${m} minuti`} fa</em>`;
+}
+
+/* ------------------------------------------------------------------ mappa */
+
+/* La mappa del viaggio: dove sei, e quali stazioni sono le tue.
+
+   Scritta a mano invece che con una libreria perché lo zoom è fisso, e lo zoom
+   è la parte difficile di una mappa: senza transizioni di scala e senza pinch
+   resta un mosaico di quadrati da spostare, che sono queste cento righe.
+
+   Lo zoom è fisso a 13 per una ragione misurata: più da lontano l'overlay
+   ferroviario smette di disegnare i binari e i dischi delle stazioni diventano
+   macchie da chilometri che si fondono fra loro. La sequenza completa delle
+   fermate la dà l'elenco qui sotto, che per quello è più adatto di qualsiasi
+   mappa. */
+const MAPPA_Z = 13;
+const TILE = 256;
+const MAPPA_BASE = 'https://tile-a.openstreetmap.fr/hot/{z}/{x}/{y}.png';
+const MAPPA_FERRO = 'https://a.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png';
+
+/* Da gradi a pixel del mondo, secondo Mercatore. Sono le dieci righe che una
+   libreria di mappe porta con sé assieme a tutto il resto. */
+function proietta(lat, lon) {
+  const n = TILE * 2 ** MAPPA_Z;
+  return {
+    x: (lon + 180) / 360 * n,
+    y: (1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2 * n,
+  };
+}
+
+/* La mappa viva, che sopravvive ai ridisegni.
+
+   La scheda si ridisegna interamente a ogni lettura del viaggio e a ogni
+   posizione nuova: ricreare la mappa ogni volta vorrebbe dire perdere lo
+   scorrimento e ricaricare le tile. Il nodo quindi si tiene qui e a ogni
+   ridisegno si *sposta* al suo posto — un nodo spostato conserva i figli, e
+   con loro le immagini già scaricate. */
+let mappa = null;
+
+function creaMappa(chiaveTreno) {
+  const el = document.createElement('div');
+  el.className = 'mappa';
+  el.innerHTML = `
+    <div class="mondo">
+      <div class="strato base"></div>
+      <div class="strato ferro"></div>
+      <div class="segni"></div>
+    </div>
+    <button class="ricentra" type="button" data-ricentra
+            aria-label="Torna sulla mia posizione">${icona('mira')}</button>
+    <p class="attribuzione">© OpenStreetMap · ferrovie OpenRailwayMap</p>`;
+  const m = {
+    el, treno: chiaveTreno,
+    mondo: el.querySelector('.mondo'),
+    base: el.querySelector('.base'),
+    ferro: el.querySelector('.ferro'),
+    segni: el.querySelector('.segni'),
+    tile: new Map(),   // "strato/x/y" -> img, per non riscaricare quel che c'è
+    centro: null,      // pixel del mondo al centro del riquadro
+    ancora: null,      // origine dei sistemi di riferimento interni
+    seguiMe: true,     // finché non trascini, la mappa ti segue
+  };
+  collegaTrascinamento(m);
+  return m;
+}
+
+/* Il trascinamento. Senza inerzia: il dito porta la mappa e la lascia dove la
+   lascia. L'inerzia è la parte che su iOS va fatta sentire giusta, e si
+   aggiunge se manca — non è un pezzo da cui dipende il resto. */
+function collegaTrascinamento(m) {
+  let da = null;
+  m.el.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('[data-ricentra]')) return;
+    da = { x: e.clientX, y: e.clientY, cx: m.centro.x, cy: m.centro.y };
+    m.el.setPointerCapture(e.pointerId);
+    m.el.classList.add('trascina');
+  });
+  m.el.addEventListener('pointermove', (e) => {
+    if (!da) return;
+    // Trascinando verso destra il mondo si sposta a destra, quindi il centro
+    // va a sinistra: il segno è invertito.
+    m.centro = { x: da.cx - (e.clientX - da.x), y: da.cy - (e.clientY - da.y) };
+    m.seguiMe = false;
+    posizionaMappa(m);
+  });
+  const fine = () => { da = null; m.el.classList.remove('trascina'); aggiornaRicentra(m); };
+  m.el.addEventListener('pointerup', fine);
+  m.el.addEventListener('pointercancel', fine);
+}
+
+/* Mette la mappa al suo posto nella pagina e la aggiorna.
+
+   `d` è il viaggio: da lì vengono le fermate da cerchiare. Il centro lo decide
+   la posizione se c'è, altrimenti la prossima fermata, altrimenti la prima —
+   perché una mappa che si apre sul mare non dice niente a nessuno. */
+function montaMappa(d, chiave) {
+  const posto = $('#posto-mappa');
+  if (!posto) return;
+  if (!mappa || mappa.treno !== chiave) {
+    mappa = creaMappa(chiave);
+    mappa.centro = null;
+  }
+  posto.replaceWith(mappa.el);
+
+  const m = mappa;
+  const fuoco = posizione && !posizione.errore
+    ? { lat: posizione.lat, lon: posizione.lon }
+    : (prossimaFermata(d) || (d.stops || [])[0] || null);
+  if (!fuoco || !fuoco.lat) return;
+  const p = proietta(fuoco.lat, fuoco.lon);
+  if (!m.centro) m.centro = { ...p };
+  if (!m.ancora) m.ancora = { x: Math.round(p.x), y: Math.round(p.y) };
+  if (m.seguiMe) m.centro = { ...p };
+
+  disegnaSegni(m, d);
+  posizionaMappa(m);
+  aggiornaRicentra(m);
+}
+
+/* I dischi delle fermate e il puntino della posizione.
+
+   Le fermate già servite non si segnano: marcare stazioni che hai lasciato
+   dietro non aiuta nessuno, e togliendole la mappa respira. */
+function disegnaSegni(m, d) {
+  const pezzi = [];
+  for (const f of d.stops || []) {
+    if (!f.lat || !f.lon || f.passed) continue;
+    const p = proietta(f.lat, f.lon);
+    pezzi.push(`<div class="disco" style="left:${p.x - m.ancora.x}px;top:${p.y - m.ancora.y}px"></div>`);
+  }
+  if (posizione && !posizione.errore) {
+    const p = proietta(posizione.lat, posizione.lon);
+    pezzi.push(`<div class="io" style="left:${p.x - m.ancora.x}px;top:${p.y - m.ancora.y}px"></div>`);
+  }
+  m.segni.innerHTML = pezzi.join('');
+}
+
+/* Sposta il mondo e assicura le tile che servono.
+
+   Il mondo è un unico nodo traslato: spostare la mappa è una sola proprietà
+   che cambia, non venti posizioni ricalcolate. */
+function posizionaMappa(m) {
+  const W = m.el.clientWidth, H = m.el.clientHeight;
+  if (!W || !H) return;
+  const oX = m.centro.x - W / 2, oY = m.centro.y - H / 2;
+  m.mondo.style.transform = `translate(${m.ancora.x - oX}px, ${m.ancora.y - oY}px)`;
+
+  // Un quadrato di margine per lato: entrando in vista le tile sono già lì
+  // invece di comparire dopo il dito.
+  const x0 = Math.floor(oX / TILE) - 1, x1 = Math.floor((oX + W) / TILE) + 1;
+  const y0 = Math.floor(oY / TILE) - 1, y1 = Math.floor((oY + H) / TILE) + 1;
+  const serve = new Set();
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      // Fuori dal mondo in verticale non c'è niente da chiedere; in
+      // orizzontale si avvolge, ma a zoom 13 nessun treno italiano ci arriva.
+      if (y < 0 || y >= 2 ** MAPPA_Z) continue;
+      for (const [nome, url, dove] of [['b', MAPPA_BASE, m.base], ['f', MAPPA_FERRO, m.ferro]]) {
+        const k = `${nome}/${x}/${y}`;
+        serve.add(k);
+        if (m.tile.has(k)) continue;
+        const img = document.createElement('img');
+        img.decoding = 'async';
+        img.loading = 'eager';
+        img.alt = '';
+        img.style.left = `${x * TILE - m.ancora.x}px`;
+        img.style.top = `${y * TILE - m.ancora.y}px`;
+        img.src = url.replace('{z}', MAPPA_Z).replace('{x}', x).replace('{y}', y);
+        dove.appendChild(img);
+        m.tile.set(k, img);
+      }
+    }
+  }
+  // Quelle uscite di vista si buttano: tenerle tutte vorrebbe dire un nodo per
+  // ogni quadrato d'Italia attraversato trascinando.
+  for (const [k, img] of m.tile) {
+    if (!serve.has(k)) { img.remove(); m.tile.delete(k); }
+  }
+}
+
+function aggiornaRicentra(m) {
+  const b = m.el.querySelector('[data-ricentra]');
+  if (b) b.hidden = m.seguiMe || !posizione || !!posizione.errore;
 }
 
 /* Il banner degli avvisi di stazione, in cima alla home e sopra ogni altra
@@ -2249,6 +2595,18 @@ function alternaSeguitoDa(el) {
 
 app.addEventListener('click', (e) => {
   const t = e.target;
+  if (t.closest('[data-ricentra]')) {
+    if (mappa) { mappa.seguiMe = true; aggiornaVista(); }
+    return;
+  }
+  if (t.closest('[data-gps]')) {
+    // Dentro il tocco, come per la campanella: su iOS dopo un await il gesto
+    // non c'è più e il permesso non viene chiesto.
+    scrivi('tt.posizione', true);
+    avviaPosizione();
+    aggiornaVista();
+    return;
+  }
   if (t.closest('[data-aggiungi-fascia]')) {
     // La proposta è quella che manca: chi ha già l'andata sta quasi sempre
     // aggiungendo il ritorno.

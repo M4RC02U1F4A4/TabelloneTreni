@@ -240,6 +240,65 @@ Il permesso si chiede **dentro il tocco**: `Notification.requestPermission()`
 parte nel gestore del click e la sua promessa si aspetta dopo, perché su iOS una
 chiamata fatta dopo un `await` non conta più come gesto dell'utente.
 
+#### La mappa del viaggio
+
+Sulla scheda di un treno, un tasto chiede la posizione e apre una mappa con
+**dove sei** e **quali stazioni sono le tue**. In testa, la distanza dalla
+fermata più vicina del tuo treno — `ti mancano 2,1 km per Legnano` — che è la
+risposta più precisa di qualsiasi stima a occhio su una cartina.
+
+La posizione viene dal **GPS del telefono e non da ViaggiaTreno**, ed è una
+scelta di sostanza. ViaggiaTreno la posizione di un treno la dà come *nome di
+un luogo* — `1°BIVIO FIDENZA OVEST`, `S.VIOLA` — che spesso non è una stazione:
+cercandoli, `cercaStazione` risponde con zero risultati. Non hanno un codice e
+non hanno coordinate, quindi non si possono mettere su una mappa. Il GPS
+risponde invece alla domanda vera, che è quanto manca alla tua fermata. **La
+posizione non lascia il telefono**: serve a disegnare e a fare una sottrazione,
+e il server non ha ragione di saperla.
+
+**Non disegniamo il percorso.** Nessuna fonte pubblica il tracciato dei binari:
+una linea fra due stazioni sarebbe una corda retta, e fra Bologna e Firenze
+taglierebbe gli Appennini. Il binario vero lo mostra la mappa, con l'overlay di
+**OpenRailwayMap** sopra la base **OSM Humanitarian** — misurato, sulla sola
+base standard il binario è una linea grigia sottile che le strade coprono.
+
+Le fermate del treno si segnano con un **velo fucsia sfumato**, senza bordo. Un
+anello no: OpenRailwayMap scrive il nome della stazione *centrato sul punto*,
+quindi qualunque forma disegnata lì taglia la scritta a metà, e non è questione
+di calibrare il raggio. Il velo la lascia leggere attraverso, e il fucsia è
+l'unico colore che su queste tile non somiglia a niente — le ferrovie sono
+arancioni, le strade pure. Le fermate già servite non si segnano affatto:
+marcare stazioni lasciate dietro non aiuta, e togliendole la mappa respira.
+
+**Lo zoom è fisso a 13, e si scorre ma non si zooma.** È una misura, non un
+gusto: più da lontano l'overlay ferroviario smette di disegnare i binari e i
+veli diventano macchie da chilometri che si fondono fra loro. La sequenza
+completa delle fermate la dà l'elenco sotto la mappa, che per quello è più
+adatto di qualsiasi mappa.
+
+Il tema scuro si ottiene **invertendo la sola base**
+(`invert(1) hue-rotate(180deg) saturate(.22) brightness(.85)`). Nessuno pubblica
+tile scure senza chiedere una chiave — provate: CARTO stampa `API KEY REQUIRED`
+dentro l'immagine. L'overlay ferroviario resta fuori dal filtro di proposito:
+invertendo anche lui, l'arancione del binario diventa un marrone che si perde
+fra le strade.
+
+Niente libreria di mappe. Lo zoom fisso toglie le parti difficili — le
+transizioni di scala e il pinch — e quel che resta è un mosaico di quadrati da
+spostare, che sono cento righe: la proiezione di Mercatore, le tile da tenere e
+quelle da buttare, e il dito. Il nodo della mappa **sopravvive ai ridisegni**
+della scheda: viene spostato al suo posto invece di essere ricreato, o a ogni
+lettura del GPS si perderebbero lo scorrimento e le tile già scaricate.
+
+Le **coordinate delle stazioni** stanno nel catalogo, raccolte da
+`go run ./cmd/genstations -coordinate`: due richieste per stazione — prima la
+regione, che va scoperta, poi il dettaglio — quindi non è roba da fare a ogni
+avvio. Il comando è incrementale e riprende da dove si era fermato, e non
+rigenera il resto del catalogo: quello verrebbe da una lettura nuova di RFI e
+cambierebbe cose che nessuno ha chiesto di cambiare. Ne sono arrivate 2315 su
+2435; le altre sono codici per cui ViaggiaTreno non conosce la regione, e le
+loro fermate la mappa semplicemente non le segna.
+
 #### Quando avvisarti: le fasce
 
 Un guasto sulla linea con cui vai al lavoro è una notizia alle 7 e un ronzio

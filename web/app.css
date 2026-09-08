@@ -892,3 +892,94 @@ details[open] .apri { transform: rotate(90deg); }
 }
 .riga-aggiungi { margin: 2px 0 0; }
 .riga-aggiungi .btn-testo:disabled { color: var(--tenue); }
+
+/* ------------------------------------------------- quanto manca alla fermata */
+
+/* La riga della posizione sta sotto la scheda del treno e sopra le fermate: è
+   una risposta che si legge dopo "quanto ritardo ho" e prima di scorrere
+   l'elenco per cercare la propria. */
+.riga-gps {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 2px 12px; padding: 9px 12px;
+  background: var(--piano); border-radius: 10px;
+  font-size: 14px; color: var(--testo);
+}
+.riga-gps .icona { width: 16px; height: 16px; flex: none; color: var(--verde); }
+.riga-gps b { font-weight: 650; font-variant-numeric: tabular-nums; }
+/* L'età della lettura è un a parte, non parte della frase. */
+.riga-gps em { font-style: normal; color: var(--tenue); font-size: 12.5px; }
+/* Mentre cerca, o quando non ce l'ha: è una nota, non un dato. */
+.riga-gps.attesa { color: var(--tenue); font-size: 13px; }
+.riga-gps .btn-testo { display: flex; align-items: center; gap: 7px; padding: 0; font-size: 14px; }
+.riga-gps .btn-testo .icona { color: currentColor; }
+
+/* -------------------------------------------------------------------- mappa */
+
+/* Il riquadro della mappa. Alto quanto serve a vedere te e la stazione
+   accanto, non di più: la sequenza del viaggio la dà l'elenco sotto. */
+.mappa {
+  position: relative; height: 300px; margin: 0 2px 14px;
+  overflow: hidden; border-radius: var(--raggio);
+  background: var(--piano-alto);
+  /* Il dito muove la mappa, non la pagina. Senza, trascinando in verticale si
+     scorrerebbe la scheda e la mappa resterebbe ferma. */
+  touch-action: none;
+  cursor: grab;
+}
+.mappa.trascina { cursor: grabbing; }
+.mondo { position: absolute; top: 0; left: 0; will-change: transform; }
+.strato, .segni { position: absolute; top: 0; left: 0; }
+.strato img { position: absolute; width: 256px; height: 256px; display: block; }
+
+/* Il tema scuro si ottiene invertendo la sola base.
+   Le tile sono disegnate per fondo chiaro e nessuno le pubblica scure senza
+   chiedere una chiave — provate: CARTO stampa "API KEY REQUIRED" dentro
+   l'immagine. Invertita, la base diventa scura e coerente con l'app; l'overlay
+   ferroviario resta fuori dal filtro di proposito, perché invertendo anche lui
+   l'arancione del binario diventa un marrone che si perde fra le strade. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .strato.base {
+    filter: invert(1) hue-rotate(180deg) saturate(.22) brightness(.85);
+  }
+}
+:root[data-theme="dark"] .strato.base {
+  filter: invert(1) hue-rotate(180deg) saturate(.22) brightness(.85);
+}
+
+/* Le fermate del tuo treno: un velo sfumato, senza bordo.
+   Un anello no: OpenRailwayMap scrive il nome della stazione centrato sul
+   punto, quindi qualunque forma disegnata lì taglia la scritta a metà. Il velo
+   la lascia leggere attraverso, e il fucsia è l'unico colore che su queste
+   tile non somiglia a niente — le ferrovie sono arancioni, le strade pure. */
+.segni .disco {
+  position: absolute; width: 70px; height: 70px; margin: -35px 0 0 -35px;
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 45, 149, .55) 30%, rgba(255, 45, 149, 0) 72%);
+}
+/* Dove sei. Il verde è lo stesso di "in partenza" sul tabellone: qui vuol dire
+   la stessa cosa, cioè adesso. */
+.segni .io {
+  position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border-radius: 50%; pointer-events: none;
+  background: var(--verde); border: 3px solid var(--sfondo);
+  box-shadow: 0 0 0 12px color-mix(in srgb, var(--verde) 20%, transparent);
+}
+
+/* Appare solo dopo che hai trascinato: prima non serve, la mappa ti sta già
+   seguendo. */
+.mappa .ricentra {
+  position: absolute; right: 10px; bottom: 30px;
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--piano); border: 1px solid var(--bordo); color: var(--verde);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
+}
+.mappa .ricentra .icona { width: 19px; height: 19px; }
+
+/* L'attribuzione non è un dettaglio di cortesia: le tile sono di altri, e la
+   licenza chiede che si dica. */
+.mappa .attribuzione {
+  position: absolute; left: 0; right: 0; bottom: 0; margin: 0;
+  padding: 3px 8px; font-size: 10px; text-align: right;
+  color: var(--tenue); background: color-mix(in srgb, var(--sfondo) 72%, transparent);
+}
