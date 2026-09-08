@@ -240,6 +240,19 @@ const chiaveTratta = (p) => `${p.f}>${p.t || ''}${p.a ? '>a' : ''}`;
    nell'ordine di prima e in silenzio. */
 const chiaveRotta = (r) => chiaveTratta({ f: r.da, t: r.a, a: r.arrivi });
 
+/* Quale tratta salvata si sta guardando, per rimetterla in cima alla home.
+
+   Solo se è salvata, ed è tutto il punto: prima ci finiva ogni tabellone
+   aperto, quindi bastava una ricerca al volo — Bergamo per un fine settimana —
+   perché la chiave puntasse a una tratta che fra i preferiti non c'è. Lì
+   preferitiOrdinati() non trova niente da alzare e l'ordine torna quello di
+   inserimento, senza che niente sembri rotto: la funzione smette di funzionare
+   e basta. */
+function ricordaTratta(r) {
+  const chiave = chiaveRotta(r);
+  if (preferiti().some((p) => chiaveTratta(p) === chiave)) scrivi('tt.ultima', chiave);
+}
+
 function alternaPreferito(p) {
   const k = chiaveTratta(p);
   const elenco = preferiti().filter((x) => chiaveTratta(x) !== k);
@@ -891,9 +904,7 @@ async function cambiaRotta() {
   }
 
   stato.da = r.da; stato.a = r.a; stato.arrivi = r.arrivi;
-  // Quale tratta si sta guardando: in home il preferito che le corrisponde
-  // torna in cima.
-  scrivi('tt.ultima', chiaveRotta(r));
+  ricordaTratta(r);
   stato.dati = null;
   stato.errore = null;
   // Schede aperte e viaggi valgono per il tabellone che si sta lasciando.
@@ -1011,7 +1022,7 @@ function disegnaHome() {
 
   const ricerca = `
     <section class="sezione">
-      <h2 class="etichetta-sezione">Nuova ricerca</h2>
+      <h2 class="etichetta-sezione solo-lettori">Nuova ricerca</h2>
       <div class="gruppo">
         <div class="gruppo-campi">
           ${campoStazione('da', 'DA', stato.da, 'Stazione di partenza')}
@@ -1616,7 +1627,7 @@ function disegnaElencoLinee() {
 
   dove.innerHTML = gruppi.map((g) => `
     <section class="sezione">
-      <h2 class="etichetta-sezione">${esc(g.nome)}</h2>
+      <h2 class="etichetta-sezione">${esc(titolo(g.nome))}</h2>
       <ul class="lista">${g.linee.map((l) => rigaLinea(l, query)).join('')}</ul>
     </section>`).join('');
 }

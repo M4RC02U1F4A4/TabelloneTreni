@@ -104,5 +104,25 @@ const chiavi = [
 ].map(chiaveTratta);
 assert.strictEqual(new Set(chiavi).size, chiavi.length, `chiavi in collisione: ${chiavi}`);
 
-console.log('tratte: ok — 4 giri completi preferito → URL → rotta → chiave');
+/* E ricordaTratta() se ne ricorda solo quando è una tratta salvata: una
+ * ricerca al volo non deve cancellare quale preferito si stava usando. */
+const salvate = [{ f: 1393, t: 1715 }, { f: 1715, t: 1393 }];
+const nuovaRicorda = (rotta) => {
+  let scritto;
+  new Function('preferiti', 'scrivi',
+    `${pezzoChiavi}; return ricordaTratta;`)(() => salvate, (_k, v) => { scritto = v; })(rotta);
+  return scritto;
+};
+
+assert.strictEqual(
+  nuovaRicorda({ da: 1715, a: 1393, arrivi: false }), '1715>1393',
+  'una tratta salvata deve essere ricordata');
+assert.strictEqual(
+  nuovaRicorda({ da: 2263, a: null, arrivi: false }), undefined,
+  'una ricerca al volo non deve toccare la tratta ricordata');
+assert.strictEqual(
+  nuovaRicorda({ da: 1393, a: null, arrivi: true }), undefined,
+  'gli arrivi a una stazione salvata solo in partenza non sono quella tratta');
+
+console.log('tratte: ok — 4 giri completi + 3 casi su ricordaTratta');
 
