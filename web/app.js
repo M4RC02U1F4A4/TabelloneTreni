@@ -1005,9 +1005,13 @@ document.addEventListener('visibilitychange', () => {
    a metà strada e dice sempre la verità, comunque la pagina sia stata
    ridisegnata. */
 function rigaFreschezza() {
-  // Anche prima della prima lettura, quando eta() non ha ancora niente da dire:
-  // "aggiornato " con l'orario mancante si legge come un dato che manca.
-  if (stato.caricamento || !stato.scaricatoIl) return 'aggiornamento…';
+  // "aggiornamento…" non si scrive più. Su un tabellone di partenze fresco il
+  // sottotitolo è vuoto, quindi quella parola comparirebbe e sparirebbe ogni
+  // minuto portandosi dietro una riga: il contenuto sotto ballerebbe da solo a
+  // ogni giro. Che stia caricando lo dicono già gli scheletri la prima volta, e
+  // dalla seconda in poi non c'è niente da dire — i treni di prima restano lì
+  // finché non arrivano quelli nuovi.
+  if (!stato.scaricatoIl) return '';
   // Fresco non si dice. La barretta conta già quel minuto, e "aggiornato 30
   // secondi fa" scritto accanto è lo stesso minuto letto dall'altro verso: due
   // volte la stessa cosa, su una riga che ne ha già abbastanza.
@@ -1035,7 +1039,10 @@ const sottotitolo = (...parti) => {
    Va in fondo all'intestazione perché lì il posizionamento assoluto si aggancia
    a .testa, che è sticky e quindi fa da riferimento. */
 function barraCiclo() {
-  if (stato.caricamento || !stato.scaricatoIl) return '';
+  // Durante una rilettura la barretta resta, a fondo corsa: toglierla la
+  // farebbe lampeggiare via e tornare a ogni minuto, che è esattamente il
+  // movimento che una barra smorzata serve a non fare.
+  if (!stato.scaricatoIl) return '';
   const trascorso = Math.min(Date.now() - stato.scaricatoIl, RINFRESCO);
   return `<div class="ciclo" style="--trascorso:-${trascorso}ms" aria-hidden="true"><i></i></div>`;
 }
