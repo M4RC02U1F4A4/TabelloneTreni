@@ -712,6 +712,11 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .apri { transition: none; } }
 details[open] .apri { transform: rotate(90deg); }
+/* Il gallone sta sempre in fondo alla prima riga, anche quando sotto c'è
+   l'avviso: l'avviso prende tutte le colonne, e senza posto assegnato il
+   gallone — che nel markup viene dopo — finiva a capo, da solo, in prima
+   colonna sotto il testo giallo. */
+.riga-treno.espandibile .apri { grid-column: 4; grid-row: 1; }
 
 /* Gli avvisi restano visibili senza aprire niente: "treno alternativo" o
    "carrozza in coda" servono mentre si guarda l'elenco, non dopo. */
