@@ -537,6 +537,20 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 .orario .scarto.solo {
   display: block; padding: 0; background: none; color: var(--rosso); min-width: 0;
 }
+/* Il treno partito dal tabellone che lo pubblicava ha una sola misura, quella
+   presa sul treno: senza una seconda fonte accanto non c'è una fonte da
+   distinguere, e il colore torna a dire il verso — rosso i minuti persi, verde
+   quelli guadagnati, grigio l'orario rispettato. Ed è il numero che si cerca
+   guardando la home di un treno che si sta prendendo, quindi è grande come
+   l'ora che gli sta sopra invece di essere la cifra minuta di una pastiglia. */
+.orario .scarto.misura {
+  display: block; padding: 0; background: none; min-width: 0;
+  font-size: 17px; font-weight: 700; letter-spacing: -0.02em;
+}
+.scarto.misura.tardi { color: var(--rosso); }
+.scarto.misura.presto { color: var(--verde); }
+.scarto.misura.puntuale { color: var(--tenue); }
+
 .scarto.rfi { color: var(--rfi-testo); background: var(--rfi-fondo); }
 .scarto.vt { color: var(--vt-testo); background: var(--vt-fondo); }
 /* Tiene la larghezza e non si vede: è il posto riservato, non una pastiglia. */

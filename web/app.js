@@ -2370,6 +2370,11 @@ const ritardoRFI = (t) =>
 const ritardoVero = (t) => (ritardoLive(t) ?? ritardoRFI(t));
 
 const segnoRitardo = (m) => (m > 0 ? `+${m}` : String(m));
+/* Il verso del ritardo, per chi deve colorarlo. Serve solo dove il numero sta
+   da solo: nelle due pastiglie il colore dice la fonte, e un rosso lì vorrebbe
+   dire due cose in una. Un treno in anticipo non è una brutta notizia, e
+   stamparlo rosso come i minuti persi era proprio la lettura sbagliata. */
+const versoRitardo = (m) => (m > 0 ? 'tardi' : (m < 0 ? 'presto' : 'puntuale'));
 
 function scarti(t, riservaVT) {
   if (t.cancelled) return '<span class="scarto solo">soppresso</span>';
@@ -2384,7 +2389,8 @@ function scarti(t, riservaVT) {
   // misurando. Se non misura nemmeno lui non si scrive niente, che è la verità.
   if (ritardoRFI(t) === null) {
     return live !== null
-      ? `<span class="scarto vt solo" title="misurato sul treno">${segnoRitardo(live)}</span>`
+      ? `<span class="scarto misura ${versoRitardo(live)}" title="misurato sul treno"
+         >${segnoRitardo(live)}</span>`
       : '';
   }
   // Posto vuoto al posto della misura mancante: senza, la pastiglia di RFI

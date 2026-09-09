@@ -348,12 +348,20 @@ assert.strictEqual(pastiglie.ritardoRFI({ senzaRFI: true }), null, 'senza tabell
 assert.strictEqual(pastiglie.ritardoRFI({}), 0, 'col tabellone e senza numero: in orario');
 
 const soloVT = pastiglie.scarti({ senzaRFI: true, liveDelay: 7 }, false);
-assert.ok(/scarto vt/.test(soloVT) && /\+7/.test(soloVT), 'resta la misura sul treno');
+assert.ok(/scarto misura/.test(soloVT) && /\+7/.test(soloVT), 'resta la misura sul treno');
 assert.ok(!/scarto rfi/.test(soloVT), 'nessuna pastiglia del tabellone');
 // Nessuna delle due: non si scrive niente, che è la verità.
 assert.strictEqual(pastiglie.scarti({ senzaRFI: true }, false), '', 'senza misure niente');
 
-console.log('scheda seguita: ok — 6 casi sulla riga + 5 sulle pastiglie');
+// E il verso della misura sola, che è il colore: l'anticipo non è un ritardo
+// col segno meno, e verde contro rosso è tutta la differenza che si legge.
+assert.match(pastiglie.scarti({ senzaRFI: true, liveDelay: -4 }, false),
+  /misura presto[^>]*>\s*-4</, 'in anticipo: verde e col segno');
+assert.match(pastiglie.scarti({ senzaRFI: true, liveDelay: 0 }, false),
+  /misura puntuale/, 'in orario: né rosso né verde');
+assert.match(soloVT, /misura tardi/, 'in ritardo: rosso');
+
+console.log('scheda seguita: ok — 6 casi sulla riga + 8 sulle pastiglie');
 
 /* ------------------------------------------- distanze e proiezione */
 
