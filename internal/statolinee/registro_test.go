@@ -2,6 +2,8 @@ package statolinee
 
 import (
 	"context"
+	"encoding/json"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -347,5 +349,53 @@ func TestIlGiroDiLetturaRileggeSempre(t *testing.T) {
 	}
 	if n := fonte.quante(); n != prima {
 		t.Errorf("letture = %d, attese %d: il tocco nell'app ha ignorato la cache", n, prima)
+	}
+}
+
+// sorgenteDiscorde è la fonte come si è misurata il 9 settembre 2026: l'elenco
+// diceva RE_5 grave, la pagina della linea diceva regolare e non aveva niente
+// da dire. Sul sito non si vedeva niente, nell'app un bollino rosso.
+type sorgenteDiscorde struct{}
+
+func (sorgenteDiscorde) Fetch(context.Context) ([]trenord.Linea, error) {
+	return linee("S2", trenord.Grave), nil
+}
+
+func (sorgenteDiscorde) Dettaglio(context.Context, string) (*trenord.Dettaglio, error) {
+	return dettaglio(trenord.Regolare, quando), nil
+}
+
+// Il bollino e le comunicazioni devono venire dallo stesso foglio.
+//
+// L'elenco non porta un orario, quindi una risposta indietro di mezz'ora è
+// indistinguibile da quella di adesso e non si può scartare; il dettaglio
+// l'orario ce l'ha. Quando i due non concordano vince il dettaglio: è la stessa
+// fonte da cui viene il testo che si legge aprendo la riga, ed è quella su cui
+// si mandano le notifiche.
+func TestIlBollinoVieneDalDettaglio(t *testing.T) {
+	ab, _ := ApriAbbonati("")
+	if err := ab.Registra(abbonamento("https://push.example/uno", "S2")); err != nil {
+		t.Fatal(err)
+	}
+	svc := Nuovo(sorgenteDiscorde{}).ConNotifiche(ab, nil)
+	svc.leggi(context.Background())
+
+	rr := httptest.NewRecorder()
+	svc.Handler().ServeHTTP(rr, httptest.NewRequest("GET", "/linee", nil))
+	if rr.Code != 200 {
+		t.Fatalf("risposta %d: %s", rr.Code, rr.Body)
+	}
+	var risp struct {
+		Lines []trenord.Linea `json:"lines"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &risp); err != nil {
+		t.Fatal(err)
+	}
+	if len(risp.Lines) != 1 {
+		t.Fatalf("linee = %+v", risp.Lines)
+	}
+	if risp.Lines[0].Stato != trenord.Regolare {
+		t.Errorf("bollino = %s, atteso regolare: l'elenco vince sul dettaglio, e la riga si apre vuota",
+			risp.Lines[0].Stato)
 	}
 }

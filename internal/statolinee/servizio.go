@@ -319,6 +319,22 @@ func (s *Servizio) linee(w http.ResponseWriter, r *http.Request) {
 	}
 	fuori := make([]lineaJSON, 0, len(linee))
 	for _, l := range linee {
+		// Il bollino e le comunicazioni devono venire dallo stesso foglio.
+		//
+		// L'elenco non porta un orario, quindi una sua risposta rimasta
+		// indietro è indistinguibile da quella di adesso e non c'è modo di
+		// scartarla; il dettaglio l'orario ce l'ha, e MettiDettaglio tiene solo
+		// la lettura più recente. Dove il dettaglio c'è, è lui che vale: è la
+		// stessa fonte del testo che si legge aprendo la riga, ed è quella su
+		// cui partono le notifiche.
+		//
+		// Misurato il 9 settembre 2026: l'elenco dava la RE_5 grave — tre
+		// letture su tre — mentre la pagina della linea era tornata regolare
+		// alle 12:24 e non aveva più niente in circolazione. Sul sito non si
+		// vedeva niente, nell'app un bollino rosso che si apriva vuoto.
+		if st, noto := s.registro.StatoNoto(l.Codice); noto {
+			l.Stato = st
+		}
 		fuori = append(fuori, lineaJSON{Linea: l, Avvisi: s.registro.AvvisiDi(l.Codice)})
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
