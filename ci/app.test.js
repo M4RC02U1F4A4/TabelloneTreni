@@ -428,3 +428,83 @@ const px = Math.hypot(a.x - b.x, a.y - b.y);
 assert.ok(px > 60 && px < 130, `Centrale-Garibaldi = ${Math.round(px)} px a zoom 13`);
 
 console.log('mappa: ok — 11 casi su distanze e scrittura + 5 sulla proiezione');
+
+/* ------------------------------- il viaggio di una scheda aperta */
+
+/* La scheda aperta si rilegge col tabellone, e la sua risposta non torna mai
+   indietro: era il modo in cui un "ViaggiaTreno non segue questo treno" —
+   vero per il treno di fra tre ore, o per il mezzo minuto in cui quel servizio
+   non aveva risposto — restava scritto sotto la scheda per sempre, con la
+   pastiglia del ritardo misurato sulla riga sopra a smentirlo. */
+
+const fabbricaViaggio = new Function('fetch', 'chiaveTabellone', `
+  const stato = { da: 1, a: 2, arrivi: false };
+  const viaggi = new Map();
+  const disegna = () => {};
+  const API = { treno: () => 'api/train' };
+  ${ritaglia('/* Un viaggio che non ha niente da mostrare', '/* ------------------------------------------------------------------ eventi */')}
+  return { viaggi, scaricaViaggio, viaggioVuoto };`);
+
+// Il viaggio vero e quello che non ha niente da dire.
+const conFermate = { tracked: true, stops: [{ scheduled: '19:12' }] };
+const nonSeguito = { tracked: false };
+
+// Una fabbrica per caso: le risposte si danno in fila, e `dove` è il tabellone
+// che si sta guardando quando la risposta arriva.
+function ambiente(risposte, dove = () => 'x') {
+  let i = 0;
+  return fabbricaViaggio(async () => {
+    const r = risposte[i++];
+    if (r === 'errore') throw new Error('rete');
+    return { ok: true, json: async () => r };
+  }, dove);
+}
+
+const casi = [
+  ['il primo viaggio si scrive', [conFermate], 1, 'ok'],
+  ['un treno non seguito si scrive', [nonSeguito], 1, 'non seguito'],
+  // Il caso del bug: la seconda lettura si fa, e corregge la prima.
+  ['una risposta vuota si rilegge', [nonSeguito, conFermate], 2, 'ok'],
+  // E non si torna indietro, né per una risposta vuota né per la rete.
+  ['un viaggio vero non si cancella', [conFermate, nonSeguito], 2, 'ok'],
+  ['né lo cancella un errore di rete', [conFermate, 'errore'], 2, 'ok'],
+  ['senza niente in mano l\'errore si dice', ['errore'], 1, 'errore'],
+];
+
+for (const [nome, risposte, letture, atteso] of casi) {
+  const env = ambiente(risposte);
+  (async () => {
+    for (let i = 0; i < letture; i++) await env.scaricaViaggio('24562');
+    const v = env.viaggi.get('24562');
+    const esito = v.stato !== 'ok' ? v.stato
+      : (env.viaggioVuoto(v) ? 'non seguito' : 'ok');
+    assert.strictEqual(esito, atteso, nome);
+  })().catch((e) => { console.error(e); process.exit(1); });
+}
+
+// Cambiato tabellone mentre la richiesta era in volo, la risposta si butta:
+// `viaggi` è già stato svuotato per il tabellone nuovo, e quel treno lì non c'è.
+{
+  let dove = 'x';
+  const env = fabbricaViaggio(async () => {
+    dove = 'y';
+    return { ok: true, json: async () => conFermate };
+  }, () => dove);
+  env.scaricaViaggio('24562').then(() => {
+    assert.strictEqual(env.viaggi.get('24562').stato, 'attesa',
+      'la risposta di un altro tabellone non si scrive');
+  }).catch((e) => { console.error(e); process.exit(1); });
+}
+
+/* E la rilettura parte solo per i treni che il tabellone porta ancora: aperti
+   tiene anche quelli partiti, e le loro richieste continuerebbero a partire
+   ogni minuto per una scheda che non è più in pagina. */
+const chieste = [];
+new Function('scaricaViaggio', `
+  const aperti = new Set(['24562', '24564']);
+  const stato = { dati: { trains: [{ number: '24564' }] } };
+  ${ritaglia('function rileggiSchedeAperte', '/* Le linee non bloccano')}
+  return rileggiSchedeAperte;`)((n) => chieste.push(n))();
+assert.deepStrictEqual(chieste, ['24564'], 'si rilegge solo la scheda ancora in lista');
+
+console.log('viaggio della scheda: ok — 6 casi sulla rilettura + 2');

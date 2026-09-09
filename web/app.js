@@ -481,6 +481,10 @@ async function caricaStazioni() {
   if (stato.a && !stato.nomi.has(stato.a)) stato.a = null;
 }
 
+/* Quale tabellone si sta guardando. Serve a una richiesta partita da qui per
+   sapere, quando torna, se è ancora quello di prima. */
+const chiaveTabellone = () => `${stato.da}|${stato.a}|${stato.arrivi}`;
+
 async function caricaTabellone() {
   const mio = ++richiestaInCorso;
   stato.caricamento = true;
@@ -493,6 +497,7 @@ async function caricaTabellone() {
     stato.dati = await r.json();
     stato.scaricatoIl = Date.now();
     stato.errore = null;
+    rileggiSchedeAperte();
   } catch (e) {
     if (mio !== richiestaInCorso) return;
     stato.errore = e.message;
@@ -501,6 +506,19 @@ async function caricaTabellone() {
       stato.caricamento = false;
       disegna();
     }
+  }
+}
+
+/* Rilegge il viaggio delle schede che qualcuno ha aperto, insieme al tabellone.
+
+   Solo dei treni che il tabellone appena arrivato porta ancora: `aperti` tiene
+   anche quelli partiti mezz'ora fa, e senza il confronto le loro richieste
+   continuerebbero a partire ogni minuto per una scheda che non c'è più. */
+function rileggiSchedeAperte() {
+  if (!aperti.size) return;
+  const presenti = new Set((stato.dati.trains || []).map((t) => t.number));
+  for (const numero of aperti) {
+    if (presenti.has(numero)) scaricaViaggio(numero);
   }
 }
 
@@ -2610,23 +2628,62 @@ function binarioFermata(f) {
     f.platformScheduled ? `<s>${esc(f.platformScheduled)}</s> ` : ''}${esc(f.platform)}</span>`;
 }
 
-/* Scarica il viaggio di un treno, una volta sola per treno.
+/* Un viaggio che non ha niente da mostrare: il treno che ViaggiaTreno non
+   conosce, la lettura andata male, la richiesta ancora in volo. Distinguerlo da
+   un viaggio vero serve due volte — per sapere quali vale la pena richiedere, e
+   per non lasciare che una risposta vuota ne cancelli uno che si aveva già. */
+const viaggioVuoto = (v) => !(v && v.stato === 'ok'
+  && v.dati && v.dati.stops && v.dati.stops.length);
 
-   Parte solo quando qualcuno apre la scheda: è una richiesta per treno su un
-   servizio lento, e farla per tutti e quaranta i treni di un tabellone
-   significherebbe pagarla quaranta volte per le due o tre schede che si aprono
-   davvero. */
+/* Scarica il viaggio di un treno.
+
+   Parte quando qualcuno apre la scheda, e si rifà a ogni rinfresco del
+   tabellone finché la scheda resta aperta: non per tutti e quaranta i treni,
+   che sarebbero quaranta richieste a un servizio lento per le due o tre schede
+   che si aprono davvero.
+
+   Rileggerlo non è un lusso. La scheda risponde a "dov'è il treno adesso", e
+   una lettura di mezz'ora fa non lo dice più; ma soprattutto è il solo momento
+   in cui un "ViaggiaTreno non segue questo treno" può correggersi. Quella
+   risposta è vera per il treno che parte fra tre ore — ViaggiaTreno pubblica la
+   stazione un'ora e mezza per volta, il tabellone di RFI arriva a notte — ed
+   era vera anche per il mezzo minuto in cui il suo servizio non aveva
+   risposto. Chiesta una volta sola, restava lì per sempre: sulla riga sopra
+   compariva la pastiglia verde col ritardo misurato sul treno, e la scheda
+   sotto continuava a dire che quel treno nessuno lo segue. */
 async function scaricaViaggio(numero) {
-  if (viaggi.has(numero)) return;
-  viaggi.set(numero, { stato: 'attesa' });
-  disegna();
+  const gia = viaggi.get(numero);
+  // Una richiesta in volo non si raddoppia: il rinfresco arriva ogni minuto e
+  // ViaggiaTreno ogni tanto se ne prende otto secondi.
+  if (gia && gia.stato === 'attesa') return;
+  // L'attesa si mostra solo la prima volta. Su una rilettura resta in pagina il
+  // viaggio di prima: sostituirlo con "cerco dov'è il treno…" a ogni minuto
+  // farebbe sfarfallare una scheda che si sta leggendo.
+  if (!gia) {
+    viaggi.set(numero, { stato: 'attesa' });
+    disegna();
+  }
+  // Da dove si è chiesto. Se nel frattempo si è cambiato tabellone, questa
+  // risposta riguarda dei treni che non ci sono più: `viaggi` è già stato
+  // svuotato per il tabellone nuovo, e riempirlo qui vorrebbe dire rimetterci
+  // dentro il viaggio del tabellone di prima.
+  const dove = chiaveTabellone();
   try {
     const r = await fetch(API.treno(stato.da, numero, stato.a, stato.arrivi));
     if (!r.ok) throw new Error(`errore ${r.status}`);
-    viaggi.set(numero, { stato: 'ok', dati: await r.json() });
+    const d = await r.json();
+    if (dove !== chiaveTabellone()) return;
+    // Una risposta vuota non cancella un viaggio che si aveva già: vale la
+    // stessa regola dell'errore qui sotto, ed è il caso del treno che
+    // ViaggiaTreno perde di vista per una lettura.
+    if (viaggioVuoto({ stato: 'ok', dati: d }) && !viaggioVuoto(gia)) return;
+    viaggi.set(numero, { stato: 'ok', dati: d });
   } catch {
     // Un viaggio che non arriva non è un guasto della pagina: restano le
-    // fermate previste, che è quello che si vedeva prima di questa aggiunta.
+    // fermate previste, che è quello che si vedeva prima di questa aggiunta —
+    // o il viaggio della lettura precedente, se ce n'era uno, perché un
+    // servizio che non risponde adesso non è un treno che non si può seguire.
+    if (dove !== chiaveTabellone() || !viaggioVuoto(gia)) return;
     viaggi.set(numero, { stato: 'errore' });
   }
   disegna();
