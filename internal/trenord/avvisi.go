@@ -42,6 +42,23 @@ type Avviso struct {
 // finisce quando il testo la nomina una volta sola.
 var parlaDiSciopero = regexp.MustCompile(`(?i)scioper`)
 
+// codaDiServizio è la frase che Trenord appende in fondo alle comunicazioni
+// sulla circolazione: dove andare a leggere l'andamento del treno. È identica
+// su ogni avviso di ogni linea, dice di aprire un'altra app, e occupa metà
+// dello spazio — in una notifica tagliata a 180 caratteri è la metà che si
+// legge al posto del motivo del ritardo.
+//
+// Si taglia dall'inizio della frase fino in fondo, perché lì non c'è mai
+// altro: nel campione osservato la coda è sempre l'ultima cosa scritta. Il
+// gancio è "sull'andamento" e non la sola parola "Info", che potrebbe aprire
+// una frase che invece dice qualcosa.
+var codaDiServizio = regexp.MustCompile(`(?i)\s*info(?:rmazioni)?\s+sull['’]andamento\b.*$`)
+
+// senzaCoda toglie la coda di servizio e quello che le resta attaccato dietro.
+func senzaCoda(s string) string {
+	return strings.TrimSpace(codaDiServizio.ReplaceAllString(s, ""))
+}
+
 // Sezione dice in quale dei due elenchi della pagina Trenord la comunicazione
 // era pubblicata. Sono due cose diverse e la pagina le tiene separate:
 // "STATO DELLA LINEA" è quello che sta succedendo adesso, "AVVISI" è quello che
@@ -158,9 +175,9 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 		if c.Type != html.ElementNode || !haClasse(c, "item") {
 			continue
 		}
-		corpo := pulisci(testo(trova(c, func(n *html.Node) bool {
+		corpo := senzaCoda(pulisci(testo(trova(c, func(n *html.Node) bool {
 			return haClasse(n, "body-texts")
-		})))
+		}))))
 		if corpo == "" {
 			continue
 		}

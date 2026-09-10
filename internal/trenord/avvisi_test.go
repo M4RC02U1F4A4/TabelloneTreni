@@ -294,3 +294,54 @@ func TestLeFormeDellaParolaSciopero(t *testing.T) {
 		}
 	}
 }
+
+// La coda di servizio se ne va, il motivo del ritardo resta.
+//
+// È la frase che Trenord appende a ogni comunicazione della circolazione: la
+// stessa su tutte le linee, che dice di andare a guardare altrove. Nella
+// notifica, tagliata a 180 caratteri, si mangiava la parte che spiega perché
+// il treno è fermo.
+func TestLaCodaDiServizioSeNeVa(t *testing.T) {
+	casi := map[string]string{
+		`Il treno 1234 (MILANO CENTRALE 17:32 - BOLOGNA CENTRALE 18:45) viaggia in ritardo perché, lungo il percorso, è stato necessario attendere il transito di altri treni. Info sull'andamento del treno in APP e Sito nella sezione "Real time | Linee e orari - ricerca treno"`: `Il treno 1234 (MILANO CENTRALE 17:32 - BOLOGNA CENTRALE 18:45) viaggia in ritardo perché, lungo il percorso, è stato necessario attendere il transito di altri treni.`,
+		// Con l'apostrofo tipografico, che è quello che Trenord usa altrove
+		// nella stessa pagina, e al plurale.
+		`Il treno 5678 oggi non partirà. Informazioni sull’andamento dei treni in APP e Sito.`: `Il treno 5678 oggi non partirà.`,
+		// Quello che non è la coda non si tocca: "informa" apre la frase di
+		// ogni avviso programmato, e il PDF sta in fondo come qui.
+		`Si informa la Gentile Clientela che dal 24 agosto i seguenti treni subiscono variazioni: a.mktgcdn.com/f/x.pdf`: `Si informa la Gentile Clientela che dal 24 agosto i seguenti treni subiscono variazioni: a.mktgcdn.com/f/x.pdf`,
+	}
+	for dato, atteso := range casi {
+		if got := senzaCoda(dato); got != atteso {
+			t.Errorf("senzaCoda(%.40s…)\n  = %q\n  atteso %q", dato, got, atteso)
+		}
+	}
+}
+
+// E sul dettaglio vero: nessuno dei tre avvisi di circolazione della RE5 esce
+// con la coda attaccata.
+func TestNessunAvvisoEsceConLaCoda(t *testing.T) {
+	f, err := os.Open("testdata/line-details-RE_5.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	d, err := ParseDettaglio(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visti := 0
+	for _, a := range d.Avvisi {
+		if strings.Contains(strings.ToLower(a.Testo), "sull'andamento") {
+			t.Errorf("coda rimasta: %q", a.Testo)
+		}
+		if strings.Contains(a.Testo, "Il treno") {
+			visti++
+		}
+	}
+	// E il taglio non ha portato via gli avvisi interi: i tre della
+	// circolazione ci sono ancora.
+	if visti != 3 {
+		t.Errorf("avvisi sulla circolazione = %d, attesi 3", visti)
+	}
+}
