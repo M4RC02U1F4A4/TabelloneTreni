@@ -478,7 +478,26 @@ const spento = gps({ stops: fermate }, null, null);
 assert.match(spento, /data-gps/, 'a GPS spento resta il bottone');
 assert.ok(!/km/.test(spento), 'e nessuna distanza');
 
-console.log('riga del GPS: ok — 9 casi su prossima fermata e arrivo');
+// La mappa sta dietro a un tab, chiuso: è lei a volere la posizione, e montata
+// da sola chiedeva il permesso a chi aveva aperto l'app per guardare l'orario.
+const tab = new Function(`
+  let mappaAperta = false;
+  const navigator = { geolocation: {} };
+  const icona = () => '';
+  ${ritaglia('function sezioneMappa', '// La mappa è montata')}
+  return (d, aperta) => { mappaAperta = aperta; return sezioneMappa(d); };`)();
+
+const conCoordinate = { stops: [{ name: 'PIACENZA', lat: 45.0503, lon: 9.6997 }] };
+const chiuso = tab(conCoordinate, false);
+assert.match(chiuso, /aria-expanded="false"/, 'il tab nasce chiuso');
+assert.ok(!/posto-mappa/.test(chiuso), 'e la mappa non è in pagina');
+assert.match(tab(conCoordinate, true), /posto-mappa/, 'aperto, il riquadro c\'è');
+
+// Senza una fermata da segnare non c'è niente da aprire: sarebbe un tab su un
+// riquadro vuoto.
+assert.strictEqual(tab({ stops: [{ name: 'SENZA COORDINATE' }] }, false), '', 'niente coordinate, niente tab');
+
+console.log('riga del GPS: ok — 9 casi su prossima fermata e arrivo + 4 sul tab della mappa');
 
 const mercatore = new Function(`
   const MAPPA_Z = 13, TILE = 256;

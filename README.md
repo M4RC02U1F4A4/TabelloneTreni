@@ -271,9 +271,9 @@ coerente: la stessa campanella che accende le notifiche accende il cartello.
 
 #### La mappa del viaggio
 
-Sulla scheda di un treno, un tasto chiede la posizione e apre una mappa con
-**dove sei** e **quali stazioni sono le tue**. In testa, due distanze — `ti
-mancano 2,1 km per Piacenza · 31,0 km a Parma`: la **prossima fermata**, che
+Sulla scheda di un treno, un tab apre una mappa con **dove sei** e **quali
+stazioni sono le tue**. Sopra di lui, due distanze —
+`ti mancano 2,1 km per Piacenza · 31,0 km a Parma`: la **prossima fermata**, che
 dice quando alzarsi, e **quella dove scendi**, che dice quanto viaggio resta.
 Sono la risposta più precisa di qualsiasi stima a occhio su una cartina. Quando
 si scende alla prossima le due coincidono e se ne scrive una sola.
@@ -288,15 +288,18 @@ fermate qui sotto, così la riga e la lista non possono raccontare due viaggi
 diversi. Le fermate senza coordinate si saltano invece di finire a zero gradi,
 che è nel golfo di Guinea.
 
-**Il permesso non si chiede all'apertura.** Aprendo l'app su una scheda con il
-GPS già concesso una volta, il browser tornava a chiedere il permesso — su iOS
-il permesso dura la sessione — e la finestra di sistema compariva senza che
-nessuno avesse toccato niente. Adesso il GPS parte da solo **solo dove non costa
-una domanda**: `navigator.permissions` dice `granted`, oppure in questa sessione
-una lettura è già riuscita. Altrimenti resta il bottone, e il permesso si chiede
-*dentro il tocco* — l'unico posto in cui iOS lo chiede davvero. Finché il GPS non
-è acceso la mappa non c'è: mostrarla vuota sarebbe una cartina, e la cartina non
-era la richiesta.
+**La mappa sta dietro a un tab, chiuso**, e il permesso non si chiede
+all'apertura. È la mappa a volere la posizione: montata da sola all'apertura
+della scheda, chiedeva il permesso a chi aveva aperto l'app per guardare a che
+ora passa il treno — e su iOS il permesso dura la sessione, quindi la finestra
+di sistema tornava a ogni riapertura. Aperto il tab, il GPS si accende **dentro
+quel tocco**, che è l'unico posto in cui iOS chiede davvero e l'unico in cui la
+domanda ha una ragione visibile. Richiudendolo il GPS resta acceso: la riga
+delle distanze sopra continua a misurare.
+
+La riga delle distanze, invece, si accende da sola dove non costa una domanda —
+`navigator.permissions` dice `granted`, o una lettura è già riuscita in questa
+sessione. Altrimenti c'è il suo bottone, e vale la stessa regola del tocco.
 
 La posizione viene dal **GPS del telefono e non da ViaggiaTreno**, ed è una
 scelta di sostanza. ViaggiaTreno la posizione di un treno la dà come *nome di

@@ -921,7 +921,7 @@ async function cambiaRotta() {
   fermaTimer();
   // Il GPS vive quanto la scheda di un treno: è l'unica vista che lo usa, e
   // tenerlo accesa altrove sarebbe batteria spesa per niente.
-  if (r.vista !== 'treno') { fermaPosizione(); posizione = null; mappa = null; }
+  if (r.vista !== 'treno') { fermaPosizione(); posizione = null; mappa = null; mappaAperta = false; }
   else if (vuolePosizione()) avviaSePermesso();
 
   if (r.vista === 'notifiche') {
@@ -1599,7 +1599,7 @@ function disegnaTreno(t) {
   app.innerHTML = `
     <div class="${classi.join(' ')}"><div class="riga-treno seguito senza-gallone">${corpoSeguito(d, v.lettoIl)}</div></div>
     ${rigaPosizione(d)}
-    ${conMappa(d) ? '<div id="posto-mappa"></div>' : ''}
+    ${sezioneMappa(d)}
     ${d.stops && d.stops.length
       ? elencoFermate(d, 'aperta')
       : '<p class="nota">ViaggiaTreno non pubblica le fermate di questo treno.</p>'}
@@ -1610,15 +1610,30 @@ function disegnaTreno(t) {
   if (conMappa(d)) montaMappa(d, chiaveTreno(t));
 }
 
-/* La mappa si mostra solo dove ha qualcosa da dire: serve almeno una fermata
-   con le coordinate, e serve che il GPS sia acceso davvero — una mappa senza
-   il puntino è una cartina, e la cartina non era la richiesta.
+/* La mappa sta dietro a un tab, chiuso.
 
-   "Acceso davvero" e non "l'ha concesso una volta": è la stessa condizione che
-   tiene ferma la richiesta di permesso all'apertura dell'app. Finché il GPS
-   non parte, qui sotto c'è il bottone e la mappa non c'è. */
+   Non perché occupi spazio, ma perché è lei a volere la posizione: montata da
+   sola all'apertura della scheda, chiedeva il permesso a chi aveva aperto
+   l'app per guardare a che ora passa il treno. Aperta a mano, il permesso si
+   chiede dentro quel tocco — dove ha anche una ragione visibile.
+
+   Il tab c'è solo dove la mappa avrebbe qualcosa da disegnare: senza nemmeno
+   una fermata con le coordinate resterebbe un riquadro vuoto da aprire. */
+function sezioneMappa(d) {
+  if (!navigator.geolocation) return '';
+  if (!(d.stops || []).some((f) => f.lat && f.lon)) return '';
+  return `<button class="tab-mappa" type="button" data-mappa aria-expanded="${mappaAperta}">
+      ${icona('mira')}<span>Mappa del viaggio</span>
+      <span class="chevron">${icona('gallone')}</span>
+    </button>
+    ${mappaAperta ? '<div id="posto-mappa"></div>' : ''}`;
+}
+
+// La mappa è montata quando il tab è aperto. Le coordinate si ricontrollano
+// perché il viaggio si rilegge ogni minuto, e quello nuovo potrebbe non
+// averne.
 function conMappa(d) {
-  return guardiaGPS !== null && (d.stops || []).some((f) => f.lat && f.lon);
+  return mappaAperta && (d.stops || []).some((f) => f.lat && f.lon);
 }
 
 /* Quanto manca alla tua fermata, secondo il telefono.
@@ -1723,6 +1738,12 @@ function proietta(lat, lon) {
    ridisegno si *sposta* al suo posto — un nodo spostato conserva i figli, e
    con loro le immagini già scaricate. */
 let mappa = null;
+
+/* Se la mappa è aperta. Chiusa a ogni apertura di scheda, e non ricordata fra
+   una sessione e l'altra: è il tab che tiene ferma la richiesta di permesso.
+   Ricordata aperta, riaprendo l'app la mappa si rimonterebbe da sola e con lei
+   tornerebbe la finestra di sistema, che è la cosa da cui si scappava. */
+let mappaAperta = false;
 
 function creaMappa(chiaveTreno) {
   const el = document.createElement('div');
@@ -2799,6 +2820,19 @@ app.addEventListener('click', (e) => {
   const t = e.target;
   if (t.closest('[data-ricentra]')) {
     if (mappa) { mappa.seguiMe = true; aggiornaVista(); }
+    return;
+  }
+  if (t.closest('[data-mappa]')) {
+    mappaAperta = !mappaAperta;
+    // Aprendola si accende anche il GPS, che è quello che la mappa ha da
+    // dire: dentro il tocco, perché su iOS dopo un await il gesto non c'è più
+    // e il permesso non viene chiesto. Chiudendola non si spegne — la riga
+    // qui sopra continua a misurare quanto manca alla fermata.
+    if (mappaAperta) {
+      scrivi('tt.posizione', true);
+      avviaPosizione();
+    }
+    aggiornaVista();
     return;
   }
   if (t.closest('[data-gps]')) {

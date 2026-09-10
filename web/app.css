@@ -937,6 +937,26 @@ details[open] .apri { transform: rotate(90deg); }
 .riga-gps .btn-testo { display: flex; align-items: center; gap: 7px; padding: 0; font-size: 14px; }
 .riga-gps .btn-testo .icona { color: currentColor; margin-top: 0; }
 
+/* Il tab della mappa: chiuso, è una riga come quella del GPS sopra; aperto,
+   il gallone gira e sotto compare il riquadro. La mappa sta dietro a un tocco
+   perché è lei a volere la posizione, e il permesso si chiede lì. */
+.tab-mappa {
+  display: flex; align-items: center; gap: 8px; width: calc(100% - 4px);
+  margin: 0 2px 12px; padding: 10px 12px;
+  background: var(--piano); border: 0; border-radius: 10px;
+  font: inherit; font-size: 14px; color: var(--testo); text-align: left;
+  cursor: pointer;
+}
+.tab-mappa span:first-of-type { flex: 1; }
+.tab-mappa .icona { width: 16px; height: 16px; flex: none; color: var(--verde); }
+.tab-mappa .chevron { flex: none; display: flex; align-items: center; color: var(--tenue); transition: transform 0.15s; }
+.tab-mappa .chevron .icona { color: currentColor; }
+.tab-mappa[aria-expanded="true"] { margin-bottom: 8px; border-radius: 10px 10px 0 0; }
+.tab-mappa[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .tab-mappa .chevron { transition: none; } }
+/* Aperto, il tab e il riquadro sono un pezzo solo: gli angoli si toccano. */
+.tab-mappa[aria-expanded="true"] + .mappa { border-radius: 0 0 var(--raggio) var(--raggio); }
+
 /* -------------------------------------------------------------------- mappa */
 
 /* Il riquadro della mappa. Alto quanto serve a vedere te e la stazione
