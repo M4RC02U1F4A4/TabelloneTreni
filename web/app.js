@@ -106,6 +106,36 @@ let guardiaGPS = null;  // l'identificativo di watchPosition, per poterlo spegne
 // permesso lo tiene il browser, questa è solo l'intenzione dichiarata.
 const vuolePosizione = () => leggi('tt.posizione', false) === true;
 
+/* Se il permesso vero c'è, che è un'altra cosa dall'intenzione.
+
+   Su Android il browser se lo ricorda e non chiede più niente; su iOS il
+   permesso dura la sessione, e riaprendo l'app la finestra di sistema torna.
+   Chiedendolo da soli all'apertura della scheda, quella finestra compariva
+   appena aperta l'app a chi non aveva chiesto niente — che è la ragione per
+   cui adesso il GPS parte da solo *solo* dove non costa una domanda.
+
+   Vive quanto la pagina: appena una lettura riesce si sa che il permesso in
+   questa sessione c'è, e uscendo dalla scheda e rientrandoci non si fa
+   ricominciare da un tocco. Ricaricando riparte da zero, che è giusto: è
+   esattamente quello che fa anche il permesso di Safari. */
+let gpsConcesso = false;
+
+/* Il permesso secondo il browser, quando il browser lo sa dire.
+
+   Safari non risponde su `geolocation` — a seconda della versione solleva o
+   dice `prompt` comunque — e un'eccezione qui vale come "non lo so", che
+   porta all'unica scelta prudente: aspettare il tocco. */
+async function permessoDato() {
+  if (gpsConcesso) return true;
+  if (!navigator.permissions || !navigator.permissions.query) return false;
+  try {
+    const s = await navigator.permissions.query({ name: 'geolocation' });
+    return s.state === 'granted';
+  } catch {
+    return false;
+  }
+}
+
 // Con "Modifica" attivo le righe dei preferiti mostrano la ✕. Fuori da quella
 // modalità non c'è: una ✕ accanto a una riga tappabile mette la cancellazione a
 // un dito dal gesto che si fa ogni giorno.
@@ -892,7 +922,7 @@ async function cambiaRotta() {
   // Il GPS vive quanto la scheda di un treno: è l'unica vista che lo usa, e
   // tenerlo accesa altrove sarebbe batteria spesa per niente.
   if (r.vista !== 'treno') { fermaPosizione(); posizione = null; mappa = null; }
-  else if (vuolePosizione()) avviaPosizione();
+  else if (vuolePosizione()) avviaSePermesso();
 
   if (r.vista === 'notifiche') {
     disegna();
@@ -1258,6 +1288,7 @@ function avviaPosizione() {
   if (guardiaGPS !== null || !navigator.geolocation) return;
   guardiaGPS = navigator.geolocation.watchPosition(
     (p) => {
+      gpsConcesso = true;
       posizione = {
         lat: p.coords.latitude, lon: p.coords.longitude,
         metri: p.coords.accuracy, quando: Date.now(),
@@ -1279,6 +1310,23 @@ function avviaPosizione() {
   );
 }
 
+/* Accende il GPS aprendo la scheda, ma solo dove non costa una richiesta di
+   permesso: chi l'ha già dato non deve toccare niente, chi non l'ha dato non
+   si vede comparire una finestra di sistema che non ha chiesto. Per lui resta
+   il bottone, e il permesso si chiede dentro il tocco. */
+async function avviaSePermesso() {
+  if (guardiaGPS !== null || !navigator.geolocation) return;
+  if (!(await permessoDato())) return;
+  // Nel frattempo si può essere usciti dalla scheda: accendere il GPS adesso
+  // vorrebbe dire lasciarlo acceso su una vista che non lo guarda, che è
+  // proprio quello che `fermaPosizione` era lì per evitare.
+  if (leggiRotta().vista !== 'treno') return;
+  avviaPosizione();
+  // La scheda è già stata disegnata mentre si aspettava la risposta: senza
+  // questo la mappa comparirebbe solo alla lettura dopo.
+  aggiornaVista();
+}
+
 function fermaPosizione() {
   if (guardiaGPS === null) return;
   navigator.geolocation.clearWatch(guardiaGPS);
@@ -1298,20 +1346,39 @@ function metriFra(aLat, aLon, bLat, bLon) {
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 
-/* La fermata del treno più vicina a dove sei.
+/* Quanto dista una fermata da dove sei, in linea d'aria.
 
-   Fra le fermate del viaggio e non fra tutte le stazioni d'Italia: la domanda
-   è "quanto manca alla mia", non "qual è la stazione più vicina in assoluto".
-   Le fermate senza coordinate restano fuori invece di finire a zero gradi. */
-function fermataPiuVicina(d) {
-  if (!posizione || posizione.errore) return null;
-  let vicina = null;
-  for (const f of d.stops || []) {
-    if (!f.lat || !f.lon) continue;
-    const m = metriFra(posizione.lat, posizione.lon, f.lat, f.lon);
-    if (!vicina || m < vicina.metri) vicina = { fermata: f, metri: m };
-  }
-  return vicina;
+   Le fermate senza coordinate danno null invece di finire a zero gradi, che è
+   in mezzo al golfo di Guinea e a duemila chilometri da qualsiasi treno. */
+function distanzaDa(f) {
+  if (!f || !f.lat || !f.lon || !posizione || posizione.errore) return null;
+  return metriFra(posizione.lat, posizione.lon, f.lat, f.lon);
+}
+
+/* La prima fermata davanti al treno, fra quelle che si possono misurare.
+
+   Non la fermata *più vicina*, che era la versione di prima e diceva la cosa
+   sbagliata proprio nel momento in cui la si guardava: appena servita una
+   fermata il treno le resta accanto per qualche chilometro, e la più vicina
+   restava quella — la stazione lasciata dietro, con la distanza che cresceva
+   a ogni lettura invece di scendere. La domanda è "quanto manca alla mia", e
+   ha una risposta sola: quello che c'è davanti.
+
+   Il "davanti" è `passed`, cioè l'orario reale delle fermate, la stessa cosa
+   su cui si regola l'elenco qui sotto: così la riga e la lista non possono
+   raccontare due viaggi diversi. */
+const fermataProssima = (d) => (d.stops || []).find((f) => !f.passed && f.lat && f.lon) || null;
+
+/* Dove si scende.
+
+   È la fermata scelta sul tabellone da cui si è seguito il treno — quella che
+   la lista accende — e in mancanza l'ultima del viaggio, che è il capolinea
+   scritto in cima alla scheda. Sapere che alla prossima mancano due chilometri
+   dice quando alzarsi; sapere che alla propria ne mancano venti dice se c'è
+   tempo per un caffè. */
+function fermataArrivo(d) {
+  const con = (d.stops || []).filter((f) => f.lat && f.lon);
+  return con.find((f) => f.chosen) || con[con.length - 1] || null;
 }
 
 /* La distanza scritta come la si dice: in metri arrotondati a cinquanta finché
@@ -1544,11 +1611,14 @@ function disegnaTreno(t) {
 }
 
 /* La mappa si mostra solo dove ha qualcosa da dire: serve almeno una fermata
-   con le coordinate, e serve che la posizione sia stata concessa — una mappa
-   senza il puntino è una cartina, e la cartina non era la richiesta. */
+   con le coordinate, e serve che il GPS sia acceso davvero — una mappa senza
+   il puntino è una cartina, e la cartina non era la richiesta.
+
+   "Acceso davvero" e non "l'ha concesso una volta": è la stessa condizione che
+   tiene ferma la richiesta di permesso all'apertura dell'app. Finché il GPS
+   non parte, qui sotto c'è il bottone e la mappa non c'è. */
 function conMappa(d) {
-  return vuolePosizione() && navigator.geolocation
-    && (d.stops || []).some((f) => f.lat && f.lon);
+  return guardiaGPS !== null && (d.stops || []).some((f) => f.lat && f.lon);
 }
 
 /* Quanto manca alla tua fermata, secondo il telefono.
@@ -1563,7 +1633,12 @@ function rigaPosizione(d) {
   if (!conCoordinate) return '';
 
   if (!navigator.geolocation) return '';
-  if (!vuolePosizione()) {
+  // Il bottone c'è ogni volta che il GPS non è acceso, e non solo la prima
+  // volta in assoluto: su iOS il permesso vale una sessione, e a ogni riapertura
+  // dell'app va ridato — dentro un tocco, che è l'unico posto in cui iOS lo
+  // chiede. Prima lo si chiedeva da soli all'avvio, ed era la finestra di
+  // sistema che compariva senza che nessuno avesse toccato niente.
+  if (guardiaGPS === null) {
     return `<p class="riga-gps">
       <button class="btn-testo" type="button" data-gps>${icona('mira')} Quanto manca alla mia fermata</button>
     </p>`;
@@ -1574,14 +1649,31 @@ function rigaPosizione(d) {
   if (posizione.errore) {
     return `<p class="riga-gps attesa">${esc(posizione.errore)}</p>`;
   }
-  const v = fermataPiuVicina(d);
-  if (!v) return '<p class="riga-gps attesa">nessuna fermata di questo treno ha una posizione nota.</p>';
-  // La fermata più vicina può essere quella appena passata: allora "manca" è la
-  // parola sbagliata, e si dice soltanto quanto dista.
-  const verbo = v.fermata.passed ? 'sei a' : 'ti mancano';
+  // Due misure sulla stessa riga: la prossima fermata, che dice quando
+  // alzarsi, e la propria, che dice quanto viaggio resta. Quando coincidono —
+  // si scende alla prossima — se ne scrive una sola, che è anche il momento in
+  // cui la riga conta di più e non deve dire due volte la stessa cosa.
+  const prossima = fermataProssima(d);
+  const arrivo = fermataArrivo(d);
+  const pezzi = [];
+  const mancano = distanzaDa(prossima);
+  if (mancano !== null) {
+    pezzi.push(`ti mancano <b>${esc(distanzaScritta(mancano))}</b> per ${esc(titolo(prossima.name))}`);
+  }
+  const allArrivo = arrivo && !arrivo.passed && arrivo !== prossima ? distanzaDa(arrivo) : null;
+  if (allArrivo !== null) {
+    pezzi.push(`<b>${esc(distanzaScritta(allArrivo))}</b> a ${esc(titolo(arrivo.name))}`);
+  }
+  // Davanti non c'è più niente: il treno è arrivato, o le fermate sono tutte
+  // servite. Resta da dire dove sei rispetto all'ultima, e "mancano" lì
+  // sarebbe la parola sbagliata.
+  if (!pezzi.length) {
+    const resta = distanzaDa(arrivo);
+    if (resta !== null) pezzi.push(`sei a <b>${esc(distanzaScritta(resta))}</b> da ${esc(titolo(arrivo.name))}`);
+  }
+  if (!pezzi.length) return '<p class="riga-gps attesa">nessuna fermata di questo treno ha una posizione nota.</p>';
   return `<p class="riga-gps">${icona('mira')}
-    <span>${verbo} <b>${esc(distanzaScritta(v.metri))}</b> ${v.fermata.passed ? 'da' : 'per'}
-    ${esc(titolo(v.fermata.name))}</span>${etaPosizione()}</p>`;
+    <span>${pezzi.join(' · ')}</span>${etaPosizione()}</p>`;
 }
 
 /* L'età della posizione, ma solo quando è vecchia: in galleria il GPS cade, e

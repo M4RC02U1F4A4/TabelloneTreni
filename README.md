@@ -272,9 +272,31 @@ coerente: la stessa campanella che accende le notifiche accende il cartello.
 #### La mappa del viaggio
 
 Sulla scheda di un treno, un tasto chiede la posizione e apre una mappa con
-**dove sei** e **quali stazioni sono le tue**. In testa, la distanza dalla
-fermata più vicina del tuo treno — `ti mancano 2,1 km per Legnano` — che è la
-risposta più precisa di qualsiasi stima a occhio su una cartina.
+**dove sei** e **quali stazioni sono le tue**. In testa, due distanze — `ti
+mancano 2,1 km per Piacenza · 31,0 km a Parma`: la **prossima fermata**, che
+dice quando alzarsi, e **quella dove scendi**, che dice quanto viaggio resta.
+Sono la risposta più precisa di qualsiasi stima a occhio su una cartina. Quando
+si scende alla prossima le due coincidono e se ne scrive una sola.
+
+Non è la fermata *più vicina*, che era la prima versione e diceva la cosa
+sbagliata proprio mentre la si guardava: appena servita una fermata il treno le
+resta accanto per qualche chilometro, e la più vicina restava quella — la
+stazione appena lasciata dietro, con la distanza che cresceva a ogni lettura
+invece di scendere. La domanda è "quanto manca alla mia", e ha una risposta
+sola: quello che c'è davanti. Il "davanti" è lo stesso `passed` su cui si regola l'elenco delle
+fermate qui sotto, così la riga e la lista non possono raccontare due viaggi
+diversi. Le fermate senza coordinate si saltano invece di finire a zero gradi,
+che è nel golfo di Guinea.
+
+**Il permesso non si chiede all'apertura.** Aprendo l'app su una scheda con il
+GPS già concesso una volta, il browser tornava a chiedere il permesso — su iOS
+il permesso dura la sessione — e la finestra di sistema compariva senza che
+nessuno avesse toccato niente. Adesso il GPS parte da solo **solo dove non costa
+una domanda**: `navigator.permissions` dice `granted`, oppure in questa sessione
+una lettura è già riuscita. Altrimenti resta il bottone, e il permesso si chiede
+*dentro il tocco* — l'unico posto in cui iOS lo chiede davvero. Finché il GPS non
+è acceso la mappa non c'è: mostrarla vuota sarebbe una cartina, e la cartina non
+era la richiesta.
 
 La posizione viene dal **GPS del telefono e non da ViaggiaTreno**, ed è una
 scelta di sostanza. ViaggiaTreno la posizione di un treno la dà come *nome di
@@ -406,6 +428,15 @@ regola vista da due lati — **si paga solo quello che qualcuno guarda davvero**
 Una lettura non è appesa a chi l'ha chiesta: se il telefono rinuncia, o rinuncia
 il tabellone che aspetta meno, quello che si è già letto finisce comunque in
 cache e il tocco successivo è immediato invece di ricominciare da capo.
+
+**La coda di servizio si taglia.** Ogni comunicazione sulla circolazione
+finisce con la stessa frase — *"Info sull'andamento del treno in APP e Sito
+nella sezione «Real time | Linee e orari - ricerca treno»"* — identica su tutte
+le linee e su tutti gli avvisi: dice di andare a guardare da un'altra parte e
+occupa metà del testo. In una notifica tagliata a 180 caratteri era la metà che
+si leggeva al posto del motivo del ritardo. Si taglia in fase di lettura, dalla
+frase in giù, agganciandosi a `sull'andamento` e non alla sola parola "Info",
+che potrebbe aprire una frase che invece dice qualcosa.
 
 **Gli scioperi arrivano da qui**, e non da una fonte propria: Trenord li
 pubblica come comunicazioni sulle linee interessate, giorni prima. Che siano

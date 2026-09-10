@@ -366,7 +366,7 @@ console.log('scheda seguita: ok — 6 casi sulla riga + 8 sulle pastiglie');
 /* ------------------------------------------- distanze e proiezione */
 
 const geo = new Function(`
-  ${ritaglia('function metriFra', '/* La fermata del treno')}
+  ${ritaglia('function metriFra', '/* Quanto dista una fermata')}
   ${ritaglia('function distanzaScritta', "/* Dov'è adesso")}
   return { metriFra, distanzaScritta };`)();
 
@@ -407,6 +407,78 @@ for (let d = 50; d < 30_000; d += 7) {
   assert.ok(n >= ultimo, `a ${d} m la distanza scritta è diminuita`);
   ultimo = n;
 }
+
+/* ------------------------- quanto manca, e a quale fermata */
+
+/* La riga del GPS misura quello che c'è davanti: la prossima fermata e quella
+   dove si scende. Prima misurava la più vicina, e appena passata una stazione
+   la più vicina era quella — con la distanza che cresceva a ogni lettura. */
+
+const gps = new Function(`
+  let posizione = null, guardiaGPS = 1;
+  const navigator = { geolocation: {} };
+  const esc = (s) => String(s);
+  const icona = () => '';
+  const titolo = (s) => s;
+  ${ritaglia('function metriFra', '/* Quanto dista una fermata')}
+  ${ritaglia('/* Quanto dista una fermata', "/* Dov'è adesso")}
+  ${ritaglia('function rigaPosizione', "/* L'età della posizione")}
+  ${ritaglia('function etaPosizione', 'const MAPPA_Z')}
+  return (d, dove, acceso = 1) => {
+    posizione = dove; guardiaGPS = acceso;
+    return rigaPosizione(d);
+  };`)();
+
+// Un viaggio con qualche fermata dietro e qualcuna davanti, e la posizione
+// poco oltre l'ultima servita: è lì che la fermata più vicina era quella
+// appena lasciata, e la misura cresceva invece di scendere.
+const fermate = [
+  { name: 'MILANO CENTRALE', lat: 45.4863, lon: 9.2049, passed: true },
+  { name: 'LODI', lat: 45.3106, lon: 9.5033, passed: true },
+  { name: 'PIACENZA', lat: 45.0503, lon: 9.6997, passed: true },
+  { name: 'FIDENZA', lat: 44.8672, lon: 10.0680 },
+  { name: 'PARMA', lat: 44.8060, lon: 10.3266 },
+  { name: 'BOLOGNA CENTRALE', lat: 44.5057, lon: 11.3428 },
+];
+const scesi = (nome) => ({ stops: fermate.map((f) => (f.name === nome ? { ...f, chosen: true } : f)) });
+const pocoOltre = { lat: 45.0400, lon: 9.7200, quando: Date.now() };
+
+const aBologna = gps(scesi('BOLOGNA CENTRALE'), pocoOltre);
+assert.match(aBologna, /ti mancano <b>[\d,]+ km<\/b> per FIDENZA/, 'la prossima è quella davanti');
+assert.ok(!/PIACENZA/.test(aBologna), 'la stazione appena passata non è più la risposta');
+assert.match(aBologna, /<b>[\d,]+ km<\/b> a BOLOGNA CENTRALE/, 'e accanto quanto manca all\'arrivo');
+
+// Quando si scende alla prossima le due misure coincidono, e se ne scrive una
+// sola: la riga che conta di più non deve dire due volte la stessa cosa.
+const aFidenza = gps(scesi('FIDENZA'), pocoOltre);
+assert.strictEqual((aFidenza.match(/km/g) || []).length, 1, 'una sola distanza');
+assert.match(aFidenza, /per FIDENZA/, 'ed è quella della prossima');
+
+// Senza fermata scelta l'arrivo è il capolinea, che è la destinazione scritta
+// in cima alla scheda.
+assert.match(gps({ stops: fermate }, pocoOltre), /a BOLOGNA CENTRALE/, 'senza scelta vale il capolinea');
+
+// Le fermate senza coordinate si saltano invece di finire a zero gradi, che è
+// nel golfo di Guinea: la prossima misurabile è quella dopo.
+const senzaCoordinate = [
+  { name: 'PIACENZA', lat: 45.0503, lon: 9.6997, passed: true },
+  { name: 'FERMATA IGNOTA' },
+  { name: 'FIDENZA', lat: 44.8672, lon: 10.0680 },
+];
+assert.match(gps({ stops: senzaCoordinate }, pocoOltre), /per FIDENZA/, 'la fermata senza posizione si salta');
+
+// Treno arrivato: davanti non c'è più niente, e "mancano" sarebbe la parola
+// sbagliata. Resta dove sei rispetto all'ultima.
+const finito = gps({ stops: fermate.map((f) => ({ ...f, passed: true })) }, pocoOltre);
+assert.match(finito, /sei a <b>[\d,]+ km<\/b> da BOLOGNA CENTRALE/, 'a viaggio finito cambia il verbo');
+
+// A GPS spento c'è il bottone e non una misura: è quello che tiene ferma la
+// richiesta di permesso all'apertura dell'app.
+const spento = gps({ stops: fermate }, null, null);
+assert.match(spento, /data-gps/, 'a GPS spento resta il bottone');
+assert.ok(!/km/.test(spento), 'e nessuna distanza');
+
+console.log('riga del GPS: ok — 9 casi su prossima fermata e arrivo');
 
 const mercatore = new Function(`
   const MAPPA_Z = 13, TILE = 256;

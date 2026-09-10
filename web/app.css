@@ -918,19 +918,24 @@ details[open] .apri { transform: rotate(90deg); }
    una risposta che si legge dopo "quanto ritardo ho" e prima di scorrere
    l'elenco per cercare la propria. */
 .riga-gps {
-  display: flex; align-items: center; gap: 8px;
+  /* La mira resta sulla prima riga: con due misure — la prossima fermata e
+     l'arrivo — la frase va a capo su uno schermo stretto, e centrata l'icona
+     finiva a metà fra le due righe, dove non indica più niente. */
+  display: flex; align-items: flex-start; gap: 8px;
   margin: 10px 2px 12px; padding: 9px 12px;
   background: var(--piano); border-radius: 10px;
   font-size: 14px; color: var(--testo);
 }
-.riga-gps .icona { width: 16px; height: 16px; flex: none; color: var(--verde); }
+/* I 2px rimettono l'icona in mezzo alla riga di testo, che è alta più di lei:
+   senza, allineata in alto, resterebbe un capello più su. */
+.riga-gps .icona { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--verde); }
 .riga-gps b { font-weight: 650; font-variant-numeric: tabular-nums; }
 /* L'età della lettura è un a parte, non parte della frase. */
 .riga-gps em { font-style: normal; color: var(--tenue); font-size: 12.5px; }
 /* Mentre cerca, o quando non ce l'ha: è una nota, non un dato. */
 .riga-gps.attesa { color: var(--tenue); font-size: 13px; }
 .riga-gps .btn-testo { display: flex; align-items: center; gap: 7px; padding: 0; font-size: 14px; }
-.riga-gps .btn-testo .icona { color: currentColor; }
+.riga-gps .btn-testo .icona { color: currentColor; margin-top: 0; }
 
 /* -------------------------------------------------------------------- mappa */
 
