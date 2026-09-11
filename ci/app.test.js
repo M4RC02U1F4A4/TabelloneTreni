@@ -325,7 +325,10 @@ const partito = scheda({
   ],
 });
 assert.strictEqual(partito.senzaRFI, true, 'dichiara che del tabellone non sa niente');
-assert.strictEqual(partito.time, '18:40', 'l\'ora è quella della salita, non dell\'origine');
+assert.strictEqual(partito.time, '18:32', 'l\'ora è quella della salita, non dell\'origine');
+// E quella prevista, non quella a cui il treno è partito davvero: il ritardo
+// lo dice la misura accanto, e sull'ora sarebbe contato due volte.
+assert.notStrictEqual(partito.time, '18:40', 'l\'ora resta quella prevista');
 assert.strictEqual(partito.liveDelay, 7, 'porta la misura sul treno');
 assert.strictEqual(partito.platform, '4', 'il binario è quello della prossima fermata');
 assert.strictEqual(partito.arrival, '18:43', 'l\'arrivo è alla fermata scelta');
@@ -361,7 +364,33 @@ assert.match(pastiglie.scarti({ senzaRFI: true, liveDelay: 0 }, false),
   /misura puntuale/, 'in orario: né rosso né verde');
 assert.match(soloVT, /misura tardi/, 'in ritardo: rosso');
 
-console.log('scheda seguita: ok — 6 casi sulla riga + 8 sulle pastiglie');
+console.log('scheda seguita: ok — 7 casi sulla riga + 8 sulle pastiglie');
+
+/* ----------------------------------- le fermate: ora prevista più ritardo */
+
+/* L'ora di una fermata è sempre quella prevista. Su quelle già servite il
+ * ritardo sta accanto, in piccolo: era l'ora reale con il ritardo di fianco,
+ * e in mezzo alle ore previste delle altre righe non si capiva più quale
+ * colonna si stesse leggendo. */
+const fermateDi = new Function(`
+  const esc = (s) => String(s);
+  const binarioFermata = () => '';
+  ${ritaglia('function elencoFermate', '/* Il binario di ogni fermata')}
+  return elencoFermate;`)();
+
+const lista = fermateDi({ stops: [
+  { name: 'PIACENZA', scheduled: '18:32', actual: '18:40', delay: 8, passed: true },
+  { name: 'FIDENZA', scheduled: '18:51', actual: '18:51', delay: 0, passed: true },
+  { name: 'PARMA', scheduled: '19:04', delay: 0 },
+] });
+assert.match(lista, /18:32 <small>\+8<\/small>/, 'ora prevista e ritardo accanto');
+assert.ok(!/18:40/.test(lista), 'l\'ora reale non si scrive');
+assert.match(lista, /<time>18:51<\/time>/, 'in orario: la sola ora, senza uno zero');
+assert.match(lista, /<time>19:04<\/time>/, 'non servita: la sola ora prevista');
+assert.match(fermateDi({ stops: [{ name: 'PARMA', scheduled: '19:04', actual: '19:02', delay: -2, passed: true }] }),
+  /19:04 <small>-2<\/small>/, 'in anticipo: col segno meno');
+
+console.log('fermate: ok — 5 casi');
 
 /* ------------------------------------------- distanze e proiezione */
 

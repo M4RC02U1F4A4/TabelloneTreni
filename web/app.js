@@ -1293,7 +1293,7 @@ function avviaPosizione() {
         lat: p.coords.latitude, lon: p.coords.longitude,
         metri: p.coords.accuracy, quando: Date.now(),
       };
-      aggiornaVista();
+      aggiornaPosizione();
     },
     (e) => {
       // Un errore non cancella l'ultima posizione buona: in galleria il GPS
@@ -1304,7 +1304,7 @@ function avviaPosizione() {
           ? 'Permesso negato: si riattiva dalle impostazioni del telefono.'
           : 'Posizione non disponibile adesso.' };
       }
-      aggiornaVista();
+      aggiornaPosizione();
     },
     { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
   );
@@ -1331,6 +1331,28 @@ function fermaPosizione() {
   if (guardiaGPS === null) return;
   navigator.geolocation.clearWatch(guardiaGPS);
   guardiaGPS = null;
+}
+
+/* Una lettura del GPS aggiorna la riga della distanza e la mappa, e nient'altro.
+
+   Prima rifaceva la pagina intera, intestazione compresa, a ogni posizione — su
+   un treno in corsa una al secondo. Su iOS un tocco diventa un click solo se
+   il nodo toccato è ancora nella pagina quando il dito si alza, e il tasto per
+   tornare in home veniva ricostruito da capo sotto il dito: lo si toccava e
+   non succedeva niente. Adesso il resto della scheda non si muove, e la pagina
+   non salta nemmeno mentre la si sta leggendo.
+
+   Fuori dalla scheda del treno non si disegna niente: una lettura arrivata
+   dopo essere usciti riguarda una vista che non c'è più. */
+function aggiornaPosizione() {
+  const r = leggiRotta();
+  if (r.vista !== 'treno') return;
+  const v = viaggiSeguiti.get(chiaveTreno(r.treno));
+  const d = v && v.stato === 'ok' ? v.dati : null;
+  if (!d) return;
+  const riga = $('.riga-gps');
+  if (riga) riga.outerHTML = rigaPosizione(d);
+  if (mappa && mappa.el.isConnected) aggiornaMappa(mappa, d);
 }
 
 /* Quanti metri fra due punti, sulla sfera.
@@ -1511,14 +1533,17 @@ function rigaSeguita(d) {
     category: d.category,
     terminus: d.terminus,
     // L'ora è quella della fermata da cui si sale, non del capolinea da cui il
-    // treno viene: su un intercity preso a Rogoredo sono due cose diverse.
-    time: salita.actual || salita.scheduled || '',
+    // treno viene: su un intercity preso a Rogoredo sono due cose diverse. Ed è
+    // quella prevista, come su ogni riga di tabellone: il ritardo lo dice la
+    // misura accanto, e un'ora già spostata più un +7 sarebbe contarlo due
+    // volte.
+    time: salita.scheduled || '',
     liveDelay: d.tracked ? (d.delay || 0) : undefined,
     platform: binario.platform || '',
     platformChanged: !!binario.platformScheduled,
     platformScheduled: binario.platformScheduled,
     platformActual: binario.platform,
-    arrival: scesa ? (scesa.actual || scesa.scheduled || '') : '',
+    arrival: scesa ? (scesa.scheduled || '') : '',
   };
 }
 
@@ -1556,8 +1581,8 @@ function schedaSeguito(t) {
 }
 
 /* La scheda di un treno seguito, aperta a tutta pagina: sopra le stesse tre
-   cose della riga in home, sotto il viaggio intero con gli orari a cui è
-   passato davvero e il binario di ogni fermata. */
+   cose della riga in home, sotto il viaggio intero con il ritardo a cui è
+   passato dalle fermate già servite e il binario di ognuna. */
 function disegnaTreno(t) {
   const k = chiaveTreno(t);
   const v = viaggiSeguiti.get(k);
@@ -1809,8 +1834,12 @@ function montaMappa(d, chiave) {
     mappa.centro = null;
   }
   posto.replaceWith(mappa.el);
+  aggiornaMappa(mappa, d);
+}
 
-  const m = mappa;
+/* Aggiorna una mappa già in pagina: il centro, i segni, le tile. È la parte
+   che una nuova posizione rifà da sola, senza rimontare niente. */
+function aggiornaMappa(m, d) {
   const fuoco = posizione && !posizione.errore
     ? { lat: posizione.lat, lon: posizione.lon }
     : (prossimaFermata(d) || (d.stops || [])[0] || null);
@@ -2688,8 +2717,14 @@ function bottoneSegui(d) {
   </p>`;
 }
 
-/* Le fermate secondo ViaggiaTreno: quelle già servite portano l'ora a cui il
-   treno ci è passato davvero, le altre solo quella prevista.
+/* Le fermate secondo ViaggiaTreno: l'ora prevista su tutte, e su quelle già
+   servite il ritardo con cui il treno ci è passato.
+
+   L'ora è sempre quella prevista, anche dove si conosce quella vera. Prima le
+   fermate passate portavano l'ora reale e il ritardo accanto, e la lista si
+   leggeva male: 18:40 +8 dice due volte la stessa cosa, e in mezzo alle altre
+   ore — previste — non si capiva più quale colonna si stesse leggendo. Con
+   l'ora prevista ferma il ritardo è l'unica cosa che cambia, e si vede.
 
    Non si prova a proiettare il ritardo sulle fermate future: ViaggiaTreno non
    lo fa — lì lascia zero, che è un campo non compilato e non una previsione — e
@@ -2714,9 +2749,8 @@ function elencoFermate(d, classe) {
     const classi = [];
     if (f.passed) classi.push('passata');
     if (f.chosen) classi.push('meta-scelta');
-    const ora = f.passed && f.actual
-      ? `${esc(f.actual)}${f.delay ? ` <small>${f.delay > 0 ? '+' : ''}${f.delay}</small>` : ''}`
-      : esc(f.scheduled);
+    const ora = esc(f.scheduled || f.actual || '') + (f.passed && f.delay
+      ? ` <small>${f.delay > 0 ? '+' : ''}${f.delay}</small>` : '');
     return `<li class="${classi.join(' ')}">
       <span>${esc(f.name)}</span>${conBinari ? binarioFermata(f) : ''}<time>${ora}</time></li>`;
   }).join('');
@@ -2819,7 +2853,7 @@ function alternaSeguitoDa(el) {
 app.addEventListener('click', (e) => {
   const t = e.target;
   if (t.closest('[data-ricentra]')) {
-    if (mappa) { mappa.seguiMe = true; aggiornaVista(); }
+    if (mappa) { mappa.seguiMe = true; aggiornaPosizione(); }
     return;
   }
   if (t.closest('[data-mappa]')) {
@@ -2938,6 +2972,16 @@ app.addEventListener('change', (e) => {
   const [i, quale] = el.dataset.ora.split(':');
   cambiaFasce((f) => { f[Number(i)][quale] = el.value; });
 });
+
+/* Niente zoom. La pagina è disegnata per la larghezza del telefono, e nello
+   zoom ci si finiva per sbaglio: il doppio tocco su una riga per aprirla, le
+   due dita mentre si trascina la mappa. La regola sta nel viewport e nel
+   foglio di stile; Safari su iOS ignora il primo fuori dall'app installata e
+   ha imparato tardi il secondo, quindi il gesto delle due dita si ferma anche
+   qui. Sono eventi solo di WebKit: altrove non arrivano e non fanno niente. */
+for (const gesto of ['gesturestart', 'gesturechange']) {
+  document.addEventListener(gesto, (e) => e.preventDefault(), { passive: false });
+}
 
 window.addEventListener('hashchange', cambiaRotta);
 // Prima della prima rotta: la home deve poter disegnare le schede seguite con

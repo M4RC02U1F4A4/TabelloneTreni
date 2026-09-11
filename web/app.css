@@ -63,6 +63,10 @@
    altrimenti prevale su quello del foglio di stile del browser per [hidden]. */
 [hidden] { display: none !important; }
 html, body { margin: 0; }
+/* Solo scorrimento, niente zoom: né con le due dita né col doppio tocco, che
+   su una lista di righe da toccare scattava da solo. La mappa non ne risente:
+   ha già il suo touch-action e il dito lì muove lei. */
+html { touch-action: pan-x pan-y; }
 body {
   background: var(--sfondo);
   color: var(--testo);

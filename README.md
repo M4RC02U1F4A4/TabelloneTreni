@@ -7,7 +7,7 @@ con l'orario a cui ci arrivano.
 
 - **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
 - **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
-- **toccando un treno si vede dov'è adesso**, con gli orari reali delle fermate che ha già servito
+- **toccando un treno si vede dov'è adesso**, con il ritardo a cui è passato da ogni fermata già servita
 - **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
 - **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. Toccandola si apre e si legge per intero
 - **i treni cancellati restano nella tratta**, con la scritta *soppresso*, anche quando RFI non pubblica le loro fermate — che è sempre, ed è il giorno di sciopero il giorno in cui serve saperlo
@@ -20,7 +20,7 @@ con l'orario a cui ci arrivano.
 |  |  |
 |:--|:--|
 | <img width="330" src="docs/home.png" alt="La home con quattro tratte fra i preferiti e le due voci per il tabellone di una stazione"> | <img width="330" src="docs/tratta.png" alt="I treni da Roma Termini che fermano a Roma Tiburtina, con il viaggio di un treno aperto"> |
-| **Le tratte salvate stanno in cima**, e si aprono con un tocco; sotto, il tabellone intero di una stazione, partenze o arrivi. | **Solo i treni che fermano dove vai**. Toccando il treno si apre il suo viaggio: dov'è adesso, e a che ora è passato davvero dalle fermate già servite. |
+| **Le tratte salvate stanno in cima**, e si aprono con un tocco; sotto, il tabellone intero di una stazione, partenze o arrivi. | **Solo i treni che fermano dove vai**. Toccando il treno si apre il suo viaggio: dov'è adesso, e con quanto ritardo è passato dalle fermate già servite. |
 | <img width="330" src="docs/tabellone.png" alt="Il tabellone completo delle partenze da Roma Termini, con i due ritardi affiancati su ogni treno"> | <img width="330" src="docs/ricerca.png" alt="La ricerca stazione con la corrispondenza evidenziata in mezzo al nome"> |
 | **Il tabellone completo**: binari, soppressioni, avvisi e i **due ritardi** affiancati, ambra il tabellone e ciano la misura sul treno. | **La ricerca** cerca dentro il nome, non solo all'inizio, e non tocca la rete. |
 
@@ -141,8 +141,10 @@ decidere dove andare.
 Il tabellone dice di quanto un treno è in ritardo. Quando il numero è grosso la
 domanda diventa un'altra — *ci arriva davvero?* — e la risposta è dove si trova
 adesso. Toccando la scheda di un treno, sopra le sue fermate compare l'ultimo
-punto in cui ViaggiaTreno l'ha visto, e le fermate già servite portano l'ora a
-cui ci è passato davvero invece di quella prevista.
+punto in cui ViaggiaTreno l'ha visto, e le fermate già servite portano accanto
+all'ora prevista il ritardo con cui il treno ci è passato. L'ora resta quella
+prevista su tutte le righe: spostarla sulle fermate passate e lasciarla ferma
+sulle altre faceva leggere due colonne diverse nella stessa lista.
 
 Costa una richiesta per treno su un servizio lento, quindi parte **solo quando
 la scheda si apre**: farla per tutti e quaranta i treni di un tabellone
