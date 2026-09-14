@@ -500,6 +500,8 @@ func (s *Server) viaggio(w http.ResponseWriter, r *http.Request) {
 	viaggio := viaggioJSON(a, s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from")), s.dovePassa)
 	if riga := s.rigaTabellone(r.Context(), da, q.Get("to"), numero); riga != nil {
 		viaggio["row"] = riga
+	} else if riga := s.rigaProssima(r.Context(), a, numero); riga != nil {
+		viaggio["nextRow"] = riga
 	}
 	rispondiViaggio(w, r, viaggio)
 }
@@ -538,24 +540,60 @@ func (s *Server) rigaTabellone(ctx context.Context, da int, a, numero string) *r
 	// che è cache dello stesso giro.
 	to, _ := strconv.Atoi(a)
 	for _, filtro := range [2]int{to, 0} {
-		res, err := s.svc.Get(ctx, da, false, filtro)
-		if err != nil {
-			// Il tabellone è il pezzo facoltativo di questa risposta: il
-			// viaggio c'è comunque, e un errore qui non deve togliere anche
-			// quello.
-			log.Printf("tabellone %d per il treno seguito %s: %v", da, numero, err)
-			return nil
-		}
-		for i := range res.Trains {
-			if strings.TrimSpace(res.Trains[i].Number) == numero {
-				return &res.Trains[i]
-			}
-		}
-		if filtro == 0 {
-			break
+		riga, err := s.rigaSu(ctx, da, false, filtro, numero)
+		if riga != nil || err != nil || filtro == 0 {
+			return riga
 		}
 	}
 	return nil
+}
+
+// rigaProssima è la riga del treno sul tabellone degli arrivi della prossima
+// fermata, per quando dal tabellone di partenza è già sparito.
+//
+// È la lettura di RFI che a chi sta sul treno serve: quella che la stazione
+// dove sta arrivando mostra a chi lo aspetta. Senza, la scheda passava da due
+// letture a una sola nel momento in cui il treno partiva, e la riga cambiava
+// forma. La riga di un tabellone arrivi però dice la provenienza e l'ora di
+// arrivo lì, non la destinazione e l'ora a cui si è saliti: sta in un campo
+// suo, e il client ne prende solo il ritardo.
+//
+// La prossima fermata è quella che ViaggiaTreno non dà ancora per servita. Se
+// il treno l'ha già passata — ViaggiaTreno arriva con calma — dal tabellone di
+// quella è sparito, e si resta con la sola misura sul treno: nil è normale.
+func (s *Server) rigaProssima(ctx context.Context, a *vt.Andamento, numero string) *rfi.Train {
+	if a == nil {
+		return nil
+	}
+	for _, f := range a.Fermate {
+		if f.Passata {
+			continue
+		}
+		st := s.catalogo.ByVT(f.Codice)
+		if st == nil {
+			return nil
+		}
+		riga, _ := s.rigaSu(ctx, st.ID, true, 0, numero)
+		return riga
+	}
+	return nil
+}
+
+// rigaSu cerca il treno su un tabellone. L'errore va a chi chiama perché è lui
+// a sapere se ha senso riprovare altrove: il tabellone è il pezzo facoltativo
+// di questa risposta — il viaggio c'è comunque — e qui si annota e basta.
+func (s *Server) rigaSu(ctx context.Context, da int, arrivi bool, filtro int, numero string) (*rfi.Train, error) {
+	res, err := s.svc.Get(ctx, da, arrivi, filtro)
+	if err != nil {
+		log.Printf("tabellone %d per il treno seguito %s: %v", da, numero, err)
+		return nil, err
+	}
+	for i := range res.Trains {
+		if strings.TrimSpace(res.Trains[i].Number) == numero {
+			return &res.Trains[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func rispondiViaggio(w http.ResponseWriter, r *http.Request, risposta map[string]any) {

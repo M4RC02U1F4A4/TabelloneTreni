@@ -1515,10 +1515,12 @@ function corpoSeguito(d, lettoIl) {
    motivo per cui la scheda in home e la riga in elenco ora si somigliano —
    sono lo stesso pezzo, non due che si assomigliano.
 
-   Partito, dal tabellone sparisce, e in quella forma non resta che la misura
-   sul treno, che a quel punto esiste. La si mette da sola, dichiarando che del
-   tabellone non si sa niente: inventare uno zero ambra vorrebbe dire far dire a
-   RFI che l'ha visto in orario. */
+   Partito, dal tabellone sparisce, e la lettura di RFI diventa quella che la
+   prossima fermata mostra sui suoi arrivi — la riga si compone qui, con l'ora
+   e il binario del viaggio, perché quella di un tabellone arrivi dice l'ora e
+   la provenienza di un altro posto. Se nemmeno quella c'è resta la misura sul
+   treno da sola, dichiarando che del tabellone non si sa niente: inventare uno
+   zero ambra vorrebbe dire far dire a RFI che l'ha visto in orario. */
 function rigaSeguita(d) {
   if (d.row) return d.row;
 
@@ -1527,8 +1529,12 @@ function rigaSeguita(d) {
   const prossima = prossimaFermata(d);
   const scesa = fermate.find((f) => f.chosen);
   const binario = prossima || salita;
+  const rfi = d.nextRow || {};
   return {
-    senzaRFI: true,
+    senzaRFI: !d.nextRow,
+    delay: rfi.delay,
+    status: rfi.status,
+    cancelled: rfi.cancelled,
     number: d.number,
     category: d.category,
     terminus: d.terminus,

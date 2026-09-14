@@ -316,14 +316,15 @@ assert.strictEqual(scheda({ row: vera }), vera, 'con la riga si usa la riga');
 
 // Partito: nessuna riga. L'ora è quella della fermata da cui si sale, non del
 // capolinea da cui il treno viene.
-const partito = scheda({
+const viaggioPartito = {
   tracked: true, delay: 7, number: '2536', category: 'REG', terminus: 'PORTO CERESIO',
   stops: [
     { name: 'LECCE', scheduled: '12:06', actual: '12:07', passed: true },
     { name: 'MILANO PORTA GARIBALDI', scheduled: '18:32', actual: '18:40', passed: true, boarding: true },
     { name: 'RHO FIERA', scheduled: '18:43', platform: '4', chosen: true },
   ],
-});
+};
+const partito = scheda(viaggioPartito);
 assert.strictEqual(partito.senzaRFI, true, 'dichiara che del tabellone non sa niente');
 assert.strictEqual(partito.time, '18:32', 'l\'ora è quella della salita, non dell\'origine');
 // E quella prevista, non quella a cui il treno è partito davvero: il ritardo
@@ -332,6 +333,16 @@ assert.notStrictEqual(partito.time, '18:40', 'l\'ora resta quella prevista');
 assert.strictEqual(partito.liveDelay, 7, 'porta la misura sul treno');
 assert.strictEqual(partito.platform, '4', 'il binario è quello della prossima fermata');
 assert.strictEqual(partito.arrival, '18:43', 'l\'arrivo è alla fermata scelta');
+
+// In corsa, il tabellone da leggere è quello degli arrivi alla prossima
+// fermata: il suo ritardo entra nella riga e la pastiglia torna a due letture,
+// come su ogni altra riga. L'ora e il binario restano quelli del viaggio.
+const inCorsa = scheda({ ...viaggioPartito, nextRow: { delay: 5, time: '18:43', platform: '3', terminus: 'LECCE' } });
+assert.strictEqual(inCorsa.senzaRFI, false, 'con la prossima fermata il tabellone si sa');
+assert.strictEqual(inCorsa.delay, 5, 'il ritardo RFI è quello della prossima fermata');
+assert.strictEqual(inCorsa.liveDelay, 7, 'e la misura sul treno resta accanto');
+assert.strictEqual(inCorsa.time, '18:32', 'l\'ora resta quella della salita');
+assert.strictEqual(inCorsa.platform, '4', 'il binario resta quello del viaggio');
 
 // Non rilevato e senza riga: nessuna misura da nessuna delle due parti, e non
 // se ne inventa una.
@@ -364,7 +375,7 @@ assert.match(pastiglie.scarti({ senzaRFI: true, liveDelay: 0 }, false),
   /misura puntuale/, 'in orario: né rosso né verde');
 assert.match(soloVT, /misura tardi/, 'in ritardo: rosso');
 
-console.log('scheda seguita: ok — 7 casi sulla riga + 8 sulle pastiglie');
+console.log('scheda seguita: ok — 12 casi sulla riga + 8 sulle pastiglie');
 
 /* ----------------------------------- le fermate: ora prevista più ritardo */
 

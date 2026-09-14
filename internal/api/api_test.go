@@ -33,11 +33,15 @@ func (sorgenteFinta) Fetch(ctx context.Context, placeID int, arrivals bool) (*rf
 func server() http.Handler { return serverCon("") }
 
 func serverCon(statoLinee string) http.Handler {
+	return serverSu(board.New(sorgenteFinta{}, stations.Default), statoLinee)
+}
+
+func serverSu(svc *board.Service, statoLinee string) http.Handler {
 	statici := fstest.MapFS{
 		"index.html":    {Data: []byte("<!doctype html><title>x</title>" + string(make([]byte, 2000)))},
 		"icona-180.png": {Data: []byte("\x89PNG\r\n\x1a\n" + string(make([]byte, 2000)))},
 	}
-	return New(board.New(sorgenteFinta{}, stations.Default), stations.Default, statici, "test", statoLinee).Handler()
+	return New(svc, stations.Default, statici, "test", statoLinee).Handler()
 }
 
 func chiedi(t *testing.T, h http.Handler, percorso string, intestazioni map[string]string) *http.Response {
@@ -398,6 +402,61 @@ func TestViaggioCoordinateAccettate(t *testing.T) {
 	}
 	if d["tracked"] != false {
 		t.Errorf("tracked = %v, atteso false", d["tracked"])
+	}
+}
+
+// Una ViaggiaTreno finta che risponde sempre lo stesso viaggio.
+type liveFinto struct{ a *vt.Andamento }
+
+func (liveFinto) Treni(context.Context, string, bool) (map[string]vt.Treno, error) {
+	return nil, nil
+}
+func (l liveFinto) Andamento(context.Context, string, string, int64) (*vt.Andamento, error) {
+	return l.a, nil
+}
+
+// Una RFI finta su cui il treno 2536 compare solo sugli arrivi di Rogoredo:
+// da Centrale, il tabellone da cui lo si segue, è già partito.
+type sorgenteInCorsa struct{}
+
+func (sorgenteInCorsa) Fetch(ctx context.Context, placeID int, arrivals bool) (*rfi.Board, error) {
+	b := &rfi.Board{PlaceID: placeID, Station: "PROVA", Arrivals: arrivals}
+	if placeID == 1720 && arrivals {
+		b.Trains = []rfi.Train{{Number: "2536", Time: "18:50", Terminus: "MILANO CENTRALE", Delay: 5}}
+	}
+	return b, nil
+}
+
+// Partito dal tabellone da cui lo si segue, la lettura di RFI non sparisce: è
+// quella che la prossima fermata mostra sui suoi arrivi. Arriva in un campo
+// suo, perché quella riga dice l'ora e la provenienza di un tabellone arrivi e
+// il client di lei deve leggere solo il ritardo.
+func TestInCorsaIlRitardoRFIELaProssimaFermata(t *testing.T) {
+	a := &vt.Andamento{Stazione: "MILANO CENTRALE", Fermate: []vt.Fermata{
+		{Codice: "S01700", Nome: "MILANO CENTRALE", Passata: true},
+		{Codice: "S01820", Nome: "MILANO ROGOREDO"},
+		{Codice: "S01605", Nome: "CREMA"},
+	}}
+	h := serverSu(board.New(sorgenteInCorsa{}, stations.Default).ConLive(liveFinto{a}), "")
+	oggi := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	res := chiedi(t, h, "/api/journey?origin=S01700&number=2536&date="+oggi+"&from=1728", nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("stato = %d, atteso 200", res.StatusCode)
+	}
+	var d map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	if _, c := d["row"]; c {
+		t.Error("row presente: il treno non è più sul tabellone di partenza")
+	}
+	next, ok := d["nextRow"].(map[string]any)
+	if !ok {
+		t.Fatal("nextRow assente: il ritardo degli arrivi alla prossima fermata non è arrivato")
+	}
+	if next["delay"] != float64(5) {
+		t.Errorf("nextRow.delay = %v, atteso 5", next["delay"])
 	}
 }
 
