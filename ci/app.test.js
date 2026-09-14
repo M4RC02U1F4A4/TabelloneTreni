@@ -628,3 +628,63 @@ new Function('scaricaViaggio', `
 assert.deepStrictEqual(chieste, ['24564'], 'si rilegge solo la scheda ancora in lista');
 
 console.log('viaggio della scheda: ok — 6 casi sulla rilettura + 2');
+
+/* ------------------------------------------- il toggle di un <details> */
+
+/* Un toggle che non viene da un dito.
+
+   Ogni ridisegno rifà il contenuto della pagina da capo, e un <details> che
+   nasce già aperto annuncia un toggle come se qualcuno l'avesse appena
+   toccato. Chiesto il viaggio, la risposta ridisegna, il ridisegno rifà il
+   <details> aperto, e quel toggle chiede di nuovo il viaggio: la pagina va in
+   tondo a centinaia di richieste al minuto e si ricostruisce sotto le dita più
+   in fretta di quanto ci metta un tocco a diventare un click — niente tasto
+   indietro, niente "Segui questo treno". Il controllo è che un toggle che dice
+   quello che si sapeva già non è un gesto. */
+
+function toggli() {
+  class Dettagli {
+    constructor(dataset, open) { this.dataset = dataset; this.open = open; }
+  }
+  const chiesti = { viaggi: [], avvisi: [] };
+  const app = { ascoltatori: {}, addEventListener(t, f) { this.ascoltatori[t] = f; } };
+  new Function('app', 'HTMLDetailsElement', 'aperti', 'lineeAperte',
+    'scaricaViaggio', 'scaricaAvvisi', `
+    let avvisiStazioneAperti = false, scioperiAperti = false;
+    ${ritaglia('/* `toggle` non fa bubbling', 'testa.addEventListener(\'click\'')}`)(
+    app, Dettagli, aperti, lineeAperte,
+    (n) => chiesti.viaggi.push(n), (c) => chiesti.avvisi.push(c));
+  return {
+    chiesti,
+    tocca: (dataset, open) => app.ascoltatori.toggle({ target: new Dettagli(dataset, open) }),
+  };
+}
+
+const aperti = new Set();
+const lineeAperte = new Set();
+const t = toggli();
+
+// Il dito: la scheda si apre, il viaggio si chiede.
+t.tocca({ treno: '24562' }, true);
+assert.deepStrictEqual(t.chiesti.viaggi, ['24562'], 'il tocco chiede il viaggio');
+assert.ok(aperti.has('24562'), 'la scheda aperta resta segnata');
+
+// Il ridisegno: lo stesso <details>, di nuovo aperto, non chiede niente.
+t.tocca({ treno: '24562' }, true);
+t.tocca({ treno: '24562' }, true);
+assert.deepStrictEqual(t.chiesti.viaggi, ['24562'], 'il ridisegno non richiede il viaggio');
+
+// E chiuderla vale ancora, come riaprirla dopo.
+t.tocca({ treno: '24562' }, false);
+assert.ok(!aperti.has('24562'), 'la scheda chiusa si dimentica');
+t.tocca({ treno: '24562' }, true);
+assert.deepStrictEqual(t.chiesti.viaggi, ['24562', '24562'], 'riaperta si rilegge');
+
+// Le stesse regole sulla riga di una linea, dove il giro lo faceva una lettura
+// degli avvisi fallita: quella si rifà a ogni apertura, e un'apertura falsa
+// bastava a rifarla per sempre.
+t.tocca({ linea: 'S2' }, true);
+t.tocca({ linea: 'S2' }, true);
+assert.deepStrictEqual(t.chiesti.avvisi, ['S2'], 'il ridisegno non richiede gli avvisi');
+
+console.log('toggle dei <details>: ok — il ridisegno non si scambia per un tocco');

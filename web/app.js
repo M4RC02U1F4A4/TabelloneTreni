@@ -2928,25 +2928,43 @@ app.addEventListener('input', (e) => {
   disegnaElencoLinee();
 });
 
-// `toggle` non fa bubbling: si ascolta in fase di cattura sul contenitore.
+/* `toggle` non fa bubbling: si ascolta in fase di cattura sul contenitore.
+
+   E non arriva solo da un dito. Ogni ridisegno rifà il contenitore da capo, e
+   un <details> che nasce già aperto — perché lo si era aperto prima, e il
+   disegno lo rispetta — annuncia un toggle come se qualcuno l'avesse appena
+   toccato. Un toggle che dice quello che si sapeva già non è un gesto: è la
+   pagina che si rilegge addosso quello che aveva scritto lei, e va ignorato.
+
+   Senza questo controllo la scheda di un treno aperta sul tabellone mandava la
+   pagina in tondo: il toggle rileggeva il viaggio, la risposta ridisegnava, il
+   ridisegno rifaceva il <details> aperto e ne usciva un altro toggle, cioè un
+   altro viaggio da rileggere — centinaia di richieste al minuto, e la pagina
+   ricostruita sotto le dita così in fretta che nessun tocco arrivava più a
+   diventare un click: né il tasto per tornare indietro, né "Segui questo
+   treno". Lo stesso giro lo faceva una linea la cui lettura degli avvisi era
+   fallita, che si rifà a ogni apertura. */
 app.addEventListener('toggle', (e) => {
   const d = e.target;
-  if (d instanceof HTMLDetailsElement && 'avvisi' in d.dataset) {
+  if (!(d instanceof HTMLDetailsElement)) return;
+  if ('avvisi' in d.dataset) {
     avvisiStazioneAperti = d.open;
     return;
   }
-  if (d instanceof HTMLDetailsElement && 'scioperi' in d.dataset) {
+  if ('scioperi' in d.dataset) {
     scioperiAperti = d.open;
     return;
   }
-  if (d instanceof HTMLDetailsElement && d.dataset.linea) {
+  if (d.dataset.linea) {
     const codice = d.dataset.linea;
+    if (d.open === lineeAperte.has(codice)) return;
     if (d.open) { lineeAperte.add(codice); scaricaAvvisi(codice); }
     else lineeAperte.delete(codice);
     return;
   }
-  if (!(d instanceof HTMLDetailsElement) || !d.dataset.treno) return;
+  if (!d.dataset.treno) return;
   const numero = d.dataset.treno;
+  if (d.open === aperti.has(numero)) return;
   if (d.open) {
     aperti.add(numero);
     scaricaViaggio(numero);
