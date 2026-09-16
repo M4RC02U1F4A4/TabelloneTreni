@@ -158,6 +158,11 @@ let scioperiAperti = false;
 let timerRinfresco = null;
 let timerEta = null;
 let richiestaInCorso = 0;
+// L'ultimo ritorno in primo piano, per non rileggere due volte quando il
+// telefono manda più di un evento per lo stesso rientro. Vedi alRientro().
+// Parte da adesso perché l'apertura della pagina è già una lettura: il `focus`
+// che arriva subito dopo non deve rifarla.
+let ultimoRientro = Date.now();
 
 const nomeStazione = (id) => stato.nomi.get(id) || `stazione ${id}`;
 
@@ -580,11 +585,16 @@ async function caricaLinee() {
 
    Un tentativo andato bene non si butta per uno andato male: la rete di un
    treno in corsa cade a tratti, e l'ultima posizione nota è più utile di una
-   scheda che si svuota ogni volta che si entra in galleria. */
+   scheda che si svuota ogni volta che si entra in galleria.
+
+   Torna vero solo se la lettura è arrivata davvero, ed è quello che decide se
+   l'orologio del dato può ripartire. Senza, un giro andato a vuoto rimetteva la
+   barretta piena e faceva passare la posizione di prima per quella di adesso:
+   la pagina sembrava aggiornarsi proprio nei momenti in cui non lo faceva. */
 async function caricaViaggioSeguito(t, forza) {
   const k = chiaveTreno(t);
   const gia = viaggiSeguiti.get(k);
-  if (!forza && gia && gia.stato !== 'errore') return;
+  if (!forza && gia && gia.stato !== 'errore') return false;
   if (!gia) viaggiSeguiti.set(k, { stato: 'attesa' });
   // La destinazione la sa solo il segnalibro: nella rotta `#/t/o/n/d` ci sono
   // le tre coordinate e basta, e un viaggio chiesto da lì tornava senza la
@@ -596,7 +606,7 @@ async function caricaViaggioSeguito(t, forza) {
     : { ...t, a: t.a || (salvato && salvato.a), f: t.f || (salvato && salvato.f) };
   try {
     const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(15_000) });
-    if (controllaVersione(r)) return;
+    if (controllaVersione(r)) return false;
     if (!r.ok) throw new Error(`errore ${r.status}`);
     const d = await r.json();
     viaggiSeguiti.set(k, { stato: 'ok', dati: d, lettoIl: Date.now() });
@@ -608,10 +618,12 @@ async function caricaViaggioSeguito(t, forza) {
     // sparire è solo la mezz'ora di attesa, che teneva in lista un viaggio
     // finito per nessuno.
     if (d.arrived) smettiDiSeguire(k);
+    return true;
   } catch {
     // L'ultima lettura buona resta, in memoria e su disco: su un treno la rete
     // cade a tratti, e la posizione di un minuto fa vale più di una riga vuota.
     if (!gia || gia.stato !== 'ok') viaggiSeguiti.set(k, { stato: 'errore' });
+    return false;
   }
 }
 
@@ -622,8 +634,11 @@ async function aggiornaSeguiti(forza) {
   potaSeguiti();
   const elenco = seguiti();
   if (!elenco.length) return;
-  await Promise.all(elenco.map((t) => caricaViaggioSeguito(t, forza)));
-  stato.scaricatoIl = Date.now();
+  const esiti = await Promise.all(elenco.map((t) => caricaViaggioSeguito(t, forza)));
+  // Basta un treno letto perché il giro sia servito a qualcosa; se non ne è
+  // arrivato nessuno l'ora dell'ultima lettura resta quella vera, e la barretta
+  // resta a fondo corsa invece di ripartire su un dato che non è cambiato.
+  if (esiti.some(Boolean)) stato.scaricatoIl = Date.now();
 }
 
 /* Gli avvisi delle stazioni preferite: gli ascensori guasti, i lavori che per
@@ -961,9 +976,9 @@ async function cambiaRotta() {
   if (r.vista === 'treno') {
     stato.errore = null;
     disegna();
-    await caricaViaggioSeguito(r.treno, true);
+    const letto = await caricaViaggioSeguito(r.treno, true);
     if (leggiRotta().vista !== 'treno') return;
-    stato.scaricatoIl = Date.now();
+    if (letto) stato.scaricatoIl = Date.now();
     disegna();
     avviaTimer(rilettura(r.treno));
     return;
@@ -989,20 +1004,15 @@ async function cambiaRotta() {
     // far aspettare la home.
     potaSeguiti();
     disegna();
-    if (seguiti().length) {
-      // Un treno in corsa si muove: la home smette di essere una pagina ferma
-      // e si aggiorna al minuto come un tabellone, ma solo quando c'è qualcosa
-      // da aggiornare.
-      avviaTimer(() => aggiornaSeguiti(true).then(() => {
-        if (leggiRotta().vista === 'home') disegna();
-      }));
-      aggiornaSeguiti(true).then(() => { if (leggiRotta().vista === 'home') disegna(); });
-    }
-    // I bollini arrivano da un secondo servizio e non devono far aspettare la
-    // home: si ridisegna quando ci sono, e solo se nel frattempo non si è
-    // andati altrove.
-    Promise.all([caricaLinee(), caricaAvvisiStazione(), chiaveNotifiche().catch(() => {})])
-      .then(() => { if (leggiRotta().vista === 'home') disegna(); });
+    // La home si rilegge al minuto come un tabellone. Prima il timer partiva
+    // solo con un treno seguito, e senza restava tutto fermo: il semaforo delle
+    // linee e gli avvisi di stazione erano quelli di quando si era entrati,
+    // mentre la pagina delle linee, a un tocco di distanza, era al minuto.
+    avviaTimer(rinfrescaHome);
+    rinfrescaHome();
+    // La chiave per le notifiche non invecchia: si chiede una volta e basta.
+    chiaveNotifiche().then(() => { if (leggiRotta().vista === 'home') disegna(); })
+      .catch(() => {});
     return;
   }
 
@@ -1019,6 +1029,21 @@ async function cambiaRotta() {
   caricaStazioni().catch(() => {});
   await caricaTabellone();
   avviaTimer(caricaTabellone);
+}
+
+/* Quello che in home invecchia: i treni seguiti, i bollini delle linee e gli
+   avvisi delle stazioni preferite. Lo rilegge il timer al minuto e il rientro
+   sull'app, che sono lo stesso bisogno.
+
+   I due gruppi restano separati, come prima: i bollini arrivano da un secondo
+   servizio e non devono far aspettare le schede dei treni, che sono la parte
+   della home che si guarda di corsa. */
+function rinfrescaHome() {
+  const ridisegna = () => { if (leggiRotta().vista === 'home') disegna(); };
+  aggiornaSeguiti(true).then(ridisegna);
+  // Il server tiene gli avvisi dieci minuti e le linee hanno l'ETag: un giro al
+  // minuto costa due 304 e non due pagine di RFI.
+  Promise.all([caricaLinee(), caricaAvvisiStazione()]).then(ridisegna);
 }
 
 /* ------------------------------------------------------------------ timer */
@@ -1041,35 +1066,30 @@ function fermaTimer() {
   clearInterval(timerEta); timerEta = null;
 }
 
-document.addEventListener('visibilitychange', () => {
+/* Il rientro sull'app: quello che il timer avrebbe fatto mentre la pagina era
+   in secondo piano, e che non ha fatto perché lì il timer sta fermo. */
+function alRientro() {
   if (document.visibilityState !== 'visible') return;
+  // Fra i tre eventi qui sotto, tornare sull'app ne accende spesso due: senza
+  // questa soglia la stessa lettura partirebbe in doppia copia a ogni rientro.
+  if (Date.now() - ultimoRientro < 2_000) return;
+  ultimoRientro = Date.now();
   const vista = leggiRotta().vista;
+
+  // In home il giro è lo stesso del timer: treni seguiti, bollini e avvisi.
+  if (vista === 'home') { rinfrescaHome(); return; }
 
   // I bollini non hanno un timer che gira: senza questo, riaprendo l'app si
   // vedrebbe lo stato di quando la si è chiusa, che per un semaforo è peggio
   // che non vederlo. L'ETag rende la richiesta quasi gratis quando non è
   // cambiato niente.
-  if (vista === 'home' || vista === 'linee') {
-    // Gli avvisi di stazione stanno solo in home. Il server li tiene dieci
-    // minuti, quindi rifarne la richiesta a ogni ritorno sull'app costa una
-    // 304 e non una pagina di RFI.
-    const attese = [caricaLinee()];
-    if (vista === 'home') attese.push(caricaAvvisiStazione());
-    Promise.all(attese).then(() => { if (leggiRotta().vista === vista) disegna(); });
-    // Un treno seguito è la cosa che invecchia più in fretta di tutte: chi
-    // riapre l'app dopo dieci minuti vuole sapere dov'è adesso, non dov'era
-    // quando l'ha chiusa.
-    if (vista === 'home') {
-      aggiornaSeguiti(true).then(() => { if (leggiRotta().vista === 'home') disegna(); });
-    }
+  if (vista === 'linee') {
+    caricaLinee().then(() => { if (leggiRotta().vista === 'linee') disegna(); });
     return;
   }
 
   if (vista === 'treno') {
-    const t = leggiRotta().treno;
-    caricaViaggioSeguito(t, true).then(() => {
-      if (leggiRotta().vista === 'treno') { stato.scaricatoIl = Date.now(); disegna(); }
-    });
+    rilettura(leggiRotta().treno)();
     return;
   }
 
@@ -1078,7 +1098,15 @@ document.addEventListener('visibilitychange', () => {
   // invece di aspettare il prossimo giro.
   if (Date.now() - stato.scaricatoIl > RINFRESCO / 2) caricaTabellone();
   else aggiornaEta();
-});
+}
+
+/* Tre eventi per la stessa cosa, perché nessuno dei tre arriva sempre. Su iOS
+   l'app installata torna in primo piano a volte senza `visibilitychange`, e
+   quando il sistema l'aveva congelata torna con `pageshow`: con il solo primo
+   evento si riapriva l'app e si vedeva, ferma, la schermata di ore prima. Una
+   lettura in più non si vede, una mancata sì. */
+document.addEventListener('visibilitychange', alRientro);
+for (const evento of ['pageshow', 'focus']) window.addEventListener(evento, alRientro);
 
 /* Quanto è vecchio il dato, e quanto manca alla prossima lettura.
 
@@ -1142,8 +1170,10 @@ function barraCiclo() {
 }
 
 /* La rilettura di un treno seguito, che il timer rifà una volta al minuto. */
-const rilettura = (treno) => () => caricaViaggioSeguito(treno, true).then(() => {
-  if (leggiRotta().vista === 'treno') { stato.scaricatoIl = Date.now(); disegna(); }
+const rilettura = (treno) => () => caricaViaggioSeguito(treno, true).then((letto) => {
+  if (leggiRotta().vista !== 'treno') return;
+  if (letto) stato.scaricatoIl = Date.now();
+  disegna();
 });
 
 function eta() {
@@ -1172,11 +1202,10 @@ function disegna() {
 }
 
 function disegnaHome() {
-  /* La barretta del minuto anche qui, e solo quando c'è un treno seguito: è
-     l'unica cosa della home che si rilegge da sola: i bollini delle linee e gli
-     avvisi di stazione si rifanno tornando sull'app, non a tempo. Senza treni
-     seguiti la home è ferma, e una barretta che conta un giro che non arriva
-     sarebbe una bugia.
+  /* La barretta del minuto anche qui, e solo quando c'è un treno seguito.
+     Tutta la home si rilegge al minuto, bollini e avvisi compresi, ma la
+     barretta conta l'età di un dato e l'unico dato datato qui sono le schede
+     seguite: senza, conterebbe un giro di cui non si vede niente.
 
      Sta sotto l'intestazione come sul tabellone, cioè appena sopra le schede
      seguite, che sono la prima sezione e quelle che conta. */
@@ -1264,9 +1293,27 @@ function sezioneSeguiti() {
   if (!elenco.length) return '';
   return `<section class="sezione">
     <div class="testa-sezione"><h2 class="etichetta-sezione">Treni seguiti</h2></div>
-    <ul>${elenco.map(schedaSeguito).join('')}</ul>
+    <ul>${elenco.sort(perOraDiSalita).map(schedaSeguito).join('')}</ul>
   </section>`;
 }
+
+/* L'ora in cui si sale, cioè quella della fermata da cui il treno è stato
+   seguito e non quella del capolinea da cui viene: è la stessa che la scheda
+   scrive grande, e il solo momento che chi segue quel treno ha in testa. */
+const oraDiSalita = (t) => {
+  const v = viaggiSeguiti.get(chiaveTreno(t));
+  // Finché il viaggio non è arrivato l'ora non si sa: quelle schede vanno in
+  // fondo, dove si muoveranno di poco quando la lettura le daterà.
+  return (v && v.stato === 'ok' && rigaSeguita(v.dati).time) || '99:99';
+};
+
+/* In ordine di partenza, non in ordine di salvataggio: si seguono i treni di
+   una giornata, e in cima va quello che si prende prima.
+
+   Il giorno viene per primo perché l'ora è un "HH:MM" senza data: seguendo
+   l'ultimo treno di stasera e il primo di domattina, le sole cifre metterebbero
+   domattina davanti. */
+const perOraDiSalita = (x, y) => x.d - y.d || oraDiSalita(x).localeCompare(oraDiSalita(y));
 
 const etichettaTreno = (d) => {
   const etichetta = esc([d.category, d.number].filter(Boolean).join(' ')) || 'treno';

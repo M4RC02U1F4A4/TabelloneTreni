@@ -377,6 +377,50 @@ assert.match(soloVT, /misura tardi/, 'in ritardo: rosso');
 
 console.log('scheda seguita: ok — 12 casi sulla riga + 8 sulle pastiglie');
 
+/* ------------------------------- l'ordine delle schede seguite in home */
+
+/* Si ordinano per l'ora in cui si sale — quella della stazione da cui il treno
+   è stato seguito — e non per quando li si è salvati: in cima va quello che si
+   prende prima. */
+const viaggiSeguiti = new Map();
+const ordina = new Function('viaggiSeguiti', 'chiaveTreno', 'rigaSeguita', `
+  ${ritaglia('const oraDiSalita', '/* La scheda di un treno seguito, aperta')}
+  return perOraDiSalita;`)(viaggiSeguiti, (t) => `${t.o}|${t.n}|${t.d}`, scheda);
+
+const giorno = Date.UTC(2026, 8, 15);
+const salito = (o, ora) => {
+  const t = { o, n: o, d: giorno };
+  if (ora) {
+    viaggiSeguiti.set(`${o}|${o}|${giorno}`, { stato: 'ok', dati: { row: { time: ora } } });
+  }
+  return t;
+};
+
+// Salvati alla rinfusa, letti in ordine di partenza.
+const seguiti = [salito('c', '19:10'), salito('a', '07:42'), salito('b', '18:32')];
+assert.deepStrictEqual(seguiti.slice().sort(ordina).map((t) => t.o), ['a', 'b', 'c'],
+  'in ordine di salita, non di salvataggio');
+
+// Quello di cui non è ancora arrivato il viaggio non ha un'ora: va in fondo,
+// non in cima, perché una scheda vuota davanti a un treno reale sarebbe il
+// contrario di quello che serve.
+const conIgnoto = [salito('z'), salito('a', '07:42')];
+assert.deepStrictEqual(conIgnoto.slice().sort(ordina).map((t) => t.o), ['a', 'z'],
+  'senza viaggio in fondo');
+
+// A cavallo della mezzanotte comanda il giorno di partenza: le sole cifre
+// dell'ora metterebbero il primo di domattina davanti all'ultimo di stasera.
+const notte = [
+  { o: 'domattina', n: '1', d: giorno + 86_400_000 },
+  { o: 'stasera', n: '2', d: giorno },
+];
+viaggiSeguiti.set(`domattina|1|${giorno + 86_400_000}`, { stato: 'ok', dati: { row: { time: '06:05' } } });
+viaggiSeguiti.set(`stasera|2|${giorno}`, { stato: 'ok', dati: { row: { time: '23:50' } } });
+assert.deepStrictEqual(notte.slice().sort(ordina).map((t) => t.o), ['stasera', 'domattina'],
+  'prima il giorno, poi l\'ora');
+
+console.log('ordine dei seguiti: ok — 3 casi');
+
 /* ----------------------------------- le fermate: ora prevista più ritardo */
 
 /* L'ora di una fermata è sempre quella prevista. Su quelle già servite il
