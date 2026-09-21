@@ -42,6 +42,9 @@ type Servizio struct {
 	registro     *Registro
 	abbonati     *Abbonati
 	notificatore *Notificatore
+	// Da dove si leggono i treni seguiti. Nil: il servizio fa tutto il resto
+	// come prima, e OsservaTreni non parte. Vedi ConTreni.
+	treni SorgenteTreni
 
 	// Le comunicazioni si chiedono anche a richiesta, quando qualcuno apre una
 	// riga. Una voce per linea con il suo lucchetto, come fa il tabellone con

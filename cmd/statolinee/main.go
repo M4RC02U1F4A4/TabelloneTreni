@@ -1,9 +1,15 @@
 // Comando statolinee segue lo stato di circolazione delle linee Trenord e lo
-// espone al tabellone, che glielo chiede via HTTP.
+// espone al tabellone, che glielo chiede via HTTP; e segue i treni che le
+// persone hanno messo fra i seguiti, per avvisarle sul telefono a ogni
+// rilevamento di ViaggiaTreno finché il treno non arriva dove salgono.
 //
-// È un servizio a sé perché interroga Trenord a ritmo suo e una volta sola per
-// tutti, mentre il tabellone risponde a ogni telefono: se stesse dentro,
-// scalare l'uno moltiplicherebbe le richieste dell'altro.
+// È un servizio a sé perché interroga le due fonti a ritmo suo e una volta
+// sola per tutti, mentre il tabellone risponde a ogni telefono: se stesse
+// dentro, scalare l'uno moltiplicherebbe le richieste dell'altro. È anche il
+// solo posto dove stanno le chiavi VAPID, e un service worker ha una sola
+// iscrizione push: le notifiche partono tutte da qui o non partono.
+//
+// Il nome è rimasto quello delle linee, che erano la prima cosa che faceva.
 package main
 
 import (
@@ -19,6 +25,7 @@ import (
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/statolinee"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/trenord"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
 
 var versione = "dev"
@@ -53,8 +60,13 @@ func main() {
 		log.Print("DATI non impostata: chiavi e abbonamenti si perdono al riavvio")
 	}
 
-	svc := statolinee.Nuovo(trenord.NewClient()).ConNotifiche(abbonati, notificatore)
+	svc := statolinee.Nuovo(trenord.NewClient()).
+		ConNotifiche(abbonati, notificatore).
+		ConTreni(vt.NewClient())
 	go svc.Osserva(ctx)
+	// Secondo osservatore, ritmo suo: i treni seguiti si rileggono ogni minuto,
+	// i bollini ogni cinque. Vedi OsservaTreni.
+	go svc.OsservaTreni(ctx)
 
 	srv := &http.Server{
 		Addr:              indirizzo(),
@@ -63,8 +75,8 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
-		log.Printf("statolinee %s in ascolto su %s (letture ogni %s)",
-			versione, srv.Addr, statolinee.Intervallo)
+		log.Printf("statolinee %s in ascolto su %s (linee ogni %s, treni seguiti ogni %s)",
+			versione, srv.Addr, statolinee.Intervallo, statolinee.IntervalloTreni)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}

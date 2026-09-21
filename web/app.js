@@ -474,6 +474,18 @@ const daSeguire = (d, a, f) => ({
   ...(f ? { f } : {}),
 });
 
+/* Come un treno seguito si presenta al server, che lo deve poter chiedere a
+   ViaggiaTreno per conto suo mentre l'app è chiusa.
+
+   Sono gli stessi quattro campi, con i nomi che usa il server: le tre
+   coordinate del viaggio e la stazione da cui si sale, che è dove le notifiche
+   devono smettere. `f` può mancare — un treno seguito da una rotta senza
+   tabellone sotto — e zero là significa "non lo sappiamo": il server allora
+   avvisa fino al capolinea invece di smettere prima. */
+const perIlServer = (t) => ({
+  origin: t.o, number: String(t.n), date: t.d, from: Number(t.f) || 0,
+});
+
 /* Un treno seguito si toglie da sé, in due momenti.
 
    Il primo lo dice il server con `ended`, mezz'ora dopo l'arrivo: prima no,
@@ -706,8 +718,9 @@ function byteDaBase64url(s) {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
-/* Manda al server l'elenco aggiornato delle linee seguite. Un elenco vuoto
-   cancella l'abbonamento: è lo stesso gesto visto dall'altra parte.
+/* Manda al server l'elenco aggiornato delle linee e dei treni seguiti. Vuoti
+   tutti e due, l'abbonamento si cancella: è lo stesso gesto visto dall'altra
+   parte.
 
    `permesso` è la promessa di Notification.requestPermission(), che il gestore
    del tocco ha già lanciato: su iOS quella chiamata vale solo dentro il gesto,
@@ -717,6 +730,15 @@ async function sincronizzaNotifiche(permesso) {
   if (statoNotifiche() !== 'concesso') { aggiornaVista(); return; }
 
   const linee = campanelle();
+  // I treni si mandano con le tre coordinate di ViaggiaTreno più la stazione
+  // da cui si sale, che è dove il server deve smettere di avvisare. Sono i
+  // campi che `daSeguire` salva già: qui si rinominano e basta.
+  //
+  // Si manda anche un treno su cui si è già saliti — il segnalibro resta fino
+  // a `ended` o alle 36 ore, il server lo toglie prima. Non è un problema: al
+  // primo giro lo trova già passato dalla fermata di salita, tace e lo
+  // ributta fuori. Una lettura, condivisa con chiunque altro segua quel treno.
+  const treni = seguiti().map(perIlServer);
   // Una fascia a metà non si manda: il server la rifiuterebbe, e chi la stava
   // scrivendo vedrebbe un errore invece della riga che gli dice cosa manca.
   if (!fasceValide()) {
@@ -728,9 +750,10 @@ async function sincronizzaNotifiche(permesso) {
     const reg = await navigator.serviceWorker.ready;
     let abbonamento = await reg.pushManager.getSubscription();
     if (!abbonamento) {
-      // Senza campanelle accese non c'è niente da registrare, e non è il caso
-      // di prendersi un abbonamento per poi cancellarlo subito.
-      if (!linee.length) { notificheErrore = null; aggiornaVista(); return; }
+      // Senza campanelle accese e senza treni da aspettare non c'è niente da
+      // registrare, e non è il caso di prendersi un abbonamento per poi
+      // cancellarlo subito.
+      if (!linee.length && !treni.length) { notificheErrore = null; aggiornaVista(); return; }
       const chiave = await chiaveNotifiche();
       // Il server senza chiavi non è un guasto: è una configurazione che manca,
       // e lo dice la nota in cima all'elenco senza allarmare nessuno.
@@ -749,6 +772,7 @@ async function sincronizzaNotifiche(permesso) {
       body: JSON.stringify({
         subscription: abbonamento,
         lines: linee,
+        trains: treni,
         windows: fasce().filter(fasciaCompleta).map((f) => ({
           days: f.giorni, from: f.da, to: f.a,
         })),
@@ -2896,11 +2920,22 @@ async function scaricaViaggio(numero) {
 function alternaSeguitoDa(el) {
   const t = JSON.parse(el.dataset.segui);
   alternaSeguito(t);
+  const seguo = eSeguito(t);
+  // Il permesso si chiede qui e non dentro sincronizzaNotifiche: su iOS vale
+  // solo se la chiamata parte durante il tocco, e dopo un await il tocco non
+  // c'è più. È la stessa cosa che fa la campanella di una linea.
+  //
+  // Seguire un treno è il gesto che dice "avvisami": chiederlo qui evita che
+  // chi non ha mai acceso una campanella metta il segnalibro e non riceva mai
+  // niente senza capire perché.
+  const permesso = seguo && statoNotifiche() === 'da-chiedere'
+    ? Notification.requestPermission() : null;
   // Appena seguito, il viaggio si scarica subito: tornando in home la scheda
   // dev'essere già piena, non ancora in attesa. Il server lo tiene in cache
   // trenta secondi, quindi è la stessa lettura appena fatta.
-  if (eSeguito(t)) caricaViaggioSeguito(t).then(disegna);
+  if (seguo) caricaViaggioSeguito(t).then(disegna);
   disegna();
+  sincronizzaNotifiche(permesso);
 }
 
 app.addEventListener('click', (e) => {
@@ -3065,7 +3100,8 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
     // Riallinea l'abbonamento a ogni avvio: il servizio potrebbe averlo perso,
-    // e chi ha una campanella accesa non deve accorgersene.
-    if (campanelle().length) sincronizzaNotifiche();
+    // e chi ha una campanella accesa o un treno da aspettare non deve
+    // accorgersene.
+    if (campanelle().length || seguiti().length) sincronizzaNotifiche();
   });
 }

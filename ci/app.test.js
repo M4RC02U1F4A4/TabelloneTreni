@@ -743,3 +743,30 @@ t.tocca({ linea: 'S2' }, true);
 assert.deepStrictEqual(t.chiesti.avvisi, ['S2'], 'il ridisegno non richiede gli avvisi');
 
 console.log('toggle dei <details>: ok — il ridisegno non si scambia per un tocco');
+
+/* ------------------------------------- i treni seguiti, come li vede il server */
+
+/* Il rinomino dei campi è un contratto fra due linguaggi: qui i nomi li scrive
+   perIlServer, di là li dichiarano i tag json di TrenoSeguito. Se uno dei due
+   cambia da solo, il campo arriva vuoto e il server segue il treno sbagliato —
+   o nessuno — senza che niente si lamenti. Questo controllo li confronta. */
+const perIlServer = new Function(
+  `${ritaglia('const perIlServer', '/* Un treno seguito si toglie')}; return perIlServer;`)();
+
+const seguitoFinto = { o: 'S01700', n: 2247, d: 1788645600000, f: '1715', cat: 'RE' };
+assert.deepStrictEqual(perIlServer(seguitoFinto), {
+  origin: 'S01700', number: '2247', date: 1788645600000, from: 1715,
+});
+// Senza tabellone sotto non c'è stazione di salita: zero, non undefined, che di
+// là non passerebbe la validazione.
+assert.deepStrictEqual(perIlServer({ o: 'S01700', n: '2247', d: 1 }).from, 0);
+
+const go = fs.readFileSync(
+  path.join(__dirname, '..', 'internal', 'statolinee', 'abbonamenti.go'), 'utf8');
+const struct = go.slice(go.indexOf('type TrenoSeguito struct'));
+const tagGo = [...struct.slice(0, struct.indexOf('}')).matchAll(/json:"(\w+)"/g)].map((m) => m[1]);
+assert.deepStrictEqual(
+  Object.keys(perIlServer(seguitoFinto)).sort(), tagGo.sort(),
+  'i campi di perIlServer e quelli di TrenoSeguito non coincidono più');
+
+console.log(`treni seguiti verso il server: ok — 3 casi + i ${tagGo.length} campi contro TrenoSeguito`);

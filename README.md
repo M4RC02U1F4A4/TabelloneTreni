@@ -9,6 +9,7 @@ con l'orario a cui ci arrivano.
 - **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
 - **toccando un treno si vede dov'è adesso**, con il ritardo a cui è passato da ogni fermata già servita
 - **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
+- **le notifiche su un treno seguito**, a ogni rilevamento di ViaggiaTreno, fino a quando il treno arriva alla stazione da cui sali — poi smettono da sole
 - **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. Toccandola si apre e si legge per intero
 - **i treni cancellati restano nella tratta**, con la scritta *soppresso*, anche quando RFI non pubblica le loro fermate — che è sempre, ed è il giorno di sciopero il giorno in cui serve saperlo
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
@@ -518,6 +519,57 @@ buono, e il campo `updated` dice di quando è. Il primo giro dopo un avvio non
 produce mai un cambio di stato, altrimenti ogni rilascio annuncerebbe come
 "nuova" ogni linea che in quel momento non è regolare.
 
+### Le notifiche su un treno seguito
+
+Un treno messo fra i seguiti lo guarda anche il server, non solo il telefono:
+a ogni rilevamento di ViaggiaTreno arriva una notifica, **fino a quando il
+treno arriva alla stazione da cui sali**. Da lì in poi sei a bordo e quello che
+il treno fa dopo lo vedi dal finestrino.
+
+La stazione da cui sali è quella del tabellone da cui hai seguito il treno, ed
+è l'unica cosa che il segnalibro sa di chi guarda e non del treno. Il confronto
+avviene sul **codice stazione**, la stessa traduzione che evidenzia la fermata
+dove scendi nella lista del viaggio: sui nomi sbaglierebbe proprio dove non si
+può sbagliare.
+
+**Il primo giro non notifica mai.** Il segnalibro si mette guardando la scheda
+del treno, e una notifica per quello che si sta già leggendo sarebbe una
+suoneria di benvenuto. Chi mette il segnalibro a treno già passato dalla
+propria stazione — è a bordo e lo segue per vedere quando arriva — non riceve
+quindi niente, e il servizio smette subito di leggerlo.
+
+Notifica **ogni rilevamento**, non solo i ritardi che cambiano di molto. Insieme
+all'ora dell'ultimo rilevamento si guardano il ritardo, i provvedimenti e il
+binario alla tua fermata: sono le cose che cambiano senza che l'orologio si
+muova — un binario assegnato mezz'ora prima, una soppressione pubblicata su un
+treno fermo — e tacerle sarebbe il contrario di "tutti gli aggiornamenti". Il
+tag della notifica è per treno, quindi sulla schermata di blocco resta una riga
+sola per treno: quella di adesso, che è quella vera.
+
+**Le fasce orarie non si applicano.** Esistono per il ronzio di fondo di una
+linea, che si segue per mesi; un treno lo si segue a mano adesso e dura due
+ore, e il segnalibro è già il consenso — chi segue un treno alle 23 vuole
+saperlo alle 23.
+
+Il costo cresce con i treni e non con i telefoni: i treni seguiti da tutti si
+uniscono e si deduplicano prima di chiedere, quindi venti persone sullo stesso
+regionale restano **una lettura sola**, ogni minuto. Il giro ha un tetto di
+quaranta treni, e chi non segue niente non produce nessuna richiesta.
+
+Il treno esce dall'elenco quando arriva dove sali, quando arriva al capolinea —
+la rete di sicurezza per la fermata saltata e per chi sale al capolinea — o
+dopo trentasei ore, che è la rete per i viaggi di cui ViaggiaTreno non dirà mai
+più niente. Uscendo dall'elenco smette anche il polling. Il telefono invece la
+scheda continua a mostrartela: sono due elenchi diversi, e mentre viaggi vuoi
+ancora vedere dove sei, solo senza vibrazioni.
+
+Tutto questo vive nel servizio `statolinee`, che a dispetto del nome è anche il
+posto dove stanno le chiavi VAPID. **Un service worker ha una sola iscrizione
+push**, cioè una sola chiave applicativa: le notifiche partono tutte da lì o
+non partono, e un servizio a parte dovrebbe comunque condividerne la chiave
+privata. Il ritmo però è suo — un minuto contro i cinque dei bollini — perché
+un treno si muove da sé mentre i bollini li muove una persona.
+
 ### Il riconoscimento delle fermate
 
 I nomi delle fermate sul tabellone sono abbreviati e non combaciano con quelli
@@ -698,6 +750,12 @@ go run ./cmd/genstations
 - **Le notifiche su iOS vogliono l'app installata.** Web Push su iPhone
   funziona solo dalla schermata Home, non da una scheda di Safari. L'app lo
   dice, e lì la campanella serve solo a tenere la linea in cima.
+- **Prima della partenza non arriva nessuna notifica sul treno seguito.** Di un
+  treno non ancora partito ViaggiaTreno non ha niente da dire: l'andamento è
+  vuoto finché non passa da un punto di controllo. Chi sale all'origine del
+  treno non riceve quindi niente fino a quando il treno parte — nella scheda
+  aperta la riga di RFI c'è lo stesso, ma quella la legge il tabellone, che non
+  è il servizio che notifica.
 - **I bollini coprono la sola Lombardia.** Sono le linee di Trenord: un treno
   RFI fuori regione non ha nessuno stato di linea associato.
 - **Gli avvisi in home vengono dal solo tabellone partenze.** I due versi ne
