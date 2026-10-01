@@ -3187,7 +3187,13 @@ app.addEventListener('click', (e) => {
   else if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
   else if (t.closest('[data-abituale]')) alternaAbitualeDa(t.closest('[data-abituale]'));
   else if (t.closest('[data-togli-abituale]')) {
-    cambiaAbituale(t.closest('[data-togli-abituale]').dataset.togliAbituale, () => []);
+    // Si chiede prima: un abituale tolto per sbaglio si rimette solo
+    // ritrovando il treno sul tabellone, cioè domani alla stessa ora.
+    const k = t.closest('[data-togli-abituale]').dataset.togliAbituale;
+    const x = abituali().find((y) => chiaveAbituale(y) === k);
+    if (x && !confirm(`Togliere il ${[x.cat, x.n].filter(Boolean).join(' ')} delle ${x.at} dai treni abituali?\n` +
+      'Per rimetterlo dovrai ritrovarlo sul tabellone.')) return;
+    cambiaAbituale(k, () => []);
   }
   else if (t.closest('[data-giorno-abituale]')) {
     const v = t.closest('[data-giorno-abituale]').dataset.giornoAbituale;
