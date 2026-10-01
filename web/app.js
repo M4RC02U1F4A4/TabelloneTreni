@@ -261,6 +261,11 @@ const ICONE = {
   // per sempre, una linea seguita manda notifiche, un treno seguito è una cosa
   // di stasera che si toglie da sola quando il treno arriva.
   segnalibro: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+  // Il treno abituale, che torna ogni giorno: due frecce in giro. Da piena si
+  // riempiono le sole punte — i due archi riempiti diventerebbero due
+  // triangoli fra l'arco e la sua corda, cioè una macchia.
+  ripeti: '<path d="M17 1l4 4-4 4"/><path fill="none" d="M3 11V9a4 4 0 0 1 4-4h14"/>' +
+    '<path d="M7 23l-4-4 4-4"/><path fill="none" d="M21 13v2a4 4 0 0 1-4 4H3"/>',
   // La campana e il suo battaglio sono due tracciati separati: da piena, il
   // riempimento deve prendere la campana e lasciare fuori il battaglio,
   // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
@@ -444,7 +449,7 @@ function dimenticaViaggio(k) {
    viaggio senza più segnalibro non ha una scheda in cui comparire. */
 function idrataViaggi() {
   const m = viaggiSalvati();
-  const vivi = new Set(seguiti().map(chiaveTreno));
+  const vivi = new Set(seguitiInHome().map(chiaveTreno));
   let potato = false;
   for (const [k, v] of Object.entries(m)) {
     if (!vivi.has(k) || !v || !v.dati) { delete m[k]; potato = true; continue; }
@@ -501,6 +506,117 @@ const DURATA_SEGUITO = 36 * 60 * 60_000;
 function potaSeguiti() {
   const vivi = seguiti().filter((t) => Date.now() - t.d < DURATA_SEGUITO);
   if (vivi.length !== seguiti().length) scrivi('tt.seguiti', vivi);
+}
+
+/* I treni abituali: quello che si prende ogni mattina, salvato una volta sola.
+
+   È un segnalibro senza giorno. Al posto della data di partenza porta l'ora a
+   cui passa dalla stazione da cui si sale — quella della riga del tabellone,
+   in ora italiana come tutti gli orari RFI — e i giorni della settimana in cui
+   lo si prende, con la convenzione di time.Weekday delle fasce: è il server
+   che ne fa il treno di oggi e manda le notifiche, e due convenzioni sarebbero
+   un punto in più in cui sbagliare. Nessun giorno è ammesso: vuol dire mai, ed
+   è il modo di metterlo in pausa per le ferie senza perderlo.
+
+   La chiave non ha il giorno, e ha la stazione: lo stesso treno preso da due
+   stazioni diverse — l'andata da una, un recupero da un'altra — sono due
+   abitudini, con due ore. */
+const abituali = () => leggi('tt.abituali', []);
+const chiaveAbituale = (x) => `${x.o}|${x.n}|${x.f}`;
+const eAbituale = (x) => abituali().some((y) => chiaveAbituale(y) === chiaveAbituale(x));
+
+function alternaAbituale(x) {
+  const k = chiaveAbituale(x);
+  const elenco = abituali().filter((y) => chiaveAbituale(y) !== k);
+  if (elenco.length === abituali().length) elenco.push(x);
+  scrivi('tt.abituali', elenco);
+}
+
+/* Come un abituale si presenta al server: gli stessi nomi di TrenoAbituale. La
+   fermata dove si scende resta qui, perché al server non serve. */
+const abitualePerIlServer = (x) => ({
+  origin: x.o, number: String(x.n), from: Number(x.f) || 0, at: x.at, days: x.days || [],
+});
+
+/* Il treno abituale di oggi: lo stesso segnalibro che si metterebbe a mano,
+   con le tre coordinate di ViaggiaTreno, finché serve.
+
+   Esiste da dieci minuti prima dell'ora a tre ore dopo, e solo nei giorni
+   scelti: prima non c'è niente da guardare, dopo il treno è arrivato da un
+   pezzo. È la stessa finestra che usa il server per generarlo, e la stessa
+   chiave — quindi un segnalibro messo a mano sullo stesso treno è una scheda
+   sola, non due.
+
+   Tutto in ora di Roma e non in quella del telefono: l'ora salvata è quella
+   del tabellone RFI, e il giorno di partenza di ViaggiaTreno è la mezzanotte
+   italiana. Un telefono rimasto sul fuso di un viaggio a Londra deve vedere il
+   treno delle 7:12 alle 7:12 di Milano, non alle 7:12 di là.
+
+   Si guardano anche ieri e domani, come fa il server: la finestra può
+   scavalcare la mezzanotte, e il treno delle 23:30 si segue ancora all'una.
+
+   ponytail: un treno che parte dall'origine prima di mezzanotte e passa dalla
+   stazione di salita dopo avrebbe il giorno sbagliato, come sul server. */
+const QUADRANTE_ROMA = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Rome', hourCycle: 'h23',
+  year: 'numeric', month: 'numeric', day: 'numeric',
+  hour: 'numeric', minute: 'numeric', second: 'numeric',
+});
+
+// Quello che segna l'orologio di Roma all'istante `ms`, scritto come se fosse
+// UTC: così giorno, ora e giorno della settimana si leggono con i getUTC*.
+function quadranteRoma(ms) {
+  const p = Object.fromEntries(QUADRANTE_ROMA.formatToParts(ms).map((x) => [x.type, Number(x.value)]));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+}
+
+// Il contrario: l'istante in cui l'orologio di Roma segna `q`. Due giri perché
+// lo scarto dall'UTC di un'ora può non essere quello di adesso — la notte in
+// cui cambia l'ora legale, mezzanotte e le sette hanno scarti diversi.
+function istanteRoma(q) {
+  const prova = q - (quadranteRoma(q) - q);
+  return q - (quadranteRoma(prova) - prova);
+}
+
+function abitualiDiOggi(elenco, adesso) {
+  const ms = adesso.getTime();
+  const qui = new Date(quadranteRoma(ms));
+  const oggi = Date.UTC(qui.getUTCFullYear(), qui.getUTCMonth(), qui.getUTCDate());
+  const out = [];
+  for (const x of elenco) {
+    const [h, m] = String(x.at || '').split(':').map(Number);
+    for (const giorno of [oggi - 86_400_000, oggi, oggi + 86_400_000]) {
+      if (!(x.days || []).includes(new Date(giorno).getUTCDay())) continue;
+      const parte = istanteRoma(giorno + (h * 60 + m) * 60_000);
+      if (ms < parte - 10 * 60_000 || ms >= parte + 3 * 60 * 60_000) continue;
+      out.push({
+        o: x.o, n: x.n, d: istanteRoma(giorno), f: x.f, cat: x.cat, capolinea: x.capolinea,
+        ...(x.a ? { a: x.a } : {}),
+      });
+      break;
+    }
+  }
+  return out;
+}
+
+/* I treni che la home segue: i segnalibri salvati più gli abituali di oggi.
+
+   Gli abituali non si scrivono in `tt.seguiti`: si ricalcolano a ogni giro, e
+   scritti resterebbero lì fino alle trentasei ore della pulizia anche dopo
+   aver tolto l'abitudine. Per lo stesso motivo non vanno al server come treni
+   — se li genera da sé, e mandati due volte sarebbero due notifiche.
+
+   Se c'è anche il segnalibro vince quello, che può portare la fermata dove si
+   scende. Un abituale arrivato si toglie come si toglie un segnalibro, dalla
+   lettura che lo dice: altrimenti resterebbe in lista per tre ore a dire che è
+   arrivato. */
+function seguitiInHome() {
+  const salvati = seguiti();
+  const chiavi = new Set(salvati.map(chiaveTreno));
+  return [...salvati, ...abitualiDiOggi(abituali(), new Date()).filter((t) => {
+    const v = viaggiSeguiti.get(chiaveTreno(t));
+    return !chiavi.has(chiaveTreno(t)) && !(v && v.dati && v.dati.arrived);
+  })];
 }
 
 function ricorda(id) {
@@ -612,7 +728,7 @@ async function caricaViaggioSeguito(t, forza) {
   // le tre coordinate e basta, e un viaggio chiesto da lì tornava senza la
   // fermata accesa. Si risolve qui, che è l'unico punto per cui passano tutte
   // le letture — dalla home e dalla scheda aperta.
-  const salvato = seguiti().find((x) => chiaveTreno(x) === k);
+  const salvato = seguitiInHome().find((x) => chiaveTreno(x) === k);
   const chiesto = t.a && t.f
     ? t
     : { ...t, a: t.a || (salvato && salvato.a), f: t.f || (salvato && salvato.f) };
@@ -644,7 +760,7 @@ async function caricaViaggioSeguito(t, forza) {
    la somma di altrettante letture su un servizio lento. */
 async function aggiornaSeguiti(forza) {
   potaSeguiti();
-  const elenco = seguiti();
+  const elenco = seguitiInHome();
   if (!elenco.length) return;
   const esiti = await Promise.all(elenco.map((t) => caricaViaggioSeguito(t, forza)));
   // Basta un treno letto perché il giro sia servito a qualcosa; se non ne è
@@ -718,9 +834,9 @@ function byteDaBase64url(s) {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
-/* Manda al server l'elenco aggiornato delle linee e dei treni seguiti. Vuoti
-   tutti e due, l'abbonamento si cancella: è lo stesso gesto visto dall'altra
-   parte.
+/* Manda al server l'elenco aggiornato delle linee, dei treni seguiti e di
+   quelli abituali. Vuoti tutti e tre, l'abbonamento si cancella: è lo stesso
+   gesto visto dall'altra parte.
 
    `permesso` è la promessa di Notification.requestPermission(), che il gestore
    del tocco ha già lanciato: su iOS quella chiamata vale solo dentro il gesto,
@@ -739,6 +855,9 @@ async function sincronizzaNotifiche(permesso) {
   // primo giro lo trova già passato dalla fermata di salita, tace e lo
   // ributta fuori. Una lettura, condivisa con chiunque altro segua quel treno.
   const treni = seguiti().map(perIlServer);
+  // Gli abituali vanno come sono, senza giorno: il treno di oggi lo fa il
+  // server, che è acceso anche quando l'app no.
+  const abitudini = abituali().map(abitualePerIlServer);
   // Una fascia a metà non si manda: il server la rifiuterebbe, e chi la stava
   // scrivendo vedrebbe un errore invece della riga che gli dice cosa manca.
   if (!fasceValide()) {
@@ -753,7 +872,7 @@ async function sincronizzaNotifiche(permesso) {
       // Senza campanelle accese e senza treni da aspettare non c'è niente da
       // registrare, e non è il caso di prendersi un abbonamento per poi
       // cancellarlo subito.
-      if (!linee.length && !treni.length) { notificheErrore = null; aggiornaVista(); return; }
+      if (!linee.length && !treni.length && !abitudini.length) { notificheErrore = null; aggiornaVista(); return; }
       const chiave = await chiaveNotifiche();
       // Il server senza chiavi non è un guasto: è una configurazione che manca,
       // e lo dice la nota in cima all'elenco senza allarmare nessuno.
@@ -773,6 +892,7 @@ async function sincronizzaNotifiche(permesso) {
         subscription: abbonamento,
         lines: linee,
         trains: treni,
+        habitual: abitudini,
         windows: fasce().filter(fasciaCompleta).map((f) => ({
           days: f.giorni, from: f.da, to: f.a,
         })),
@@ -1236,7 +1356,7 @@ function disegnaHome() {
   testa.innerHTML = `
     <div class="testa-riga"><h1 class="titolo">Tabellone Treni</h1></div>
     <div class="sottotitolo">Partenze e arrivi RFI, filtrati per dove devi andare</div>
-    ${seguiti().length ? barraCiclo() : ''}`;
+    ${seguitiInHome().length ? barraCiclo() : ''}`;
 
   const fav = preferitiOrdinati();
   if (!fav.length) modificaPreferiti = false;
@@ -1288,7 +1408,7 @@ function disegnaHome() {
      volte che serve, serve subito, e stava a due schermate di distanza. Un
      modulo che si usa poco va tenuto corto, non lontano. */
   app.innerHTML = `${bannerScioperi()}${bannerAvvisi()}${sezioneSeguiti()}${
-    fav.length ? salvate : ''}${ricerca}${tabellone}${sezioneLinee()}`;
+    fav.length ? salvate : ''}${sezioneAbituali()}${ricerca}${tabellone}${sezioneLinee()}`;
 }
 
 /* Il preferito guardato per ultimo va in cima. La mattina si guarda l'andata e
@@ -1313,7 +1433,7 @@ function preferitiOrdinati() {
    le due chi apre l'app di corsa cerca la seconda. Nei giorni in cui non se ne
    segue nessuno la sezione non c'è, e la home è quella di prima. */
 function sezioneSeguiti() {
-  const elenco = seguiti();
+  const elenco = seguitiInHome();
   if (!elenco.length) return '';
   return `<section class="sezione">
     <div class="testa-sezione"><h2 class="etichetta-sezione">Treni seguiti</h2></div>
@@ -1669,7 +1789,11 @@ function disegnaTreno(t) {
   // giusta; altrimenti quello che si era salvato, e in ultimo la sola rotta.
   // La destinazione però viene sempre dal segnalibro: qui non c'è un tabellone
   // da cui leggerla, e ripremere la stella non deve perderla.
-  const segnalibro = seguiti().find((x) => chiaveTreno(x) === k);
+  //
+  // Il treno abituale di oggi conta come segnalibro per la stazione di salita,
+  // ma il tasto resta spento: non è salvato, e premerlo lo salva davvero — con
+  // la stessa chiave, quindi la scheda in home resta una.
+  const segnalibro = seguitiInHome().find((x) => chiaveTreno(x) === k);
   const oggetto = d
     ? daSeguire(d, (segnalibro || t).a, (segnalibro || t).f)
     : (segnalibro || t);
@@ -1705,7 +1829,7 @@ function disegnaTreno(t) {
     ${d.stops && d.stops.length
       ? elencoFermate(d, 'aperta')
       : '<p class="nota">ViaggiaTreno non pubblica le fermate di questo treno.</p>'}
-    ${salvato ? '' : `<p class="nota">Non stai seguendo questo treno: tocca il segnalibro
+    ${segnalibro ? '' : `<p class="nota">Non stai seguendo questo treno: tocca il segnalibro
       in alto per tenerlo in cima alla home.</p>`}`;
   // Dopo l'innerHTML, perché la mappa va agganciata a un posto che esiste: il
   // nodo è quello di prima, spostato, non uno nuovo.
@@ -2514,6 +2638,43 @@ function etichettaPreferito(p) {
   return `${esc(nomeStazione(p.f))}<span class="qualifica"> · tutte le partenze</span>`;
 }
 
+/* I treni abituali, sotto i preferiti: sono della stessa famiglia — cose che
+   si salvano una volta e restano — e non dei treni seguiti, che sono di oggi.
+   Qui si decide in che giorni valgono; il treno di oggi, quando è ora, compare
+   in cima con gli altri seguiti.
+
+   Le righe sono quelle delle fasce, con i giorni sotto: sono sette bersagli da
+   pollice, e su una riga di lista non ci starebbero. */
+function sezioneAbituali() {
+  const elenco = abituali();
+  if (!elenco.length) return '';
+  return `<section class="sezione">
+    <div class="testa-sezione"><h2 class="etichetta-sezione">Treni abituali</h2></div>
+    <ul class="fasce">${elenco.map(rigaAbituale).join('')}</ul>
+  </section>`;
+}
+
+function rigaAbituale(x) {
+  const k = chiaveAbituale(x);
+  const giorni = GIORNI.map((g) => {
+    const acceso = (x.days || []).includes(g.v);
+    return `<button class="giorno${acceso ? ' acceso' : ''}" type="button"
+                    data-giorno-abituale="${esc(k)}:${g.v}" aria-pressed="${acceso}"
+                    aria-label="${nomeGiorno(g.v)}">${g.l}</button>`;
+  }).join('');
+  return `<li class="fascia">
+    <div class="fascia-testa">
+      <span><span class="fascia-quando">${esc(x.at)}</span>
+        ${etichettaTreno({ category: x.cat, number: x.n, terminus: x.capolinea })}
+        <span class="qualifica">da ${esc(nomeStazione(x.f))}</span></span>
+      <button class="togli" type="button" data-togli-abituale="${esc(k)}"
+              aria-label="Togli dai treni abituali">✕</button>
+    </div>
+    <div class="giorni" role="group" aria-label="Giorni del treno">${giorni}</div>
+    ${(x.days || []).length ? '' : '<p class="nota-fascia">Nessun giorno scelto: per ora non arriva.</p>'}
+  </li>`;
+}
+
 function disegnaRisultati() {
   const d = stato.dati;
   const daNome = titolo((d && d.from) || (stato.da ? nomeStazione(stato.da) : ''));
@@ -2747,7 +2908,7 @@ function rigaTreno(t, d, misure) {
 function fermate(t) {
   const viaggio = viaggi.get(t.number);
   const d = viaggio && viaggio.stato === 'ok' ? viaggio.dati : null;
-  if (d && d.stops && d.stops.length) return viaggioReale(d) + bottoneSegui(d);
+  if (d && d.stops && d.stops.length) return viaggioReale(d) + bottoneSegui(d, t.time);
 
   // La fermata che interessa è quella su cui il filtro ha agganciato il treno:
   // la si riconosce dall'orario di arrivo, e va evidenziata una volta sola —
@@ -2766,7 +2927,7 @@ function fermate(t) {
     errore: 'viaggio non disponibile adesso',
   };
   const nota = viaggio ? `<p class="viaggio-nota">${note[viaggio.stato]}</p>` : '';
-  return `<ol class="fermate">${voci}</ol>${nota}${d ? bottoneSegui(d) : ''}`;
+  return `<ol class="fermate">${voci}</ol>${nota}${d ? bottoneSegui(d, t.time) : ''}`;
 }
 
 /* "Segui" sta qui dentro, nella scheda aperta, e non sulla riga chiusa del
@@ -2777,8 +2938,13 @@ function fermate(t) {
    non conosce tutti i treni. Un pulsante su ogni riga sarebbe morto una volta
    su due, e per scoprire quale volta bisognerebbe premerlo. Aprire la scheda,
    che è il gesto con cui si va a vedere dov'è il treno, è anche quello che
-   scopre se si può seguire. */
-function bottoneSegui(d) {
+   scopre se si può seguire.
+
+   Accanto, "Ogni giorno": lo stesso treno salvato come abitudine. Solo sulle
+   partenze, perché l'ora che si salva è quella della riga, e solo lì è l'ora
+   in cui si sale; sugli arrivi sarebbe l'ora in cui si scende, e il treno di
+   oggi comparirebbe quando è già quasi finito. */
+function bottoneSegui(d, ora) {
   if (!d.id || !d.id.origin) return '';
   // Sugli arrivi `stato.a` non è una destinazione — quel tabellone non ne ha
   // una — e passarla vorrebbe dire accendere una fermata a caso.
@@ -2787,10 +2953,25 @@ function bottoneSegui(d) {
   // Le coordinate viaggiano nell'attributo come JSON: sono tre più
   // l'etichetta, e cinque attributi separati sarebbero cinque cose da tenere
   // allineate invece di una.
+  // I giorni si propongono da lunedì a venerdì, che è il treno del lavoro:
+  // chi lo prende anche il sabato lo accende in home con un tocco.
+  const abituale = !stato.arrivi && stato.da && ora
+    ? {
+      o: t.o, n: t.n, f: stato.da, at: ora, days: [1, 2, 3, 4, 5], cat: t.cat, capolinea: t.capolinea,
+      // Dove si scende resta sul telefono e non va al server: serve solo ad
+      // accendere quella fermata nella scheda del treno di oggi.
+      ...(t.a ? { a: t.a } : {}),
+    }
+    : null;
+  const ogni = abituale && eAbituale(abituale);
   return `<p class="segui-riga">
     <button class="btn-testo segui" type="button" data-segui="${esc(JSON.stringify(t))}"
             aria-pressed="${gia}">${icona('segnalibro', gia)}${
       gia ? 'Lo stai seguendo' : 'Segui questo treno'}</button>
+    ${abituale ? `<button class="btn-testo segui" type="button"
+            data-abituale="${esc(JSON.stringify(abituale))}"
+            aria-pressed="${ogni}">${icona('ripeti', ogni)}${
+      ogni ? 'Lo prendi ogni giorno' : 'Ogni giorno'}</button>` : ''}
   </p>`;
 }
 
@@ -2938,6 +3119,27 @@ function alternaSeguitoDa(el) {
   sincronizzaNotifiche(permesso);
 }
 
+/* "Ogni giorno" è lo stesso gesto, con un'abitudine al posto del segnalibro:
+   il permesso si chiede dentro il tocco per la stessa ragione di iOS. Niente
+   viaggio da scaricare — il treno di oggi compare in home quando è ora. */
+function alternaAbitualeDa(el) {
+  const x = JSON.parse(el.dataset.abituale);
+  alternaAbituale(x);
+  const permesso = eAbituale(x) && statoNotifiche() === 'da-chiedere'
+    ? Notification.requestPermission() : null;
+  disegna();
+  sincronizzaNotifiche(permesso);
+}
+
+/* In home, ogni tocco su un abituale salva e riallinea il server, come le
+   fasce: un giorno spento e non mandato sarebbe una notifica che arriva lo
+   stesso. */
+function cambiaAbituale(k, muta) {
+  scrivi('tt.abituali', abituali().flatMap((x) => (chiaveAbituale(x) === k ? muta(x) : [x])));
+  disegna();
+  sincronizzaNotifiche();
+}
+
 app.addEventListener('click', (e) => {
   const t = e.target;
   if (t.closest('[data-ricentra]')) {
@@ -2983,6 +3185,19 @@ app.addEventListener('click', (e) => {
   }
   else if (t.closest('[data-chiudi-legenda]')) { scrivi('tt.legenda', true); disegna(); }
   else if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
+  else if (t.closest('[data-abituale]')) alternaAbitualeDa(t.closest('[data-abituale]'));
+  else if (t.closest('[data-togli-abituale]')) {
+    cambiaAbituale(t.closest('[data-togli-abituale]').dataset.togliAbituale, () => []);
+  }
+  else if (t.closest('[data-giorno-abituale]')) {
+    const v = t.closest('[data-giorno-abituale]').dataset.giornoAbituale;
+    const i = v.lastIndexOf(':');
+    const g = Number(v.slice(i + 1));
+    cambiaAbituale(v.slice(0, i), (x) => {
+      const giorni = x.days || [];
+      return [{ ...x, days: giorni.includes(g) ? giorni.filter((y) => y !== g) : [...giorni, g].sort() }];
+    });
+  }
   else if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
   else if (t.closest('[data-scambia]')) {
@@ -3102,6 +3317,6 @@ if ('serviceWorker' in navigator) {
     // Riallinea l'abbonamento a ogni avvio: il servizio potrebbe averlo perso,
     // e chi ha una campanella accesa o un treno da aspettare non deve
     // accorgersene.
-    if (campanelle().length || seguiti().length) sincronizzaNotifiche();
+    if (campanelle().length || seguiti().length || abituali().length) sincronizzaNotifiche();
   });
 }

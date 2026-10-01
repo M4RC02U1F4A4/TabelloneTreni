@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
@@ -74,7 +75,8 @@ func (s *Servizio) OsservaTreni(ctx context.Context) {
 }
 
 func (s *Servizio) leggiTreni(ctx context.Context) {
-	seguiti := s.abbonati.TreniSeguiti()
+	adesso := s.orologio()
+	seguiti := s.abbonati.TreniSeguiti(adesso)
 	if len(seguiti) == 0 {
 		return
 	}
@@ -89,7 +91,8 @@ func (s *Servizio) leggiTreni(ctx context.Context) {
 	// proprio timeout, dentro manda. È la stessa separazione che il giro delle
 	// linee fa con Riconcilia.
 	letti := s.leggiViaggi(ctx, seguiti)
-	s.riconciliaTreni(context.WithoutCancel(ctx), letti, time.Now())
+	tabelloni := s.leggiTabelloni(ctx, s.abbonati.PreavvisiDovuti(adesso))
+	s.riconciliaTreni(context.WithoutCancel(ctx), letti, tabelloni, adesso)
 }
 
 // leggiViaggi chiede a ViaggiaTreno i treni di questo giro.
@@ -140,11 +143,17 @@ aspetta, e toglie dall'elenco quelli finiti.
 	Le fasce non si guardano. Esistono per il ronzio di fondo di una linea che
 	si segue per mesi; un treno lo si segue a mano adesso e dura due ore, e il
 	segnalibro è già il consenso. Chi segue un treno alle 23 vuole saperlo alle
-	23.
+	23. Lo stesso per gli abituali: averlo salvato è il consenso, una volta
+	per tutte.
+
+	Il treno di oggi di un abituale apre con il preavviso, che prende il posto
+	del primo giro muto: è la prima cosa che gli si dice, e da lì i
+	rilevamenti si contano come per un segnalibro.
 */
-func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.Andamento, adesso time.Time) {
+func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.Andamento, tabelloni map[int]*rfi.Board, adesso time.Time) {
 	for _, ab := range s.abbonati.Tutti() {
-		if len(ab.Treni) == 0 {
+		attese := ab.inAttesa(adesso)
+		if len(attese) == 0 {
 			continue
 		}
 		visto := map[string]VistoTreno{}
@@ -154,7 +163,7 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 		var finiti []string
 		cambiato := false
 
-		for _, t := range ab.Treni {
+		for _, t := range attese {
 			k := t.Chiave()
 			// Scaduto: di questo viaggio non si saprà più niente, e tenerlo
 			// nell'elenco vorrebbe dire interrogare ViaggiaTreno per sempre su
@@ -163,9 +172,27 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 				finiti, cambiato = append(finiti, k), true
 				continue
 			}
+			prima, gia := ab.VistoTreni[k]
+			if prima.Finito {
+				continue // il treno di oggi di un abituale, già arrivato
+			}
+			preavvisato := false
+			if t.preavvisoDovuto(prima, adesso) {
+				if b := tabelloni[t.Da]; b != nil {
+					s.avvisa(ctx, ab, k, messaggioPreavviso(t, b))
+					preavvisato = true
+				}
+			}
+
 			a := letti[k]
 			if a == nil {
-				continue // non letto in questo giro: si riprova al prossimo
+				// Non letto in questo giro: si riprova al prossimo. Il
+				// preavviso però è partito, e va ricordato.
+				if preavvisato {
+					prima.Preavviso = true
+					visto[k], cambiato = prima, true
+				}
+				continue
 			}
 
 			salita := fermataDi(a, t.Da)
@@ -177,19 +204,22 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 			if salita != nil {
 				adessoVisto.Binario = salita.Binario()
 			}
+			adessoVisto.Preavviso = prima.Preavviso || preavvisato
 			// Finito quando il treno è arrivato dove questa persona sale: da lì
 			// in poi è a bordo, e quello che il treno fa dopo lo vede dal
 			// finestrino. Arrivato al capolinea è la rete di sicurezza per la
 			// fermata saltata, per chi sale al capolinea, e per la stazione che
 			// il catalogo non sa tradurre.
 			finito := a.Arrivato || (salita != nil && salita.Passata)
+			adessoVisto.Finito = finito
 
-			prima, gia := ab.VistoTreni[k]
-			if !gia {
+			if !gia || preavvisato {
 				// Primo giro su questo treno: si prende nota e si tace. Il
 				// segnalibro si mette guardando la scheda del treno, e
 				// notificare quello che si sta già leggendo sarebbe una
-				// suoneria di benvenuto.
+				// suoneria di benvenuto. Per il treno di oggi di un abituale
+				// il benvenuto è il preavviso, appena partito: anche lì questo
+				// giro prende nota e basta.
 				//
 				// Se la fermata di salita è già passata, questo primo giro è
 				// anche l'ultimo: è chi segue un treno su cui è già salito, per
@@ -205,23 +235,28 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 				continue
 			}
 
-			m := messaggioTreno(a, t, salita)
-			if corpo, err := json.Marshal(m); err == nil {
-				// Una riga anche sull'invio riuscito, come per le linee: senza,
-				// "spedita" e "spedita e non consegnata" sono indistinguibili
-				// dai log, e ogni segnalazione ripartirebbe da zero.
-				log.Printf("%s notifica a %s: %s", k, breve(ab.Sottoscrizione.Endpoint), m.Corpo)
-				s.notificatore.manda(ctx, ab, corpo)
-			}
+			s.avvisa(ctx, ab, k, messaggioTreno(a, t.TrenoSeguito, salita))
 			visto[k], cambiato = adessoVisto, true
 			if finito {
 				finiti = append(finiti, k)
 			}
 		}
 		if cambiato {
-			s.abbonati.SegnaVistoTreni(ab.Sottoscrizione.Endpoint, visto, finiti)
+			s.abbonati.SegnaVistoTreni(ab.Sottoscrizione.Endpoint, visto, finiti, adesso)
 		}
 	}
+}
+
+func (s *Servizio) avvisa(ctx context.Context, ab Abbonamento, k string, m messaggio) {
+	corpo, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	// Una riga anche sull'invio riuscito, come per le linee: senza, "spedita"
+	// e "spedita e non consegnata" sono indistinguibili dai log, e ogni
+	// segnalazione ripartirebbe da zero.
+	log.Printf("%s notifica a %s: %s", k, breve(ab.Sottoscrizione.Endpoint), m.Corpo)
+	s.notificatore.manda(ctx, ab, corpo)
 }
 
 // rilevamento è l'ora dell'ultimo rilevamento in secondi, e zero finché il

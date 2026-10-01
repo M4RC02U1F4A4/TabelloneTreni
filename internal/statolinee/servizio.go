@@ -45,6 +45,12 @@ type Servizio struct {
 	// Da dove si leggono i treni seguiti. Nil: il servizio fa tutto il resto
 	// come prima, e OsservaTreni non parte. Vedi ConTreni.
 	treni SorgenteTreni
+	// Il tabellone delle partenze, per il preavviso degli abituali. Nil: niente
+	// preavviso, il resto uguale. Vedi ConTabelloni.
+	tabelloni SorgenteTabelloni
+	// L'ora del giro dei treni. time.Now in produzione; i test la fermano,
+	// perché finestre e scadenze si misurano sull'orologio.
+	orologio func() time.Time
 
 	// Le comunicazioni si chiedono anche a richiesta, quando qualcuno apre una
 	// riga. Una voce per linea con il suo lucchetto, come fa il tabellone con
@@ -60,7 +66,7 @@ type richiestaAvvisi struct {
 }
 
 func Nuovo(s Sorgente) *Servizio {
-	return &Servizio{sorgente: s, registro: NuovoRegistro(), richieste: map[string]*richiestaAvvisi{}}
+	return &Servizio{sorgente: s, registro: NuovoRegistro(), richieste: map[string]*richiestaAvvisi{}, orologio: time.Now}
 }
 
 // ConNotifiche accende le notifiche push. Senza, il servizio fa tutto il resto

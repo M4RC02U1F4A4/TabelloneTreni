@@ -770,3 +770,77 @@ assert.deepStrictEqual(
   'i campi di perIlServer e quelli di TrenoSeguito non coincidono più');
 
 console.log(`treni seguiti verso il server: ok — 3 casi + i ${tagGo.length} campi contro TrenoSeguito`);
+
+/* ------------------------------------------ il treno abituale di oggi, in home */
+
+/* Il treno di oggi lo calcola anche il server, con le stesse regole: giorni
+   scelti, finestra da dieci minuti prima a tre ore dopo, giorno di partenza
+   alla mezzanotte di Roma. Se le due metà smettessero di combaciare la home
+   mostrerebbe un treno di cui non arriva nessuna notifica — o due schede per
+   lo stesso treno, perché la chiave porta il giorno. */
+const abitualiDiOggi = new Function(
+  `${ritaglia('/* Il treno abituale di oggi', '/* I treni che la home segue')}; return abitualiDiOggi;`)();
+
+const abitualeFinto = { o: 'S01700', n: '2247', f: 1715, at: '07:12', days: [1, 2, 3, 4, 5], cat: 'RE', capolinea: 'VARESE' };
+const oggiDi = (iso, x = abitualeFinto) => abitualiDiOggi([x], new Date(iso));
+
+// Lunedì 21 settembre 2026, ora legale: le 7:12 di Roma sono le 5:12 UTC.
+assert.deepStrictEqual(oggiDi('2026-09-21T05:12:00Z'), [{
+  o: 'S01700', n: '2247', d: 1789941600000, f: 1715, cat: 'RE', capolinea: 'VARESE',
+}], 'il treno di oggi, con la mezzanotte di Roma come giorno');
+assert.strictEqual(new Date(1789941600000).toISOString(), '2026-09-20T22:00:00.000Z');
+// I bordi: dieci minuti prima dentro, tre ore dopo fuori.
+assert.strictEqual(oggiDi('2026-09-21T05:02:00Z').length, 1, 'dieci minuti prima c\'è');
+assert.strictEqual(oggiDi('2026-09-21T05:01:59Z').length, 0, 'un attimo prima no');
+assert.strictEqual(oggiDi('2026-09-21T08:11:59Z').length, 1, 'tre ore dopo meno un attimo c\'è');
+assert.strictEqual(oggiDi('2026-09-21T08:12:00Z').length, 0, 'tre ore dopo no');
+// Sabato 26 non è fra i giorni; con il sabato acceso sì.
+assert.strictEqual(oggiDi('2026-09-26T05:12:00Z').length, 0, 'il sabato non c\'è');
+assert.strictEqual(oggiDi('2026-09-26T05:12:00Z', { ...abitualeFinto, days: [6] }).length, 1);
+// Nessun giorno: mai.
+assert.strictEqual(oggiDi('2026-09-21T05:12:00Z', { ...abitualeFinto, days: [] }).length, 0);
+
+// Il giorno è quello di Roma, non quello dell'UTC: alle 22:30 UTC di lunedì a
+// Roma è già martedì mezzanotte e mezza.
+assert.deepStrictEqual(
+  oggiDi('2026-09-21T22:30:00Z', { ...abitualeFinto, at: '00:20', days: [2] }).map((t) => t.d),
+  [Date.UTC(2026, 8, 21, 22)], 'martedì a Roma, lunedì in UTC');
+
+// I due giorni in cui cambia l'ora: mezzanotte e le sette hanno scarti
+// diversi, e il treno delle 7:12 deve restare alle 7:12.
+// Domenica 29 marzo 2026: mezzanotte in ora solare, le 7:12 in ora legale.
+const marzo = { ...abitualeFinto, days: [0] };
+assert.deepStrictEqual(oggiDi('2026-03-29T05:02:00Z', marzo).map((t) => t.d),
+  [Date.UTC(2026, 2, 28, 23)], 'marzo: dentro dalle 7:02 di Roma, mezzanotte a +1');
+assert.strictEqual(oggiDi('2026-03-29T05:01:00Z', marzo).length, 0, 'marzo: alle 7:01 di Roma no');
+// Domenica 25 ottobre 2026: mezzanotte in ora legale, le 7:12 in ora solare.
+assert.deepStrictEqual(oggiDi('2026-10-25T06:02:00Z', marzo).map((t) => t.d),
+  [Date.UTC(2026, 9, 24, 22)], 'ottobre: dentro dalle 7:02 di Roma, mezzanotte a +2');
+assert.strictEqual(oggiDi('2026-10-25T05:02:00Z', marzo).length, 0, 'ottobre: alle 6:02 di Roma no');
+
+// La finestra che scavalca la mezzanotte, come sul server: il treno delle
+// 23:30 del lunedì si segue ancora martedì all'una, con il giorno del lunedì;
+// quello delle 00:05 del martedì si preavvisa lunedì alle 23:56.
+assert.deepStrictEqual(
+  oggiDi('2026-09-21T23:00:00Z', { ...abitualeFinto, at: '23:30', days: [1] }).map((t) => t.d),
+  [1789941600000], 'martedì all\'una, il treno delle 23:30 di lunedì');
+assert.deepStrictEqual(
+  oggiDi('2026-09-21T21:56:00Z', { ...abitualeFinto, at: '00:05', days: [2] }).map((t) => t.d),
+  [1789941600000 + 86_400_000], 'lunedì alle 23:56, il treno delle 00:05 di martedì');
+// La fermata dove si scende passa al treno di oggi, se c'era.
+assert.strictEqual(oggiDi('2026-09-21T05:12:00Z', { ...abitualeFinto, a: 1700 })[0].a, 1700);
+
+// Lo stesso contratto di perIlServer, contro i tag di TrenoAbituale.
+const abitualePerIlServer = new Function(
+  `${ritaglia('const abitualePerIlServer', '/* Il treno abituale di oggi')}; return abitualePerIlServer;`)();
+assert.deepStrictEqual(abitualePerIlServer({ ...abitualeFinto, f: '1715', a: 1700 }), {
+  origin: 'S01700', number: '2247', from: 1715, at: '07:12', days: [1, 2, 3, 4, 5],
+});
+const structAb = fs.readFileSync(
+  path.join(__dirname, '..', 'internal', 'statolinee', 'abituali.go'), 'utf8');
+const corpoAb = structAb.slice(structAb.indexOf('type TrenoAbituale struct'));
+const tagAb = [...corpoAb.slice(0, corpoAb.indexOf('\n}')).matchAll(/json:"(\w+)/g)].map((m) => m[1]);
+assert.deepStrictEqual(Object.keys(abitualePerIlServer(abitualeFinto)).sort(), tagAb.sort(),
+  'i campi di abitualePerIlServer e quelli di TrenoAbituale non coincidono più');
+
+console.log('treni abituali di oggi: ok — giorni, bordi della finestra, mezzanotte e cambi d\'ora a Roma');

@@ -45,6 +45,11 @@ type Abbonamento struct {
 	// arriva dove la persona sale.
 	Treni []TrenoSeguito `json:"trains,omitempty"`
 
+	// I treni che questa persona prende sempre. A differenza dei segnalibri
+	// non li pota nessuno: ogni giorno scelto ne nasce il treno di oggi, che
+	// vive dal preavviso all'arrivo e il giorno dopo ricomincia.
+	Abituali []TrenoAbituale `json:"habitual,omitempty"`
+
 	// Le finestre in cui questa persona vuole essere avvisata, e il quadrante
 	// su cui leggerne gli orari. Vuote: sempre, che è come stavano le cose
 	// prima che le fasce esistessero.
@@ -107,6 +112,14 @@ type VistoTreno struct {
 	// Il binario alla fermata di salita di *questo* abbonato, che è il motivo
 	// per cui questa memoria sta sull'abbonamento e non sul treno.
 	Binario string `json:"platform,omitempty"`
+
+	// Preavviso dice che la notifica prima della partenza è già partita.
+	Preavviso bool `json:"warned,omitempty"`
+	// Finito è il treno di oggi di un abituale già arrivato dove si sale. Un
+	// segnalibro finito esce dall'elenco e basta; il treno di un abituale
+	// invece rinascerebbe al giro dopo come nuovo, e serve ricordarsi che per
+	// oggi è chiuso.
+	Finito bool `json:"done,omitempty"`
 }
 
 // Visto è lo stato di una linea come lo si è raccontato per ultimo a qualcuno.
@@ -232,8 +245,8 @@ func (a *Abbonati) Quanti() int {
 	return len(a.m)
 }
 
-// Registra aggiunge o aggiorna un abbonamento. Niente linee e niente treni lo
-// cancella: è lo stesso gesto visto dall'altra parte — chi spegne l'ultima
+// Registra aggiunge o aggiorna un abbonamento. Niente linee, niente treni e
+// niente abituali lo cancella: è lo stesso gesto visto dall'altra parte — chi spegne l'ultima
 // campanella e non aspetta nessun treno non vuole più essere avvisato, e
 // tenerne memoria non serve a nessuno.
 //
@@ -247,7 +260,7 @@ func (a *Abbonati) Registra(ab Abbonamento) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if len(ab.Linee) == 0 && len(ab.Treni) == 0 {
+	if ab.vuoto() {
 		delete(a.m, ab.Sottoscrizione.Endpoint)
 	} else {
 		precedente, gia := a.m[ab.Sottoscrizione.Endpoint]
@@ -261,7 +274,7 @@ func (a *Abbonati) Registra(ab Abbonamento) error {
 		// che per regola non annuncia nulla: la notizia successiva si
 		// perderebbe in silenzio, che è il modo peggiore di perderla.
 		ab.Visto = potaVisto(precedente.Visto, ab.Linee)
-		ab.VistoTreni = potaVistoTreni(precedente.VistoTreni, ab.Treni)
+		ab.VistoTreni = potaVistoTreni(precedente.VistoTreni, ab.chiaviInAttesa(time.Now()))
 		a.m[ab.Sottoscrizione.Endpoint] = ab
 	}
 	return a.scrivi()
@@ -287,17 +300,27 @@ func potaVisto(visto map[string]Visto, linee []string) map[string]Visto {
 	return out
 }
 
+// vuoto è l'abbonamento di chi non vuole più sapere niente: nessuna
+// campanella, nessun treno da aspettare, nessun treno di tutti i giorni.
+func (ab Abbonamento) vuoto() bool {
+	return len(ab.Linee) == 0 && len(ab.Treni) == 0 && len(ab.Abituali) == 0
+}
+
 // potaVistoTreni è potaVisto per i treni. Vale lo stesso ragionamento e in più
-// uno suo: un treno che non è più nell'elenco è finito, e la sua memoria non
+// uno suo: un treno che non è più atteso è finito, e la sua memoria non
 // tornerà mai utile. Tenerla vorrebbe dire far crescere il file per sempre.
-func potaVistoTreni(visto map[string]VistoTreno, treni []TrenoSeguito) map[string]VistoTreno {
+//
+// Atteso vuol dire segnalibro o treno di oggi di un abituale: quest'ultimo
+// resta in memoria fino alla fine della sua finestra anche da arrivato, che è
+// quello che gli impedisce di rinascere.
+func potaVistoTreni(visto map[string]VistoTreno, chiavi []string) map[string]VistoTreno {
 	if len(visto) == 0 {
 		return nil
 	}
-	out := make(map[string]VistoTreno, len(treni))
-	for _, t := range treni {
-		if v, cera := visto[t.Chiave()]; cera {
-			out[t.Chiave()] = v
+	out := make(map[string]VistoTreno, len(chiavi))
+	for _, k := range chiavi {
+		if v, cera := visto[k]; cera {
+			out[k] = v
 		}
 	}
 	if len(out) == 0 {
@@ -338,7 +361,7 @@ func (a *Abbonati) SegnaVisto(endpoint string, visto map[string]Visto) {
 
 // SegnaVistoTreni scrive la memoria dei treni e nello stesso giro toglie
 // dall'elenco quelli finiti — arrivati dove la persona sale, o arrivati e
-// basta.
+// basta. La memoria si pota su quello che resta atteso adesso.
 //
 // Le due cose insieme e non in due metodi perché succedono insieme, a fine
 // giro, e il file si riscrive per intero a ogni scrittura: separarle vorrebbe
@@ -346,7 +369,7 @@ func (a *Abbonati) SegnaVisto(endpoint string, visto map[string]Visto) {
 //
 // Come SegnaVisto, non resuscita un abbonamento cancellato nel frattempo: il
 // servizio push può averlo rifiutato proprio durante l'invio.
-func (a *Abbonati) SegnaVistoTreni(endpoint string, visto map[string]VistoTreno, finiti []string) {
+func (a *Abbonati) SegnaVistoTreni(endpoint string, visto map[string]VistoTreno, finiti []string, adesso time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	ab, cera := a.m[endpoint]
@@ -357,35 +380,37 @@ func (a *Abbonati) SegnaVistoTreni(endpoint string, visto map[string]VistoTreno,
 		ab.Treni = slices.DeleteFunc(slices.Clone(ab.Treni), func(t TrenoSeguito) bool {
 			return slices.Contains(finiti, t.Chiave())
 		})
-		for _, k := range finiti {
-			delete(visto, k)
-		}
 	}
 	// Chi non aspetta più nessun treno e non ha campanelle accese non ha più
 	// motivo di stare qui: è la stessa regola di Registra, applicata quando a
 	// svuotare l'elenco è il servizio invece della persona.
-	if len(ab.Treni) == 0 && len(ab.Linee) == 0 {
+	if ab.vuoto() {
 		delete(a.m, endpoint)
 		a.scrivi()
 		return
 	}
-	ab.VistoTreni = visto
+	ab.VistoTreni = potaVistoTreni(visto, ab.chiaviInAttesa(adesso))
 	a.m[endpoint] = ab
 	a.scrivi()
 }
 
-// TreniSeguiti è l'unione dei treni che qualcuno sta aspettando, deduplicata.
+// TreniSeguiti è l'unione dei treni che qualcuno sta aspettando adesso,
+// deduplicata: i segnalibri e i treni di oggi degli abituali non ancora
+// arrivati.
 //
 // È il punto di tutto il disegno: il costo verso ViaggiaTreno cresce con i
 // treni e non con i telefoni, e venti persone sullo stesso regionale restano
 // una lettura sola.
-func (a *Abbonati) TreniSeguiti() []TrenoSeguito {
+func (a *Abbonati) TreniSeguiti(adesso time.Time) []TrenoSeguito {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	visti := map[string]bool{}
 	var out []TrenoSeguito
 	for _, ab := range a.m {
-		for _, t := range ab.Treni {
+		for _, t := range ab.inAttesa(adesso) {
+			if ab.VistoTreni[t.Chiave()].Finito {
+				continue
+			}
 			if k := t.Chiave(); !visti[k] {
 				visti[k] = true
 				// Senza la stazione di salita: qui il treno è un viaggio da
@@ -398,6 +423,24 @@ func (a *Abbonati) TreniSeguiti() []TrenoSeguito {
 	// Ordine stabile: il tetto per giro taglia in fondo, e senza un ordine
 	// taglierebbe treni diversi a ogni giro.
 	slices.SortFunc(out, func(x, y TrenoSeguito) int { return strings.Compare(x.Chiave(), y.Chiave()) })
+	return out
+}
+
+// PreavvisiDovuti sono le stazioni di cui serve il tabellone in questo giro:
+// quelle da cui qualcuno sta per salire su un abituale senza averne ancora
+// avuto il preavviso. Ordinate e senza doppioni, come TreniSeguiti.
+func (a *Abbonati) PreavvisiDovuti(adesso time.Time) []int {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	var out []int
+	for _, ab := range a.m {
+		for _, t := range ab.inAttesa(adesso) {
+			if t.preavvisoDovuto(ab.VistoTreni[t.Chiave()], adesso) && !slices.Contains(out, t.Da) {
+				out = append(out, t.Da)
+			}
+		}
+	}
+	slices.Sort(out)
 	return out
 }
 
@@ -420,9 +463,9 @@ func (a *Abbonati) Riepilogo() []string {
 	defer a.mu.RUnlock()
 	out := make([]string, 0, len(a.m))
 	for _, ab := range a.m {
-		out = append(out, fmt.Sprintf("%s: %d linee (%s), %d treni — %s",
+		out = append(out, fmt.Sprintf("%s: %d linee (%s), %d treni, %d abituali — %s",
 			breve(ab.Sottoscrizione.Endpoint), len(ab.Linee),
-			strings.Join(ab.Linee, " "), len(ab.Treni), ab.fasceScritte()))
+			strings.Join(ab.Linee, " "), len(ab.Treni), len(ab.Abituali), ab.fasceScritte()))
 	}
 	slices.Sort(out)
 	return out
@@ -509,6 +552,16 @@ func valida(ab Abbonamento) error {
 			return errors.New("treno non valido")
 		}
 	}
+	if len(ab.Abituali) > MaxAbitualiPerAbbonamento {
+		return errors.New("troppi treni abituali")
+	}
+	for _, t := range ab.Abituali {
+		// Le stesse coordinate dei segnalibri, e lo stesso sospetto: finiscono
+		// nell'URL verso ViaggiaTreno, e la stazione in quello verso RFI.
+		if err := t.valida(); err != nil {
+			return err
+		}
+	}
 	if len(ab.Fasce) > MaxFasce {
 		return errors.New("troppe fasce")
 	}
@@ -527,7 +580,7 @@ func valida(ab Abbonamento) error {
 	}
 	// Senza chiavi non si puo' cifrare niente: l'abbonamento sarebbe accettato
 	// e poi fallirebbe a ogni invio, in silenzio.
-	if (len(ab.Linee) > 0 || len(ab.Treni) > 0) &&
+	if !ab.vuoto() &&
 		(ab.Sottoscrizione.Keys.Auth == "" || ab.Sottoscrizione.Keys.P256dh == "") {
 		return errors.New("chiavi mancanti")
 	}

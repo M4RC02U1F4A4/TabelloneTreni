@@ -23,6 +23,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/statolinee"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/trenord"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
@@ -60,9 +63,14 @@ func main() {
 		log.Print("DATI non impostata: chiavi e abbonamenti si perdono al riavvio")
 	}
 
+	viaggiatreno := vt.NewClient()
 	svc := statolinee.Nuovo(trenord.NewClient()).
 		ConNotifiche(abbonati, notificatore).
-		ConTreni(vt.NewClient())
+		ConTreni(viaggiatreno).
+		// Il preavviso degli abituali legge lo stesso tabellone che vede il
+		// telefono, RFI con sopra le misure di ViaggiaTreno: dice quello che
+		// si leggerebbe aprendo l'app.
+		ConTabelloni(board.New(rfi.NewClient(), stations.Default).ConLive(viaggiatreno))
 	go svc.Osserva(ctx)
 	// Secondo osservatore, ritmo suo: i treni seguiti si rileggono ogni minuto,
 	// i bollini ogni cinque. Vedi OsservaTreni.

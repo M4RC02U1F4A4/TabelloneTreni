@@ -643,7 +643,7 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 
 /* Il segnalibro sotto le fermate. Sta in fondo alla scheda aperta e non sulla
    riga chiusa: è lì che si scopre se c'è qualcosa da seguire. */
-.segui-riga { margin: 0 14px 10px 46px; }
+.segui-riga { margin: 0 14px 10px 46px; display: flex; flex-wrap: wrap; column-gap: 18px; }
 .btn-testo.segui { display: flex; align-items: center; gap: 6px; padding-left: 0; }
 .btn-testo.segui .icona { width: 15px; height: 15px; }
 
@@ -898,6 +898,11 @@ details[open] .apri { transform: rotate(90deg); }
   border-color: var(--accento); color: var(--accento);
 }
 .nota-fascia { margin: -4px 0 8px; font-size: 12.5px; color: var(--tenue); }
+/* Un treno abituale è una fascia con il treno al posto dell'orario di
+   chiusura: stessa scheda, stessi giorni, e la ✕ al posto di "Rimuovi". */
+.fascia .qualifica { display: block; color: var(--tenue); font-size: 13px; }
+.fascia .freccia { color: var(--accento); }
+.fascia .togli { align-self: flex-start; padding: 0 0 8px 14px; }
 
 .ore { display: flex; gap: 10px; }
 .ore label {

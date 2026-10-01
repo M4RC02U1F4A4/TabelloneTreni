@@ -10,6 +10,7 @@ con l'orario a cui ci arrivano.
 - **toccando un treno si vede dov'è adesso**, con il ritardo a cui è passato da ogni fermata già servita
 - **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
 - **le notifiche su un treno seguito**, a ogni rilevamento di ViaggiaTreno, fino a quando il treno arriva alla stazione da cui sali — poi smettono da sole
+- **i treni abituali**: quello della mattina e quello della sera si salvano una volta, con i giorni in cui li prendi, e ogni giorno le notifiche ripartono da sole — più un **preavviso dieci minuti prima** con binario, ritardo e soppressione
 - **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. Toccandola si apre e si legge per intero
 - **i treni cancellati restano nella tratta**, con la scritta *soppresso*, anche quando RFI non pubblica le loro fermate — che è sempre, ed è il giorno di sciopero il giorno in cui serve saperlo
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
@@ -570,6 +571,46 @@ non partono, e un servizio a parte dovrebbe comunque condividerne la chiave
 privata. Il ritmo però è suo — un minuto contro i cinque dei bollini — perché
 un treno si muove da sé mentre i bollini li muove una persona.
 
+### I treni abituali
+
+Chi prende ogni mattina lo stesso treno ha lo stesso segnalibro da rimettere
+ogni giorno: stesso numero, stessa origine, stessa stazione di salita. Cambia
+solo il giorno, che è l'unica delle coordinate di ViaggiaTreno che il servizio
+può calcolarsi da sé. Un treno abituale è quindi un segnalibro **senza data**,
+con l'ora a cui passa dalla tua stazione e i giorni della settimana in cui lo
+prendi.
+
+Ogni giorno scelto ne nasce il **treno di oggi**, che vive da dieci minuti
+prima dell'orario fino a quando arriva dove sali — o tre ore dopo, la rete per
+il treno che non passa. Fuori da quella finestra non esiste, e non costa
+nessuna lettura: un regionale che parte dal capolinea due ore prima non
+manda notifiche da là. Dentro, è un treno seguito come gli altri, letto una
+volta sola per quanti lo aspettano.
+
+Il treno di oggi **non si scrive da nessuna parte**: si ricalcola a ogni giro
+dall'orologio. Si ricorda solo cosa gli è già stato detto, e che è arrivato —
+un segnalibro arrivato esce dall'elenco e basta, il treno di oggi invece
+rinascerebbe al giro dopo come se fosse nuovo. Domani la chiave è un'altra, e
+la storia ricomincia da capo senza nessuno stato da pulire.
+
+**Il preavviso** risolve per gli abituali il limite di sempre: prima della
+partenza ViaggiaTreno non dice niente, ed è proprio prima di uscire di casa che
+serve sapere se il treno c'è. Dieci minuti prima il servizio legge le partenze
+della tua stazione con lo stesso tabellone che vede il telefono — RFI con
+sopra le misure di ViaggiaTreno — e manda quello che c'è scritto sulla riga:
+binario e se è cambiato, i due ritardi, la soppressione. Una lettura per
+stazione, qualunque sia il numero di persone, e nella cache da trenta secondi
+del tabellone.
+
+Un treno che **non compare sul tabellone** è una notizia anch'essa — un
+festivo, un treno che oggi non circola — e arriva come tale. Un tabellone che
+non risponde invece non lo è: si riprova al minuto dopo, finché si è ancora
+prima della partenza. Il tag è quello del treno, quindi il primo rilevamento
+prende il posto del preavviso sulla schermata di blocco.
+
+Le fasce non si applicano, come per il segnalibro: salvarlo è il consenso,
+una volta per tutte.
+
 ### Il riconoscimento delle fermate
 
 I nomi delle fermate sul tabellone sono abbreviati e non combaciano con quelli
@@ -706,7 +747,7 @@ Il tabellone:
 | `GET /linee` | stato di tutte le linee, con gli avvisi di quelle seguite e l'orario dell'ultima lettura riuscita |
 | `GET /avvisi?linea=S2` | le comunicazioni di una linea, prese al momento se quelle che si hanno sono scadute |
 | `GET /push/chiave` | la chiave pubblica VAPID; vuota se le notifiche non sono configurate |
-| `POST /push/abbonamenti` | registra chi seguire, con le fasce e il fuso; un elenco di linee vuoto cancella l'abbonamento |
+| `POST /push/abbonamenti` | registra chi seguire — linee, treni, treni abituali — con le fasce e il fuso; vuoto di tutto cancella l'abbonamento |
 | `GET /healthz` | 503 finché non è riuscita una lettura: appena avviato non deve ricevere traffico |
 
 Il volume va ceduto all'utente `nonroot` (uid 65532) la prima volta, perché
@@ -755,7 +796,12 @@ go run ./cmd/genstations
   vuoto finché non passa da un punto di controllo. Chi sale all'origine del
   treno non riceve quindi niente fino a quando il treno parte — nella scheda
   aperta la riga di RFI c'è lo stesso, ma quella la legge il tabellone, che non
-  è il servizio che notifica.
+  è il servizio che notifica. Per i treni abituali c'è il preavviso, che legge
+  proprio quella riga.
+- **Il treno abituale che scavalca la mezzanotte prima della tua stazione non
+  si trova.** La data del treno di oggi è quella del giorno in cui passa da
+  te, mentre ViaggiaTreno vuole quella in cui parte dall'origine: per un treno
+  partito alle 23:50 e da te all'una sono diverse, e resta il solo preavviso.
 - **I bollini coprono la sola Lombardia.** Sono le linee di Trenord: un treno
   RFI fuori regione non ha nessuno stato di linea associato.
 - **Gli avvisi in home vengono dal solo tabellone partenze.** I due versi ne

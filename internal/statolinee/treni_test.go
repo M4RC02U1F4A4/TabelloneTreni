@@ -72,6 +72,11 @@ func stazioniDiProva(t *testing.T) (a, b *stations.Station) {
 // partenza è la mezzanotte del giorno di partenza, come la manda il telefono.
 var partenza = time.Date(2026, 9, 21, 0, 0, 0, 0, roma).UnixMilli()
 
+// adessoDiProva è l'ora dei giri nei test: la sera di quel giorno. Ferma e non
+// time.Now, altrimenti la rete delle trentasei ore butta fuori i treni dei test
+// appena passa una settimana da quando sono stati scritti.
+var adessoDiProva = time.Date(2026, 9, 21, 18, 0, 0, 0, roma)
+
 func trenoDi(st *stations.Station) TrenoSeguito {
 	return TrenoSeguito{Origine: "S01700", Numero: "2247", Data: partenza, Da: st.ID}
 }
@@ -97,7 +102,9 @@ func fermata(st *stations.Station, passata bool) vt.Fermata {
 // servizio push finti.
 func servizioTreni(t *testing.T, ab *Abbonati, c *http.Client, f *treniFinti) *Servizio {
 	t.Helper()
-	return Nuovo(nil).ConNotifiche(ab, notificatoreDiProva(t, ab, c)).ConTreni(f)
+	s := Nuovo(nil).ConNotifiche(ab, notificatoreDiProva(t, ab, c)).ConTreni(f)
+	s.orologio = func() time.Time { return adessoDiProva }
+	return s
 }
 
 func aspetta(t *testing.T, ab *Abbonati, endpoint string, treni ...TrenoSeguito) {
@@ -329,7 +336,7 @@ func TestTrenoScadutoEsceDallElenco(t *testing.T) {
 	srv, _, _ := servizioPushFinto(t, http.StatusCreated)
 	salita, _ := stazioniDiProva(t)
 	vecchio := trenoDi(salita)
-	vecchio.Data = time.Now().Add(-48 * time.Hour).UnixMilli()
+	vecchio.Data = adessoDiProva.Add(-48 * time.Hour).UnixMilli()
 
 	ab, _ := ApriAbbonati("")
 	aspetta(t, ab, srv.URL+"/vecchio", vecchio)
@@ -401,12 +408,12 @@ func TestUnioneDeiTreniEStabile(t *testing.T) {
 		aspetta(t, ab, "https://push.example/"+n, tr)
 		_ = i
 	}
-	primo := ab.TreniSeguiti()
+	primo := ab.TreniSeguiti(adessoDiProva)
 	if len(primo) != 3 {
 		t.Fatalf("unione = %d, attesi 3", len(primo))
 	}
 	for range 5 {
-		if !slices.Equal(chiavi(ab.TreniSeguiti()), chiavi(primo)) {
+		if !slices.Equal(chiavi(ab.TreniSeguiti(adessoDiProva)), chiavi(primo)) {
 			t.Fatal("l'ordine dell'unione cambia fra un giro e l'altro")
 		}
 	}
