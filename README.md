@@ -829,3 +829,14 @@ Ogni commit su `main` fa una versione: `feat:` alza la minor, `fix:` e `perf:`
 la patch, un `!` o un `BREAKING CHANGE:` la major, il resto vale patch. Il
 workflow crea il tag (senza prefisso `v`), pubblica la release e spinge
 l'immagine multi-architettura su GHCR.
+
+## Licenza
+
+[AGPL-3.0](LICENSE). Il codice si può usare, modificare e ridistribuire, ma
+chi distribuisce il programma — anche modificato, anche come app su uno store
+— deve darne il sorgente sotto la stessa licenza, e lo stesso vale per chi fa
+girare una versione modificata come servizio in rete.
+
+Il carattere Atkinson Hyperlegible in `web/` è del Braille Institute, sotto la
+[SIL Open Font License](web/atkinson-OFL.txt). I dati che l'app mostra sono di
+RFI, Trenord e ViaggiaTreno, non di questo progetto.
