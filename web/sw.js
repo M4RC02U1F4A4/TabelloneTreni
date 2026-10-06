@@ -7,7 +7,8 @@
    l'app resta viva in background per giorni, quella precedente restava lì. */
 
 const CACHE = 'tabellone';
-const GUSCIO = ['.', 'index.html', 'app.css', 'app.js', 'icona.svg', 'manifest.webmanifest'];
+const GUSCIO = ['.', 'index.html', 'app.css', 'app.js', 'icona.svg', 'manifest.webmanifest',
+  'atkinson-400.woff2', 'atkinson-700.woff2'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(GUSCIO)).then(() => self.skipWaiting()));

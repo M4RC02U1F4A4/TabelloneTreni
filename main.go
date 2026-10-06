@@ -45,6 +45,11 @@ func main() {
 	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
 		log.Fatal(err)
 	}
+	// Nemmeno .woff2, e sull'immagine distroless non c'è un mime.types da cui
+	// impararlo: il carattere uscirebbe come application/octet-stream.
+	if err := mime.AddExtensionType(".woff2", "font/woff2"); err != nil {
+		log.Fatal(err)
+	}
 
 	statici, err := fs.Sub(contenutoWeb, "web")
 	if err != nil {

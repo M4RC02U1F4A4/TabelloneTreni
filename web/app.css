@@ -1,3 +1,27 @@
+/* Atkinson Hyperlegible, disegnato dal Braille Institute per chi vede poco:
+   ogni cifra e ogni lettera ha una forma che non si confonde con le altre —
+   lo zero barrato, l'1 con la base, la I con le grazie. In un'app che è fatta
+   di orari e numeri di binario letti di sfuggita, 3 contro 8 e 1 contro 7 sono
+   la differenza fra un treno e l'altro.
+
+   Sta dentro l'immagine e non su un servizio di caratteri: l'app non chiede
+   niente a nessun altro, e non comincerebbe a farlo per un font. Solo il
+   sottoinsieme latino, regolare e grassetto: le altre grazie di peso le
+   arrotonda il browser al più vicino. Il latino copre gli accenti italiani, e
+   il raro carattere di fuori lo disegna il font di sistema che segue. */
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  font-weight: 400;
+  font-display: swap;
+  src: url("atkinson-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  font-weight: 700;
+  font-display: swap;
+  src: url("atkinson-700.woff2") format("woff2");
+}
+
 /* Tavolozza scura per prima: un tabellone di stazione è scuro, e su un telefono
    in mano alla sera è anche la scelta che stanca meno. La variante chiara serve
    al caso opposto, il display al sole sul marciapiede. */
@@ -15,6 +39,8 @@
      Lì passa quindi a un blu, che sul grigio-azzurro del fondo si stacca da
      solo e non somiglia né al rosso del ritardo né al verde di "in partenza". */
   --accento: #ffb020;
+  /* Il testo sopra l'accento pieno: scuro sull'ambra, bianco sul blu. */
+  --su-accento: #1a1200;
   --verde: #3ddc97;
   --rosso: #ff6b6b;
   /* L'ambra dei bollini di linea è una variabile a sé e non l'accento, che nel
@@ -47,6 +73,7 @@
     --testo: #131820;
     --tenue: #5d6b80;
     --accento: #1a56db;
+    --su-accento: #ffffff;
     --verde: #0d7a4f;
     --rosso: #c62828;
     --ambra: #b45309;
@@ -70,7 +97,7 @@ html { touch-action: pan-x pan-y; }
 body {
   background: var(--sfondo);
   color: var(--testo);
-  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  font: 16px/1.45 "Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
   /* Le cifre incolonnate sono ciò che rende leggibile una lista di orari. */
   font-variant-numeric: tabular-nums;
   -webkit-text-size-adjust: 100%;
@@ -176,12 +203,10 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 
 /* ---------- home ---------- */
 
-/* Sulla home convivono due cose che si fanno in modi opposti: le tratte salvate
-   si toccano per andare, i campi di ricerca si compilano. Prima avevano lo
-   stesso aspetto e non si capiva quale fosse quale, per cui ora hanno due forme
-   diverse: le prime sono una lista di righe a filo, i secondi un blocco unico
-   riquadrato — la stessa distinzione che si vede fra una lista di voci e un
-   modulo raggruppato. */
+/* Sulla home convivono due cose che si fanno in modi opposti: quello che si
+   guarda — il treno seguito, le tratte salvate col loro prossimo treno — e il
+   modulo che si compila. Le prime scorrono, il secondo sta fermo in un
+   pannello in fondo: la distinzione la fa il posto, oltre che la forma. */
 
 .sezione + .sezione { margin-top: 26px; }
 .testa-sezione { display: flex; align-items: baseline; justify-content: space-between; }
@@ -206,59 +231,57 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   clip-path: inset(50%); white-space: nowrap;
 }
 
-/* --- il banner degli avvisi di stazione --- */
+/* --- lo stato della rete: i gettoni in cima --- */
 
-/* Sta in cima alla home e scorre come il tabellone vero da cui arriva. Il
-   colore è l'ambra dei bollini di gravità e non l'accento, che nel tema chiaro
-   diventa blu: un avviso di stazione non è un elemento di interfaccia da
-   toccare, è un cartello giallo, e in entrambi i temi deve leggersi così.
+/* Una fila sola che si scorre di lato: nei giorni storti i gettoni sono
+   quattro o cinque, e andando a capo spingerebbero giù il treno da prendere
+   proprio quando serve vederlo. Il margine negativo li fa scorrere fino al
+   bordo dello schermo, che è quello che dice che ce ne sono altri. */
+.gettoni {
+  display: flex; gap: 8px;
+  margin: 0 -14px; padding: 0 14px 2px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.gettoni::-webkit-scrollbar { display: none; }
+.gettone {
+  flex: none; display: flex; align-items: center; gap: 7px;
+  height: 36px; padding: 0 13px;
+  background: var(--piano); border: 1px solid var(--bordo); border-radius: 18px;
+  color: var(--testo); font-size: 14px; font-weight: 650; white-space: nowrap;
+}
+.gettone .icona { width: 16px; height: 16px; }
+.gettone .conta { display: flex; align-items: center; gap: 5px; margin-left: 4px; font-weight: 400; }
+.gettone.attesa { color: var(--tenue); font-weight: 400; }
+/* Il colore è quello dei cartelli di prima, e per la stessa ragione: l'ambra
+   dei bollini e non l'accento, che nel chiaro diventa blu — un avviso di
+   stazione è un cartello giallo in entrambi i temi. */
+.gettone.stazione {
+  color: var(--ambra);
+  background: color-mix(in srgb, var(--ambra) 12%, var(--piano));
+  border-color: color-mix(in srgb, var(--ambra) 40%, var(--bordo));
+}
+.gettone.sciopero {
+  color: var(--rosso);
+  background: color-mix(in srgb, var(--rosso) 12%, var(--piano));
+  border-color: color-mix(in srgb, var(--rosso) 40%, var(--bordo));
+}
+.gettone[aria-expanded="true"] { border-color: currentColor; }
 
-   Ed è proprio per non farlo sembrare da toccare che è una striscia e non un
-   riquadro. Chiuso dentro un bordo tondo su tutti e quattro i lati, con
-   l'ambra piena e il testo in grassetto, era la cosa più accesa della pagina e
-   aveva la forma del pulsante che sta sotto: aprendo l'app si toccava
-   l'avviso. La barra a sinistra dice la stessa cosa — c'è una comunicazione,
-   ed è gialla — senza promettere che porti da qualche parte. */
-.avvisi-stazione {
-  margin-bottom: 18px;
+/* Il testo per intero, sotto i gettoni, quando se ne apre uno. La barra a
+   sinistra è quella del cartello di prima: dice che c'è una comunicazione, ed
+   è gialla, senza la forma di un pulsante. */
+.elenco-avvisi-stazione {
+  margin-top: 10px; padding: 10px 12px 12px;
   border-left: 3px solid var(--ambra);
   background: color-mix(in srgb, var(--ambra) 8%, var(--piano));
   border-radius: 0 var(--raggio) var(--raggio) 0;
   color: var(--ambra);
-}
-.avvisi-stazione summary {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px;
-  list-style: none; cursor: pointer;
-  font-size: 13px; font-weight: 600;
-}
-.avvisi-stazione summary::-webkit-details-marker { display: none; }
-/* Il contenitore che taglia: senza overflow nascosto qui, il testo che entra
-   da destra allargherebbe la pagina e la si potrebbe scorrere in orizzontale
-   per andare a vedere il vuoto accanto al banner. */
-.avvisi-stazione .scorrevole { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
-/* Il padding di una larghezza intera fa partire il testo appena fuori dal
-   bordo destro; la traslazione del 100% della *propria* larghezza — padding
-   compreso — lo porta a uscire tutto da sinistra. Trenta secondi per un giro:
-   un avviso di RFI è lungo come un SMS, e più veloce non si legge. */
-.avvisi-stazione .scorre {
-  display: inline-block;
-  padding-left: 100%;
-  animation: scorri 30s linear infinite;
-}
-@keyframes scorri { to { transform: translateX(-100%); } }
-/* Aperto, il testo non scorre più: l'etichetta prende il posto della striscia
-   e gli avvisi stanno sotto per intero. Un avviso da leggere non può scorrere
-   via mentre lo si legge. */
-.avvisi-stazione .etichetta { display: none; flex: 1; }
-.avvisi-stazione[open] .scorrevole { display: none; }
-.avvisi-stazione[open] .etichetta { display: block; }
-.avvisi-stazione .chevron { flex: none; display: flex; align-items: center; transition: transform 0.15s; }
-.avvisi-stazione[open] .chevron { transform: rotate(90deg); }
-
-.elenco-avvisi-stazione {
-  padding: 0 12px 12px;
   display: flex; flex-direction: column; gap: 10px;
+}
+.elenco-avvisi-stazione.sciopero {
+  border-left-color: var(--rosso);
+  background: color-mix(in srgb, var(--rosso) 10%, var(--piano));
+  color: var(--rosso);
 }
 .elenco-avvisi-stazione li { font-size: 13.5px; line-height: 1.5; min-width: 0; }
 /* Stessa forma della data sulle comunicazioni di linea: sopra l'avviso, in
@@ -271,17 +294,12 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
    con le barre ("BINARI 14/15 - 16/17") che sono parole lunghe senza spazi. */
 .elenco-avvisi-stazione .testo-avviso { color: var(--testo); overflow-wrap: anywhere; }
 
-/* Un testo che scorre è esattamente quello che questa preferenza chiede di non
-   fare: resta fermo e troncato, e per leggerlo si apre il banner. */
-@media (prefers-reduced-motion: reduce) {
-  .avvisi-stazione .scorrevole { text-overflow: ellipsis; }
-  /* Da inline l'ellissi funziona: sull'inline-block il testo verrebbe
-     tagliato di netto senza i tre punti che dicono che continua. */
-  .avvisi-stazione .scorre { display: inline; padding-left: 0; animation: none; }
-  .avvisi-stazione .chevron { transition: none; }
-}
+/* I gettoni sono la riga di stato sopra il treno, non una sezione accanto alle
+   altre: lo spazio di una sezione intera li staccherebbe da quello che
+   riguardano. */
+.stato-rete + .sezione { margin-top: 14px; }
 
-/* --- lista: le tratte salvate e le voci di navigazione --- */
+/* --- lista: le righe dell'elenco delle linee --- */
 
 .lista { border-top: 1px solid var(--bordo); }
 .riga { display: flex; align-items: center; border-bottom: 1px solid var(--bordo); }
@@ -311,48 +329,130 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   background: none; border: 0; color: var(--rosso); font-size: 16px;
 }
 
-/* --- le due tessere del tabellone di stazione --- */
+/* --- il treno seguito: la scheda grande --- */
 
-/* Non sono voci di una lista: sono due modi di guardare la stessa stazione, e
-   affiancate si sceglie fra loro con un colpo d'occhio invece di leggere due
-   righe che iniziano uguali. Il tocco è tutta la tessera, che su un telefono
-   in mano al binario è il bersaglio che serve. */
-.coppia { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+.schede { display: flex; flex-direction: column; gap: var(--gap); }
+/* Un piano sopra le tessere, con il bordo verde del treno vivo: nello scuro è
+   la cosa più chiara della pagina senza essere la più accesa. */
+.scheda {
+  display: block; padding: 14px 16px;
+  background: var(--piano-alto);
+  border: 1px solid color-mix(in srgb, var(--verde) 45%, var(--bordo));
+  border-radius: 18px;
+}
+/* Nel chiaro la scheda è un pezzo di tema scuro: su una pagina chiara è il
+   blocco scuro che si trova per primo, e dentro i colori restano quelli che il
+   tabellone ha al buio — le due pastiglie, il verde di "fra 6 min", il rosso
+   del ritardo — invece di tingersi per un fondo che qui non c'è. */
+@media (prefers-color-scheme: light) {
+  .scheda {
+    --testo: #e8edf5; --tenue: #a3aebf; --bordo: #2c3646;
+    --verde: #3ddc97; --rosso: #ff6b6b; --ambra: #ffb020; --accento: #ffb020; --su-accento: #1a1200;
+    --piano-alto: #1d2431;
+    --rfi-testo: #ffcb6b; --rfi-fondo: #3a2708; --vt-testo: #6fd6ce; --vt-fondo: #0d3230;
+    background: #131820; border-color: transparent;
+  }
+}
+.scheda { color: var(--testo); }
+.scheda.soppresso, .scheda.concluso { opacity: 0.65; }
+.scheda .provvedimento { margin: 0 0 10px; }
+
+.scheda-alto { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--tenue); }
+.scheda-alto b { color: var(--testo); }
+.scheda-mezzo { display: flex; align-items: flex-end; gap: 12px; margin-top: 6px; }
+.scheda .ora { font-size: 42px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+.scheda.in-ritardo .ora { color: var(--rosso); }
+.scheda .ora.barrato { text-decoration: line-through; text-decoration-thickness: 3px; }
+.scheda-dest {
+  flex: 1; min-width: 0; padding-bottom: 2px;
+  font-size: 17px; font-weight: 700; line-height: 1.2;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden;
+}
+/* Il binario grande quanto l'ora, in una pastiglia sua: è il numero che si
+   cerca camminando nel sottopassaggio. */
+.scheda-bin {
+  flex: none; min-width: 60px; padding: 6px 10px 4px;
+  background: var(--sfondo); border-radius: 12px; text-align: center;
+}
+@media (prefers-color-scheme: light) { .scheda .scheda-bin { background: #ffffff; color: #131820; } }
+.scheda-bin b { display: block; font-size: 28px; line-height: 1; }
+.scheda-bin b small { font-size: 13px; margin-left: 2px; }
+.scheda-bin > small { font-size: 11px; color: var(--tenue); }
+@media (prefers-color-scheme: light) { .scheda .scheda-bin > small { color: #5d6b80; } }
+.scheda .scheda-bin.cambiato { background: var(--accento); color: var(--su-accento); }
+.scheda .scheda-bin.cambiato > small { color: inherit; font-weight: 700; }
+
+.scheda-basso {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  margin-top: 12px; font-size: 14px; color: var(--tenue);
+}
+.scheda-basso .fra { margin-left: auto; color: var(--verde); font-weight: 700; }
+.scheda-dove {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--bordo);
+  font-size: 14px; color: var(--tenue);
+}
+/* Il puntino c'è solo quando ViaggiaTreno il treno lo sta seguendo davvero:
+   su "non ancora partito" un segno di vita sarebbe una bugia. */
+.scheda-dove.vivo::before {
+  content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--verde);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--verde) 25%, transparent);
+}
+
+/* --- le tratte salvate: le tessere --- */
+
+/* Due per riga, alte quanto un pollice è largo. La griglia le tiene alte
+   uguali anche quando un nome va a capo, e il prossimo treno sta sempre in
+   fondo: l'occhio lo trova allo stesso posto su ogni tessera. */
+.tessere { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
 .tessera {
-  display: flex; flex-direction: column; align-items: center; gap: 7px;
-  padding: 16px 10px;
-  background: var(--piano); border: 1px solid var(--bordo); border-radius: var(--raggio);
-  color: var(--testo); font-size: 14px; font-weight: 600; cursor: pointer;
+  position: relative; height: 100%; min-height: 108px;
+  display: flex; flex-direction: column;
+  padding: 12px;
+  background: var(--piano); border: 1px solid var(--bordo); border-radius: 16px;
 }
-.tessera .icona { width: 20px; height: 20px; color: var(--accento); }
+.tessera .sopra {
+  font-size: 13px; color: var(--tenue);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tessera .nome { font-size: 16px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.tessera .poi {
+  margin-top: auto; padding-top: 10px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 7px;
+  font-size: 13.5px; color: var(--tenue);
+}
+.tessera .poi b { font-size: 21px; font-weight: 700; color: var(--testo); letter-spacing: -0.01em; }
+.tessera .poi b.barrato { text-decoration: line-through; }
+.tessera .poi .rit { color: var(--rosso); font-weight: 700; }
+.tessera .poi .cambiato { color: var(--accento); font-weight: 700; }
+.tessera .poi small { font-size: 11px; margin-left: 2px; }
+.tessera .togli { position: absolute; top: 0; right: 0; padding: 10px 12px; }
+.tessera.in-modifica { padding-right: 36px; }
 
-/* --- lo stato della rete a colpo d'occhio --- */
+/* --- i treni abituali --- */
 
-.barra-linee {
-  display: flex; gap: 2px; height: 6px;
-  border-radius: 3px; overflow: hidden;
+.abituali { display: flex; flex-direction: column; gap: 8px; }
+.abituale { background: var(--piano); border: 1px solid var(--bordo); border-radius: var(--raggio); }
+.abituale-testa {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 14px; background: none; border: 0; text-align: left;
 }
-/* La larghezza minima è quello che rende la barra onesta: senza, una linea
-   grave su sessantacinque sarebbe una fetta di due pixel invisibile, cioè
-   esattamente il caso per cui questa barra esiste. */
-.barra-linee span { background: var(--tenue); min-width: 8px; }
-/* In attesa la barra è una sola tacca, e va nel grigio degli scheletri: il
-   tenue delle linee senza stato la farebbe leggere come un dato arrivato. */
-.barra-linee.scheletro span { background: var(--piano-alto); }
-.barra-linee .regolare { background: var(--verde); }
-.barra-linee .critico { background: var(--ambra); }
-.barra-linee .grave { background: var(--rosso); }
-/* I numeri scritti sotto: il colore da solo non è un'informazione per tutti, ed
-   è la stessa regola per cui ogni bollino ha accanto la sua parola. */
-.conta-linee {
-  margin: 8px 0 0 2px;
-  display: flex; flex-wrap: wrap; gap: 4px 14px;
-  font-size: 12.5px; color: var(--tenue);
+.abituale-ora { flex: none; font-size: 20px; font-weight: 700; }
+.abituale-testo { flex: 1; min-width: 0; font-weight: 650; }
+.abituale-testo .freccia { color: var(--accento); font-weight: 400; }
+.abituale-testo .qualifica { display: block; font-weight: 400; font-size: 13px; color: var(--tenue); }
+.abituale-testa .chevron { flex: none; color: var(--tenue); display: flex; transition: transform 0.15s; }
+.abituale-testa[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .abituale-testa .chevron { transition: none; } }
+.abituale .giorni { padding: 0 14px; }
+.abituale-piede {
+  margin: 0; padding: 6px 14px 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 13px; color: var(--tenue);
 }
-.conta-linee > span { display: flex; align-items: center; gap: 6px; }
-/* La lista sotto ha già il suo filo sopra: senza questo, fra i numeri e la
-   prima linea il vuoto sarebbe il doppio di quello fra le righe. */
-.conta-linee + .lista { margin-top: 12px; }
+.btn-testo.togli-testo { color: var(--rosso); }
 
 /* --- lista: lo stato delle linee --- */
 
@@ -427,20 +527,51 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
    stazione, ma lì sta in una riga accanto ad "Annulla" e qui è da solo. */
 .cerca-linee { width: 100%; margin-bottom: 12px; }
 
-/* --- modulo: la nuova ricerca --- */
+/* --- la ricerca: il pannello in fondo --- */
+
+/* Fermo in fondo allo schermo, dove arriva il pollice della mano che tiene il
+   telefono; la home gli scorre sotto, e il margine in fondo è quanto basta
+   perché l'ultima tessera si possa portare sopra di lui. Alto quanto il modo
+   "tratta", il più alto dei tre: negli altri avanza un po' di vuoto, che è il
+   verso giusto in cui sbagliare. */
+.home { padding-bottom: calc(250px + env(safe-area-inset-bottom)); }
+.foglio {
+  position: fixed; z-index: 4; left: 0; right: 0; bottom: 0;
+  max-width: 640px; margin: 0 auto;
+  padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+  background: var(--piano);
+  border: 1px solid var(--bordo); border-bottom: 0; border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 30px rgb(0 0 0 / 0.18);
+}
+
+/* I tre modi, come un interruttore a tre posizioni: uno è sempre acceso, e
+   quello acceso è il piano che sporge dal binario. */
+.segmenti {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  padding: 3px; margin-bottom: 10px;
+  background: var(--sfondo); border-radius: 12px;
+}
+.segmenti button {
+  padding: 8px 0; border: 0; border-radius: 9px; background: none;
+  color: var(--tenue); font-size: 15px; font-weight: 650;
+}
+.segmenti button[aria-pressed="true"] {
+  background: var(--piano); color: var(--testo);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
 
 /* DA e A stanno in un solo riquadro separati da un filo, e il pulsante di
    scambio siede a cavallo dei due: appartiene visibilmente a entrambi invece di
    galleggiare fra loro. */
 .gruppo {
   display: flex; align-items: stretch;
-  background: var(--piano); border: 1px solid var(--bordo); border-radius: var(--raggio);
-  margin-bottom: 12px;
+  border: 1px solid var(--bordo); border-radius: var(--raggio);
+  margin-bottom: 10px;
 }
 .gruppo-campi { flex: 1; min-width: 0; }
 .campo {
   display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 14px; background: none; border: 0; text-align: left;
+  padding: 13px 14px; background: none; border: 0; text-align: left;
 }
 .gruppo-campi .campo + .campo { border-top: 1px solid var(--bordo); }
 .campo .sigla {
@@ -455,35 +586,23 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   flex: none; align-self: center;
   width: 40px; height: 40px; margin: 0 8px;
   display: grid; place-items: center;
-  background: var(--piano-alto); border: 1px solid var(--bordo); color: var(--tenue);
-  font-size: 17px;
-  border-radius: 22%;
-  corner-shape: squircle;
+  background: var(--piano); border: 1px solid var(--bordo); color: var(--accento);
+  border-radius: 50%;
 }
 
-/* Ambra scritta, non ambra piena.
-
-   Era uno slab pieno a tutta larghezza, l'unico blocco saturo della pagina, e
-   da quando i due campi si ricordano non è più quasi sempre disabilitato: è
-   sempre acceso, quindi sempre il protagonista. Ma sulla home ci sono due
-   strade per arrivare a un tabellone — toccare una tratta salvata, che si fa
-   tutte le mattine, e compilare il modulo, che si fa quando si va in un posto
-   nuovo — e l'ambra piena diceva che la seconda è quella importante.
-
-   Il tono è quello che i tasti accesi in intestazione hanno già: stessa
-   ricetta, così le due cose accese dell'app si somigliano. */
+/* L'accento pieno, adesso. Quando il modulo stava in mezzo alla home era
+   scritto e non pieno, perché accanto c'erano le tratte salvate e l'ambra
+   piena diceva che la strada importante era la ricerca. Nel pannello è
+   l'unica azione, staccata dal resto, e il pieno dice solo dove si conferma. */
 .principale {
   display: block; width: 100%;
-  padding: 14px; border-radius: var(--raggio);
-  border: 1px solid color-mix(in srgb, var(--accento) 55%, transparent);
-  background: color-mix(in srgb, var(--accento) 12%, var(--piano));
-  color: var(--accento);
-  font-weight: 650; font-size: 16px;
+  padding: 14px; border-radius: var(--raggio); border: 1px solid transparent;
+  background: var(--accento); color: var(--su-accento);
+  font-weight: 700; font-size: 16px;
 }
-/* Disabilitato non è "acceso ma sbiadito": l'ambra al 45% diventava un senape
-   spento che sembrava rotto. Senza tinta si legge per quello che è, non ancora
-   pronto — e il bordo resta al suo posto, così passando da spento ad acceso il
-   pulsante non cambia altezza. */
+/* Disabilitato non è "acceso ma sbiadito": senza tinta si legge per quello che
+   è, non ancora pronto — e il bordo resta al suo posto, così passando da
+   spento ad acceso il pulsante non cambia altezza. */
 .principale:disabled {
   border-color: var(--bordo);
   background: var(--piano-alto);
@@ -528,8 +647,8 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 /* Le due pastiglie stanno sotto l'ora, sulla stessa riga: affiancate ci vanno
    perché senza unità di misura sono due o tre caratteri l'una, e la colonna
    dell'orario è già larga quanto "22:47". */
-.orario .scarti { display: flex; gap: 4px; justify-content: flex-end; margin-top: 1px; }
-.orario .scarto {
+.orario .scarti, .scheda-basso .scarti { display: flex; gap: 4px; justify-content: flex-end; margin-top: 1px; }
+.orario .scarto, .scheda-basso .scarto {
   font-size: 12px; font-weight: 650;
   padding: 1px 5px; border-radius: 5px;
   /* Larghezza minima e testo centrato: "+12" e "0" occupano lo stesso spazio,
@@ -538,7 +657,7 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 }
 /* Il soppresso e i testi di RFI non sono una misura e non hanno una fonte da
    distinguere: restano la scritta rossa di prima, senza pastiglia. */
-.orario .scarto.solo {
+.orario .scarto.solo, .scheda-basso .scarto.solo {
   display: block; padding: 0; background: none; color: var(--rosso); min-width: 0;
 }
 /* Il treno partito dal tabellone che lo pubblicava ha una sola misura, quella
@@ -547,7 +666,7 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    quelli guadagnati, grigio l'orario rispettato. Ed è il numero che si cerca
    guardando la home di un treno che si sta prendendo, quindi è grande come
    l'ora che gli sta sopra invece di essere la cifra minuta di una pastiglia. */
-.orario .scarto.misura {
+.orario .scarto.misura, .scheda-basso .scarto.misura {
   display: block; padding: 0; background: none; min-width: 0;
   font-size: 17px; font-weight: 700; letter-spacing: -0.02em;
 }
@@ -559,6 +678,9 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 .scarto.vt { color: var(--vt-testo); background: var(--vt-fondo); }
 /* Tiene la larghezza e non si vede: è il posto riservato, non una pastiglia. */
 .scarto.vt.vuota { background: none; }
+/* Sulla scheda grande le pastiglie stanno accanto a testo da 14, non sotto
+   un'ora in colonna: un punto in più perché non sembrino note a margine. */
+.scheda-basso .scarti .scarto { font-size: 13px; padding: 2px 7px; }
 
 /* Il ritardo non è più il colore della pastiglia, che ora dice la fonte: il
    "questo treno è in ritardo" da cogliere di sfuggita passa sull'ora, che è il
@@ -1037,15 +1159,3 @@ details[open] .apri { transform: rotate(90deg); }
   color: var(--tenue); background: color-mix(in srgb, var(--sfondo) 72%, transparent);
 }
 
-/* Lo stesso cartello, in rosso, per gli scioperi.
-   Il giallo dice "guarda quando passi in stazione", il rosso dice "oggi il
-   treno potrebbe non esserci": è una gerarchia, non due tinte a caso, e per
-   questo il rosso sta sopra. */
-.avvisi-stazione.sciopero {
-  border-left-color: var(--rosso);
-  background: color-mix(in srgb, var(--rosso) 10%, var(--piano));
-  color: var(--rosso);
-}
-/* Nell'elenco aperto l'etichetta è il codice della linea, non il nome di una
-   stazione: lo stesso sciopero vale su più linee insieme. */
-.avvisi-stazione.sciopero .stazione-avviso { color: var(--rosso); }

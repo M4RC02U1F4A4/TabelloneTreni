@@ -844,3 +844,48 @@ assert.deepStrictEqual(Object.keys(abitualePerIlServer(abitualeFinto)).sort(), t
   'i campi di abitualePerIlServer e quelli di TrenoAbituale non coincidono più');
 
 console.log('treni abituali di oggi: ok — giorni, bordi della finestra, mezzanotte e cambi d\'ora a Roma');
+
+/* ----------------------------------- la scheda in home: fra quanto, e i giorni */
+
+/* "fra 6 min" è un conto fatto al posto di chi guarda: se sbaglia il fuso, il
+   giorno o il ritardo, manda a correre per un treno che non c'è o fa perdere
+   quello che c'è. Tace oltre l'ora e a treno partito dalla fermata di salita. */
+const fraQuanto = (adesso) => new Function('Date', `
+  ${ritaglia('const QUADRANTE_ROMA', 'function abitualiDiOggi')}
+  ${ritaglia('const ritardoLive', 'const conMisure')}
+  ${ritaglia('/* Fra quanto parte dalla stazione', '/* La scheda di un treno seguito, aperta')}
+  return fraQuanto;`)({ now: () => Date.parse(adesso), UTC: Date.UTC });
+
+// Lunedì 21 settembre 2026, il treno delle 7:12 di Roma, cioè le 5:12 UTC.
+const lunedi = { d: 1789941600000 };
+const viaggioFinto = { stops: [{ boarding: true }] };
+const fra = (adesso, riga, d = viaggioFinto) => fraQuanto(adesso)(lunedi, d, { time: '07:12', ...riga });
+assert.ok(/fra 6 min/.test(fra('2026-09-21T05:06:00Z', {})), 'sei minuti prima');
+assert.ok(/fra 9 min/.test(fra('2026-09-21T05:06:00Z', { liveDelay: 3 })), 'il ritardo dentro il conto');
+assert.ok(/fra 7 min/.test(fra('2026-09-21T05:06:00Z', { delay: 1 })), 'anche quello del tabellone');
+assert.ok(/fra 6 min/.test(fra('2026-09-21T05:06:00Z', { liveDelay: -2 })), 'l\'anticipo non si sottrae');
+assert.strictEqual(fra('2026-09-21T05:12:00Z', {}), '', 'all\'ora non si dice');
+assert.strictEqual(fra('2026-09-21T03:00:00Z', {}), '', 'oltre l\'ora l\'ora scritta basta');
+assert.strictEqual(fra('2026-09-21T05:06:00Z', { cancelled: true }), '', 'soppresso');
+assert.strictEqual(fra('2026-09-21T05:06:00Z', {}, { stops: [{ boarding: true, passed: true }] }), '',
+  'partito dalla fermata di salita');
+assert.strictEqual(fra('2026-09-21T05:06:00Z', {}, { arrived: true }), '', 'arrivato');
+
+const giorniScritti = new Function(`
+  ${ritaglia('const GIORNI = [', '// Andata al lavoro')}
+  ${ritaglia('const nomeGiorno', '/* Ogni tocco salva')}
+  ${ritaglia('function giorniScritti', 'function disegnaRisultati')}
+  return giorniScritti;`)();
+for (const [giorni, atteso] of [
+  [[1, 2, 3, 4, 5], 'lun–ven'],
+  [[5, 3, 1, 2, 4], 'lun–ven'],
+  [[0, 1, 2, 3, 4, 5, 6], 'tutti i giorni'],
+  [[6, 0], 'sab e dom'],
+  [[0, 1, 3], 'lun mer dom'],     // in ordine italiano, la domenica in fondo
+  [[], 'in pausa'],
+  [undefined, 'in pausa'],
+]) {
+  assert.strictEqual(giorniScritti(giorni), atteso, String(giorni));
+}
+
+console.log('scheda in home: ok — 9 casi su fra quanto + 7 sui giorni scritti');

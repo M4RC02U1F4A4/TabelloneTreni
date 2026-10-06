@@ -11,18 +11,19 @@ con l'orario a cui ci arrivano.
 - **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
 - **le notifiche su un treno seguito**, a ogni rilevamento di ViaggiaTreno, fino a quando il treno arriva alla stazione da cui sali — poi smettono da sole
 - **i treni abituali**: quello della mattina e quello della sera si salvano una volta, con i giorni in cui li prendi, e ogni giorno le notifiche ripartono da sole — più un **preavviso dieci minuti prima** con binario, ritardo e soppressione
-- **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. Toccandola si apre e si legge per intero
+- **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. È un gettone giallo accanto a quelli delle linee, e toccandolo l'avviso si legge per intero
 - **i treni cancellati restano nella tratta**, con la scritta *soppresso*, anche quando RFI non pubblica le loro fermate — che è sempre, ed è il giorno di sciopero il giorno in cui serve saperlo
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
-- le tratte si salvano fra i preferiti e stanno in cima alla home
+- le tratte si salvano fra i preferiti, e in home **ognuna dice già il suo prossimo treno** — ora, ritardo e binario — senza doverla aprire
+- la ricerca sta in un pannello fermo in fondo allo schermo, a portata di pollice: una tratta, oppure le partenze o gli arrivi di una stazione
 - installabile sulla schermata iniziale del telefono
 - immagine Docker da 16 MB con due servizi dentro, nessun database, nessuno stato su disco
 
 |  |  |
 |:--|:--|
-| <img width="330" src="docs/home.png" alt="La home con quattro tratte fra i preferiti e le due voci per il tabellone di una stazione"> | <img width="330" src="docs/tratta.png" alt="I treni da Roma Termini che fermano a Roma Tiburtina, con il viaggio di un treno aperto"> |
-| **Le tratte salvate stanno in cima**, e si aprono con un tocco; sotto, il tabellone intero di una stazione, partenze o arrivi. | **Solo i treni che fermano dove vai**. Toccando il treno si apre il suo viaggio: dov'è adesso, e con quanto ritardo è passato dalle fermate già servite. |
+| <img width="330" src="docs/home.png" alt="La home con un treno seguito in grande, tre tratte salvate col loro prossimo treno e il pannello di ricerca in fondo"> | <img width="330" src="docs/tratta.png" alt="I treni da Roma Termini che fermano a Roma Tiburtina, con il viaggio di un treno aperto"> |
+| **Il treno che stai prendendo in grande**, con il binario e fra quanto parte; sotto, le tratte salvate col loro prossimo treno, e in fondo la ricerca. | **Solo i treni che fermano dove vai**. Toccando il treno si apre il suo viaggio: dov'è adesso, e con quanto ritardo è passato dalle fermate già servite. |
 | <img width="330" src="docs/tabellone.png" alt="Il tabellone completo delle partenze da Roma Termini, con i due ritardi affiancati su ogni treno"> | <img width="330" src="docs/ricerca.png" alt="La ricerca stazione con la corrispondenza evidenziata in mezzo al nome"> |
 | **Il tabellone completo**: binari, soppressioni, avvisi e i **due ritardi** affiancati, ambra il tabellone e ciano la misura sul treno. | **La ricerca** cerca dentro il nome, non solo all'inizio, e non tocca la rete. |
 

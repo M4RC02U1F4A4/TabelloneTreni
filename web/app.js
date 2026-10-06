@@ -148,13 +148,22 @@ let filtroLinee = '';
    né rifare una richiesta già fatta. */
 const avvisiLinea = new Map(); // codice -> { stato: 'attesa'|'ok'|'errore', dati }
 const lineeAperte = new Set();
-// Il banner degli avvisi di stazione, aperto o chiuso. Vale come lineeAperte:
-// la home si ridisegna una volta al minuto, e senza ricordarselo il banner si
-// richiuderebbe in faccia a chi stava leggendo l'avviso per intero.
+// Gli avvisi di stazione, aperti o chiusi sotto il loro gettone. Vale come
+// lineeAperte: la home si ridisegna una volta al minuto, e senza ricordarselo
+// l'elenco si richiuderebbe in faccia a chi stava leggendo l'avviso per intero.
 let avvisiStazioneAperti = false;
-// Il cartello degli scioperi si ricorda se l'avevi aperto, come quello giallo:
-// la home si ridisegna spesso e richiuderlo sotto le dita sarebbe fastidioso.
+// Gli scioperi si ricordano se li avevi aperti, come gli avvisi: la home si
+// ridisegna spesso e richiuderli sotto le dita sarebbe fastidioso.
 let scioperiAperti = false;
+// Il prossimo treno di ogni tratta salvata, che la sua tessera in home scrive
+// senza doverla aprire. Indicizzato su chiaveTratta.
+const prossimi = new Map(); // chiave -> { stato: 'ok'|'errore', treno }
+// Cosa cerca il pannello in fondo alla home: una tratta, oppure il tabellone
+// intero di una stazione. Vive quanto la pagina: riaprendo l'app si cerca
+// quasi sempre una tratta.
+let modoRicerca = 'tratta';
+// Gli abituali aperti per cambiarne i giorni. Chiusi, sono una riga.
+const abitualiAperti = new Set();
 let timerRinfresco = null;
 let timerEta = null;
 let richiestaInCorso = 0;
@@ -271,6 +280,10 @@ const ICONE = {
   // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
   orologio: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   mira: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/>',
+  // Il triangolo dei gettoni di sciopero e di avviso: lo stesso segno per
+  // tutti e due, il colore dice quale.
+  allerta: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' +
+    '<path d="M12 9v4"/><path d="M12 17h.01"/>',
   campana: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>' +
     '<path fill="none" d="M13.73 21a2 2 0 0 1-3.46 0"/>',
 };
@@ -792,6 +805,29 @@ async function caricaAvvisiStazione() {
   }
 }
 
+/* Il prossimo treno di ogni tratta salvata, per le tessere in home.
+
+   Una lettura per tratta, in parallelo: le tratte salvate sono poche, e il
+   server tiene ogni tabellone trenta secondi sotto un lock per stazione —
+   aprire la tratta subito dopo è la stessa lettura, e dieci persone con la
+   stessa tratta sono comunque una richiesta sola a RFI. Una lettura andata
+   male tiene il treno di prima, come fanno i treni seguiti: un orario di un
+   minuto fa vale più di una tessera vuota. */
+async function caricaProssimi() {
+  await Promise.all(preferiti().map(async (p) => {
+    const k = chiaveTratta(p);
+    try {
+      const r = await fetch(API.tabellone(p.f, p.t, p.a));
+      if (controllaVersione(r)) return;
+      if (!r.ok) throw new Error(`errore ${r.status}`);
+      const d = await r.json();
+      prossimi.set(k, { stato: 'ok', treno: (d.trains || [])[0] || null });
+    } catch {
+      if (!prossimi.has(k)) prossimi.set(k, { stato: 'errore' });
+    }
+  }));
+}
+
 /* --------------------------------------------------------------- notifiche */
 
 /* Lo stato del permesso, che decide sia cosa si può fare sia cosa si scrive
@@ -973,14 +1009,14 @@ let campoInModifica = null;
 const INVITI = {
   da: 'Stazione di partenza',
   a: 'Stazione di arrivo',
-  partenze: 'Stazione di cui vedere le partenze',
-  arrivi: 'Stazione di cui vedere gli arrivi',
 };
 
 function apriScelta(quale) {
   campoInModifica = quale;
   campoCerca.value = '';
-  campoCerca.placeholder = INVITI[quale] || 'Cerca stazione';
+  // Sul tabellone intero il campo è la stazione e basta: "di partenza" su
+  // quella di cui si vogliono gli arrivi direbbe il contrario.
+  campoCerca.placeholder = (modoRicerca === 'tratta' && INVITI[quale]) || 'Cerca stazione';
   disegnaScelta();
   pannello.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -1008,14 +1044,6 @@ listaScelta.addEventListener('click', (e) => {
   if (!b) return;
   const id = Number(b.dataset.id);
   ricorda(id);
-  // Un tabellone intero ha bisogno di una stazione sola, quindi non gli serve
-  // il modulo con due campi: scelta la stazione, ci si va direttamente.
-  if (campoInModifica === 'arrivi' || campoInModifica === 'partenze') {
-    const arrivi = campoInModifica === 'arrivi';
-    chiudiScelta();
-    location.hash = rottaDi(id, null, arrivi);
-    return;
-  }
   if (campoInModifica === 'da') stato.da = id; else stato.a = id;
   scriviCampi();
   chiudiScelta();
@@ -1061,7 +1089,7 @@ const rottaTreno = (t) =>
 
 function vaiAiRisultati() {
   if (!stato.da) return;
-  location.hash = rottaDi(stato.da, stato.a, stato.arrivi);
+  location.hash = rottaDi(stato.da, modoRicerca === 'tratta' ? stato.a : null, modoRicerca === 'arrivi');
 }
 
 /* Il codice arriva da una notifica, cioè da fuori: si confronta normalizzato e
@@ -1175,16 +1203,17 @@ async function cambiaRotta() {
   avviaTimer(caricaTabellone);
 }
 
-/* Quello che in home invecchia: i treni seguiti, i bollini delle linee e gli
-   avvisi delle stazioni preferite. Lo rilegge il timer al minuto e il rientro
-   sull'app, che sono lo stesso bisogno.
+/* Quello che in home invecchia: i treni seguiti, il prossimo treno delle tratte
+   salvate, i bollini delle linee e gli avvisi delle stazioni preferite. Lo
+   rilegge il timer al minuto e il rientro sull'app, che sono lo stesso bisogno.
 
-   I due gruppi restano separati, come prima: i bollini arrivano da un secondo
-   servizio e non devono far aspettare le schede dei treni, che sono la parte
-   della home che si guarda di corsa. */
+   I gruppi restano separati: i bollini arrivano da un secondo servizio e non
+   devono far aspettare le schede dei treni, che sono la parte della home che
+   si guarda di corsa, né le tessere delle tratte, che sono la seconda. */
 function rinfrescaHome() {
   const ridisegna = () => { if (leggiRotta().vista === 'home') disegna(); };
   aggiornaSeguiti(true).then(ridisegna);
+  caricaProssimi().then(ridisegna);
   // Il server tiene gli avvisi dieci minuti e le linee hanno l'ETag: un giro al
   // minuto costa due 304 e non due pagine di RFI.
   Promise.all([caricaLinee(), caricaAvvisiStazione()]).then(ridisegna);
@@ -1351,64 +1380,81 @@ function disegnaHome() {
      barretta conta l'età di un dato e l'unico dato datato qui sono le schede
      seguite: senza, conterebbe un giro di cui non si vede niente.
 
-     Sta sotto l'intestazione come sul tabellone, cioè appena sopra le schede
-     seguite, che sono la prima sezione e quelle che conta. */
+     Il sottotitolo non c'è più: diceva cosa fa l'app a chi la usa ogni
+     mattina, e occupava la riga sopra il treno da prendere. */
   testa.innerHTML = `
     <div class="testa-riga"><h1 class="titolo">Tabellone Treni</h1></div>
-    <div class="sottotitolo">Partenze e arrivi RFI, filtrati per dove devi andare</div>
     ${seguitiInHome().length ? barraCiclo() : ''}`;
 
+  if (!preferiti().length) modificaPreferiti = false;
+
+  /* Sopra si guarda, sotto si tocca. In cima lo stato del mondo in una fila di
+     gettoni, poi il treno che si sta prendendo, poi le tratte salvate col loro
+     prossimo treno — tre cose che si leggono senza toccare niente. La ricerca
+     sta in un pannello fermo in fondo allo schermo, dove arriva il pollice
+     della mano che tiene il telefono, e il resto le scorre sotto.
+
+     Prima la ricerca stava in mezzo alla pagina, fra i preferiti e i bollini:
+     si toccava allungando il pollice, e si allontanava a ogni preferito in
+     più. In fondo è sempre allo stesso posto, quanti che siano. */
+  app.innerHTML = `<div class="home">${statoRete()}${sezioneSeguiti()}${
+    sezionePreferiti()}${sezioneAbituali()}</div>${foglioRicerca()}`;
+}
+
+/* Le tratte salvate, due per riga: ognuna è una tessera grande quanto un
+   pollice, e dice il prossimo treno senza doverla aprire. È la domanda per cui
+   si apre l'app la mattina — "quando passa il prossimo" — e prima la risposta
+   stava a un tocco e un caricamento di distanza. */
+function sezionePreferiti() {
   const fav = preferitiOrdinati();
-  if (!fav.length) modificaPreferiti = false;
+  if (!fav.length) return '';
+  return `<section class="sezione">
+    <div class="testa-sezione">
+      <h2 class="etichetta-sezione">Preferiti</h2>
+      <button class="btn-testo piccolo" type="button" data-modifica>
+        ${modificaPreferiti ? 'Fine' : 'Modifica'}</button>
+    </div>
+    <ul class="tessere">${fav.map(tesseraPreferito).join('')}</ul>
+  </section>`;
+}
 
-  const salvate = `
-    <section class="sezione">
-      <div class="testa-sezione">
-        <h2 class="etichetta-sezione">Preferiti</h2>
-        <button class="btn-testo piccolo" type="button" data-modifica>
-          ${modificaPreferiti ? 'Fine' : 'Modifica'}</button>
-      </div>
-      <ul class="lista">${fav.map((p) => rigaPreferito(p)).join('')}</ul>
-    </section>`;
+function tesseraPreferito(p) {
+  // Sopra in piccolo da dove, sotto in grande dove: il nome che distingue una
+  // tessera dall'altra è la destinazione, perché l'andata e il ritorno partono
+  // da due stazioni diverse ma si riconoscono da dove portano.
+  const [sopra, nome] = p.a ? ['arrivi a', nomeStazione(p.f)]
+    : p.t ? [`da ${nomeStazione(p.f)}`, nomeStazione(p.t)]
+      : ['partenze da', nomeStazione(p.f)];
+  const corpo = `<span class="sopra">${esc(sopra)}</span>
+    <span class="nome">${esc(nome)}</span>
+    ${prossimoTreno(p)}`;
+  // In modifica la tessera non porta da nessuna parte: un tocco che apre il
+  // tabellone accanto alla ✕ che lo toglie sarebbe un errore a un dito di
+  // distanza, la stessa ragione per cui la ✕ fuori da "Modifica" non c'è.
+  if (modificaPreferiti) {
+    return `<li><div class="tessera in-modifica">${corpo}
+      <button class="togli" type="button" data-togli="${esc(chiaveTratta(p))}"
+              aria-label="Togli dai preferiti">✕</button></div></li>`;
+  }
+  return `<li><a class="tessera" href="${rottaDi(p.f, p.t, p.a)}">${corpo}</a></li>`;
+}
 
-  const ricerca = `
-    <section class="sezione">
-      <h2 class="etichetta-sezione solo-lettori">Nuova ricerca</h2>
-      <div class="gruppo">
-        <div class="gruppo-campi">
-          ${campoStazione('da', 'DA', stato.da, 'Stazione di partenza')}
-          ${campoStazione('a', 'A', stato.a, 'Tutte le destinazioni')}
-        </div>
-        <button class="inverti" type="button" data-scambia
-                aria-label="Inverti partenza e arrivo">${icona('scambia')}</button>
-      </div>
-      <button class="principale" type="button" data-vai ${stato.da ? '' : 'disabled'}>
-        Vedi i treni
-      </button>
-    </section>`;
-
-  const tabellone = `
-    <section class="sezione">
-      <h2 class="etichetta-sezione">Tabellone di una stazione</h2>
-      <div class="coppia">
-        <button class="tessera" type="button" data-apri="partenze">
-          ${icona('su')}<span>Partenze</span>
-        </button>
-        <button class="tessera" type="button" data-apri="arrivi">
-          ${icona('giu')}<span>Arrivi</span>
-        </button>
-      </div>
-    </section>`;
-
-  /* Le tratte salvate in cima, poi le due cose che si fanno — cercare e aprire
-     un tabellone — e in fondo i bollini, che si guardano e basta.
-
-     La ricerca era finita sotto lo stato linee, per il ragionamento che chi ha
-     dei preferiti cerca di rado. Vero come statistica e sbagliato in mano: le
-     volte che serve, serve subito, e stava a due schermate di distanza. Un
-     modulo che si usa poco va tenuto corto, non lontano. */
-  app.innerHTML = `${bannerScioperi()}${bannerAvvisi()}${sezioneSeguiti()}${
-    fav.length ? salvate : ''}${sezioneAbituali()}${ricerca}${tabellone}${sezioneLinee()}`;
+/* Il prossimo treno della tratta: l'ora, il ritardo se c'è, il binario se è
+   già assegnato. Il ritardo è uno solo, quello che conta — la misura sul treno
+   quando c'è — perché nella tessera due pastiglie non ci stanno; le due fonti
+   affiancate restano un tocco più in là, sul tabellone. */
+function prossimoTreno(p) {
+  const v = prossimi.get(chiaveTratta(p));
+  if (!v) return '<span class="poi attesa">…</span>';
+  if (v.stato === 'errore') return '<span class="poi attesa">orario non disponibile</span>';
+  const t = v.treno;
+  if (!t) return '<span class="poi attesa">nessun treno in tabellone</span>';
+  if (t.cancelled) {
+    return `<span class="poi"><b class="barrato">${esc(t.time)}</b><span class="rit">soppresso</span></span>`;
+  }
+  const r = ritardoVero(t);
+  return `<span class="poi"><b>${esc(t.time)}</b>${r > 0 ? `<span class="rit">+${r}</span>` : ''}${
+    t.platform ? `<span${t.platformChanged ? ' class="cambiato"' : ''}>bin ${numeroBinario(t.platform)}</span>` : ''}</span>`;
 }
 
 /* Il preferito guardato per ultimo va in cima. La mattina si guarda l'andata e
@@ -1435,9 +1481,11 @@ function preferitiOrdinati() {
 function sezioneSeguiti() {
   const elenco = seguitiInHome();
   if (!elenco.length) return '';
+  // Il titolo resta per chi ascolta la pagina: a vista la scheda grande in
+  // cima si spiega da sé, e "Treni seguiti" sopra era una riga in meno di treno.
   return `<section class="sezione">
-    <div class="testa-sezione"><h2 class="etichetta-sezione">Treni seguiti</h2></div>
-    <ul>${elenco.sort(perOraDiSalita).map(schedaSeguito).join('')}</ul>
+    <h2 class="etichetta-sezione solo-lettori">Treni seguiti</h2>
+    <ul class="schede">${elenco.sort(perOraDiSalita).map(schedaSeguito).join('')}</ul>
   </section>`;
 }
 
@@ -1744,37 +1792,83 @@ function rigaSeguita(d) {
   };
 }
 
+/* La scheda di un treno seguito in home: la cosa più grande della pagina, ed è
+   giusto così — è il treno che si sta prendendo.
+
+   Non è più la riga del tabellone con una riga in più sotto. Quella stava in
+   home e sul tabellone con la stessa misura, e in home era la risposta a una
+   domanda sola — a che ora, da che binario, quanto manca — scritta piccola
+   come le quaranta righe di un tabellone. Qui l'ora e il binario sono grandi,
+   e accanto alle due letture del ritardo c'è il conto che si farebbe a mente:
+   fra quanti minuti parte davvero. I dati sono gli stessi, li compone sempre
+   rigaSeguita(). */
 function schedaSeguito(t) {
   const v = viaggiSeguiti.get(chiaveTreno(t));
   const d = v && v.stato === 'ok' ? v.dati : null;
+  const riga = d ? rigaSeguita(d) : null;
   const link = rottaTreno(t);
+  const nome = esc([riga ? riga.category : t.cat, riga ? riga.number : t.n]
+    .filter(Boolean).join(' ')) || 'treno';
+  const alto = `<div class="scheda-alto"><b>${nome}</b>${
+    t.f ? `<span>da ${esc(nomeStazione(t.f))}</span>` : ''}</div>`;
 
-  // Finché la posizione non è arrivata la scheda dice comunque di che treno si
+  // Finché il viaggio non è arrivato la scheda dice comunque di che treno si
   // tratta: l'etichetta è quella con cui la si è salvata, e senza sarebbe una
-  // riga vuota proprio all'apertura dell'app.
-  if (!d) {
+  // scheda vuota proprio all'apertura dell'app.
+  if (!riga) {
     const nota = v && v.stato === 'errore'
       ? 'posizione non disponibile adesso' : 'cerco dov\'è il treno…';
-    return `<li class="treno"><a class="riga-treno seguito senza-gallone" href="${link}">
-      <div class="orario"><span class="ora">–</span></div>
-      <div class="dove">
-        <div class="destinazione">${etichettaTreno({ category: t.cat, number: t.n, terminus: t.capolinea })}</div>
-        <span class="meta">${nota}</span>
-      </div>
-      <div class="binario"><span class="ignoto">–</span></div>
+    return `<li><a class="scheda" href="${link}">${alto}
+      <div class="scheda-mezzo"><span class="ora">–</span>
+        <span class="scheda-dest">${esc(titolo(t.capolinea || ''))}</span></div>
+      <div class="scheda-dove">${nota}</div>
     </a></li>`;
   }
 
-  const riga = rigaSeguita(d);
-  const classi = ['treno'];
+  const classi = ['scheda'];
   if (riga.cancelled) classi.push('soppresso');
   else if (ritardoVero(riga) > 0) classi.push('in-ritardo');
   if (d.arrived) classi.push('concluso');
-  return `<li class="${classi.join(' ')}">
-    <a class="riga-treno seguito senza-gallone" href="${link}">
-      ${corpoSeguito(d, v.lettoIl)}
-    </a>
-  </li>`;
+  const cambio = cambioBinario(riga);
+  return `<li><a class="${classi.join(' ')}" href="${link}">
+    ${fasciaProvvedimento(d)}
+    ${alto}
+    <div class="scheda-mezzo">
+      <span class="ora${riga.cancelled ? ' barrato' : ''}">${esc(riga.time || '–')}</span>
+      <span class="scheda-dest">${esc(titolo(riga.terminus || ''))}</span>
+      <span class="scheda-bin${cambio ? ' cambiato' : ''}">
+        <b>${riga.platform ? numeroBinario(riga.platform) : '–'}</b>
+        <small>${cambio ? esc(cambio) : 'binario'}</small>
+      </span>
+    </div>
+    <div class="scheda-basso">${scarti(riga, false)}${
+      riga.arrival ? `<span>arrivo ${esc(riga.arrival)}</span>` : ''}${fraQuanto(t, d, riga)}</div>
+    <div class="scheda-dove${d.tracked && !d.arrived ? ' vivo' : ''}">${doveAdesso(d, v.lettoIl)}</div>
+  </a></li>`;
+}
+
+/* Fra quanto parte dalla stazione da cui si sale, con il ritardo già dentro:
+   è il conto che si fa a mente guardando l'ora e il +3, fatto una volta per
+   tutti e rifatto a ogni minuto.
+
+   Solo entro l'ora: più in là l'ora scritta basta, e "fra 214 min" è un numero
+   da convertire. E mai a treno partito dalla fermata di salita, che è quando
+   la riga sotto dice dov'è — un "fra 1 min" su un treno già andato sarebbe
+   l'errore che fa correre per niente.
+
+   Il giorno è la mezzanotte di Roma della partenza dall'origine, come in
+   abitualiDiOggi, e ne eredita il limite: un treno che passa dalla fermata di
+   salita dopo mezzanotte avrebbe il giorno sbagliato, e qui il conto tace. */
+function fraQuanto(t, d, riga) {
+  if (riga.cancelled || d.arrived || !riga.time) return '';
+  const salita = (d.stops || []).find((f) => f.boarding);
+  if (salita && salita.passed) return '';
+  const [h, m] = riga.time.split(':').map(Number);
+  const parte = istanteRoma(quadranteRoma(t.d) + (h * 60 + m) * 60_000)
+    + Math.max(ritardoVero(riga) || 0, 0) * 60_000;
+  const minuti = Math.round((parte - Date.now()) / 60_000);
+  if (minuti < 1 || minuti > 60) return '';
+  return `<span class="fra">fra ${minuti} min</span>`;
 }
 
 /* La scheda di un treno seguito, aperta a tutta pagina: sopra le stesse tre
@@ -2121,37 +2215,50 @@ function aggiornaRicentra(m) {
   if (b) b.hidden = m.seguiMe || !posizione || !!posizione.errore;
 }
 
-/* Il banner degli avvisi di stazione, in cima alla home e sopra ogni altra
-   cosa: un ascensore fuori servizio o una linea deviata per tre mesi cambiano
-   il viaggio prima ancora della scelta del treno.
+/* Lo stato del mondo intorno ai propri treni, in cima alla home: una fila di
+   gettoni che si scorre di lato, e sotto, quando se ne apre uno, il testo per
+   intero.
 
-   Chiuso è una striscia sola che scorre, perché gli avvisi di RFI sono lunghi
-   quanto un SMS e in una riga non ci starebbero; toccandolo si apre e si legge
-   tutto, fermo. È un <details> come le righe delle linee: aperto e chiuso li
-   tiene il browser, e non c'è nessuno stato in più da gestire qui.
+   Prima erano tre cose una sotto l'altra — il cartello rosso degli scioperi,
+   la striscia gialla degli avvisi che scorreva, la sezione dei bollini in
+   fondo — e nei giorni storti spingevano il treno da prendere sotto la piega.
+   Un gettone è una parola e un colore: dice che c'è qualcosa, e quanto è
+   grave, nell'altezza di una riga. In una giornata normale ne resta uno solo,
+   quello della rete.
 
-   Aperto, ogni avviso porta il nome della sua stazione: con due o tre
-   preferiti su stazioni diverse, un testo senza etichetta non si sa a chi si
-   riferisca — e "ASCENSORI BINARI 14/15 FUORI SERVIZIO" senza sapere in quale
-   stazione non è un'informazione. */
-/* Gli scioperi, in rosso e sopra ogni altra cosa.
+   Gli scioperi stanno davanti agli avvisi per la stessa gerarchia di prima: il
+   rosso dice "oggi il treno potrebbe non esserci", il giallo "guarda quando
+   passi in stazione". */
+function statoRete() {
+  const scioperi = scioperiMiei();
+  const avvisi = avvisiMiei();
+  const voci = [];
+  if (scioperi.size) {
+    voci.push(`<button class="gettone sciopero" type="button" data-gettone="scioperi"
+      aria-expanded="${scioperiAperti}">${icona('allerta')}Sciopero</button>`);
+  }
+  if (avvisi.size) {
+    voci.push(`<button class="gettone stazione" type="button" data-gettone="avvisi"
+      aria-expanded="${avvisiStazioneAperti}">${icona('allerta')}${esc(etichettaAvvisi(avvisi))}</button>`);
+  }
+  voci.push(...gettoniLinee());
+  return `<div class="sezione stato-rete">
+    <div class="gettoni">${voci.join('')}</div>
+    ${scioperiAperti && scioperi.size ? elencoAvvisi(scioperi, 'sciopero', esc) : ''}
+    ${avvisiStazioneAperti && avvisi.size ? elencoAvvisi(avvisi, '', (s) => esc(titolo(s))) : ''}
+  </div>`;
+}
 
-   Uno sciopero cambia la giornata più di qualunque ritardo, e arriva giorni
-   prima: è l'unica comunicazione che vale la pena leggere quando non stai
-   ancora andando in stazione. Sta sopra il cartello giallo degli avvisi di
-   stazione, che resta al suo posto — un ascensore fuori servizio continua a
-   servire anche il giorno di uno sciopero.
+/* Gli scioperi delle linee che segui, raggruppati sul testo: lo stesso
+   sciopero è pubblicato su tutte le linee interessate, e uno sciopero
+   nazionale altrimenti si scriverebbe quindici volte.
 
    Le comunicazioni arrivano dentro l'elenco delle linee, ma solo per le linee
-   che segui: sono quelle che il servizio interroga per poter mandare le
-   notifiche. Senza nessuna campanella accesa qui non compare niente, ed è
-   coerente — la stessa campanella che accende le notifiche accende il
-   cartello. */
-function bannerScioperi() {
+   seguite: sono quelle che il servizio interroga per poter mandare le
+   notifiche. Senza nessuna campanella accesa qui non c'è niente, ed è coerente
+   — la stessa campanella che accende le notifiche accende il gettone. */
+function scioperiMiei() {
   const miei = new Set(campanelle());
-  // Lo stesso sciopero è pubblicato su tutte le linee interessate, quindi si
-  // raggruppa sul testo come fa il cartello giallo: uno sciopero nazionale
-  // altrimenti si scriverebbe quindici volte.
   const perTesto = new Map();
   for (const l of stato.linee || []) {
     if (!miei.has(l.code)) continue;
@@ -2161,117 +2268,62 @@ function bannerScioperi() {
       perTesto.get(a.text).add(l.code);
     }
   }
-  if (!perTesto.size) return '';
-
-  const striscia = [...perTesto.keys()].join('  ·  ');
-  const voci = [...perTesto].map(([t, linee]) => `<li>
-      <span class="stazione-avviso">${[...linee].map((x) => esc(x)).join(' · ')}</span>
-      <span class="testo-avviso">${esc(t)}</span>
-    </li>`).join('');
-  return `<details class="avvisi-stazione sciopero" data-scioperi${scioperiAperti ? ' open' : ''}>
-    <summary>
-      <span class="scorrevole"><span class="scorre">${esc(striscia)}</span></span>
-      <span class="etichetta">Sciopero</span>
-      <span class="chevron">${icona('gallone')}</span>
-    </summary>
-    <ul class="elenco-avvisi-stazione">${voci}</ul>
-  </details>`;
+  return perTesto;
 }
 
-function bannerAvvisi() {
-  // Si guarda anche che la stazione sia ancora fra i preferiti: togliendone
-  // uno la home si ridisegna subito, mentre gli avvisi in mano sono quelli
-  // dell'ultima richiesta, e resterebbe un cartello di una stazione che non
-  // si segue più.
-  const miei = new Set(preferiti().map((p) => p.f));
-  const st = (stato.avvisiStazione || [])
-    .filter((s) => miei.has(s.placeId) && s.notices && s.notices.length);
-  if (!st.length) return '';
+/* Gli avvisi delle stazioni preferite, raggruppati sul testo come gli
+   scioperi: un cantiere fra due fermate lo pubblicano tutt'e due, con lo
+   stesso testo, e ripeterlo per stazione direbbe due volte una cosa sola. Il
+   confronto è sul testo esatto: RFI lo scrive a mano, e due avvisi che dicono
+   la stessa cosa con una parola diversa restano due avvisi.
 
-  // Lo stesso avviso capita spesso su due stazioni insieme: un cantiere fra due
-  // fermate lo pubblicano tutt'e due, con lo stesso testo. Ripeterlo una volta
-  // per stazione occuperebbe il doppio dello spazio per dire una cosa sola,
-  // quindi si raggruppa sul testo — che la Map tiene nell'ordine in cui è
-  // comparso — e le stazioni diventano l'etichetta sopra. Il confronto è sul
-  // testo esatto: RFI lo scrive a mano, e due avvisi che dicono la stessa cosa
-  // con una parola diversa restano due avvisi, perché non sta a noi decidere
-  // che siano lo stesso.
+   Si guarda anche che la stazione sia ancora fra i preferiti: togliendone uno
+   la home si ridisegna subito, mentre gli avvisi in mano sono quelli
+   dell'ultima richiesta. */
+function avvisiMiei() {
+  const miei = new Set(preferiti().map((p) => p.f));
   const perTesto = new Map();
-  for (const s of st) {
-    for (const t of s.notices) {
+  for (const s of stato.avvisiStazione || []) {
+    if (!miei.has(s.placeId)) continue;
+    for (const t of s.notices || []) {
       // Un Set e non una lista: se la stessa stazione ripete un avviso, il suo
       // nome non va scritto due volte nella stessa etichetta.
       if (!perTesto.has(t)) perTesto.set(t, new Set());
       perTesto.get(t).add(s.station);
     }
   }
+  return perTesto;
+}
 
-  // Chiuso il nome della stazione non c'è: la striscia scorre e allungarla con
-  // un'etichetta per ogni avviso rubarebbe il posto al testo che conta.
-  const striscia = [...perTesto.keys()].join('  ·  ');
-  const voci = [...perTesto].map(([t, stazioni]) => `<li>
-      <span class="stazione-avviso">${[...stazioni].map((x) => esc(titolo(x))).join(' · ')}</span>
+// Il gettone dice dove, perché il dove decide se riguarda il viaggio di oggi;
+// il cosa si legge aprendolo.
+function etichettaAvvisi(perTesto) {
+  const stazioni = new Set([...perTesto.values()].flatMap((s) => [...s]));
+  if (stazioni.size > 1) return `Avvisi in ${stazioni.size} stazioni`;
+  return `${perTesto.size > 1 ? 'Avvisi' : 'Avviso'} a ${titolo([...stazioni][0])}`;
+}
+
+/* Aperto, ogni avviso porta il nome della sua stazione — o il codice della
+   linea, per gli scioperi: con due o tre preferiti su stazioni diverse, un
+   testo senza etichetta non si sa a chi si riferisca. */
+function elencoAvvisi(perTesto, classe, nome) {
+  return `<ul class="elenco-avvisi-stazione ${classe}">${[...perTesto].map(([t, chi]) => `<li>
+      <span class="stazione-avviso">${[...chi].map(nome).join(' · ')}</span>
       <span class="testo-avviso">${esc(t)}</span>
-    </li>`).join('');
-
-  return `<details class="avvisi-stazione" data-avvisi${avvisiStazioneAperti ? ' open' : ''}>
-    <summary>
-      <span class="scorrevole"><span class="scorre">${esc(striscia)}</span></span>
-      <span class="etichetta">Avvisi di stazione</span>
-      <span class="chevron">${icona('gallone')}</span>
-    </summary>
-    <ul class="elenco-avvisi-stazione">${voci}</ul>
-  </details>`;
+    </li>`).join('')}</ul>`;
 }
 
-/* La sezione in home non elenca tutte e 65 le linee: mostra quelle seguite e
-   quelle che in questo momento hanno un problema. In una giornata normale sono
-   zero righe, ed è l'informazione giusta — la lista intera sta a un tocco. */
-function sezioneLinee() {
-  const testa = `
-    <div class="testa-sezione">
-      <h2 class="etichetta-sezione">Stato linee</h2>
-      <a class="btn-testo piccolo" href="${ROTTA_LINEE}">Tutte</a>
-    </div>`;
+/* Le linee nei gettoni: una per ogni linea seguita che ha qualcosa che non va,
+   e in fondo il colpo d'occhio sulla rete intera.
 
-  if (stato.linee === null) {
-    // Nella forma di quello che sta arrivando, non in quella di una riga di
-    // lista: le righe ormai compaiono solo nei giorni storti, e uno scheletro
-    // di riga si sarebbe alzato quasi sempre portandosi via la sua altezza.
-    return `<section class="sezione">${testa}
-      <div class="barra-linee scheletro"><span style="flex:1"></span></div>
-      <p class="conta-linee scheletro" aria-hidden="true"><span class="barra b-meta"></span></p>
-      </section>`;
-  }
-  if (stato.lineeErrore) {
-    // Sottovoce: che manchino i bollini non deve sembrare che sia rotto il
-    // tabellone, che è l'unica cosa per cui l'app si apre di corsa.
-    return `<section class="sezione">${testa}
-      <p class="nota">Stato delle linee non disponibile.</p></section>`;
-  }
+   Le linee in difficoltà che uno non segue non ci sono mai state utili, e
+   nemmeno le proprie quando vanno bene: "regolare" scritto tre volte è la
+   risposta a una domanda che nessuno ha fatto. Il gettone di una linea porta
+   all'elenco già aperto su di lei, che è dove si legge il perché.
 
-  /* Una riga per ogni linea seguita che ha qualcosa che non va, e nient'altro.
-
-     Le linee in difficoltà che uno non segue non ci sono mai state utili: in
-     una brutta giornata erano dieci righe su linee che non c'entrano con dove
-     si va. Ma nemmeno le proprie linee quando vanno bene: "regolare" scritto
-     tre volte è la risposta a una domanda che nessuno ha fatto, e la si legge
-     ogni giorno per i due giorni all'anno in cui cambia.
-
-     Così la sezione tace quando non c'è niente da dire, e nel giorno storto
-     resta solo la linea da guardare. Il quadro generale lo tiene la barra, che
-     di righe ne occupa zero. */
-  const righe = stato.linee.filter((l) => seguita(l.code) && l.status > 0);
-
-  return `<section class="sezione">${testa}${barraLinee(stato.linee)}
-    ${righe.length ? `<ul class="lista">${righe.map(rigaLinea).join('')}</ul>` : ''}</section>`;
-}
-
-/* Il colpo d'occhio sulle 65 linee, che una lista di zero righe non dà: la
-   barra dice quanta parte della rete è a posto, e sotto ci sono i numeri
-   scritti — la proporzione da sola non si conta, e una fetta rossa larga tre
-   pixel va comunque letta. Il minimo di larghezza è per lei: una linea grave
-   su sessantacinque è l'unica cosa che questa barra deve far vedere. */
+   Quello della rete porta i numeri accanto ai bollini, come faceva la barra:
+   il colore da solo non è un'informazione per tutti, e una linea grave su
+   sessantacinque è proprio la cosa che deve vedersi. */
 const ETICHETTE_CONTA = {
   regolare: 'regolari',
   critico: 'con criticità',
@@ -2279,20 +2331,27 @@ const ETICHETTE_CONTA = {
   ignoto: 'senza stato',
 };
 
-function barraLinee(linee) {
+function gettoniLinee() {
+  if (stato.linee === null) return [`<span class="gettone attesa">Linee</span>`];
+  // Sottovoce: che manchino i bollini non deve sembrare che sia rotto il
+  // tabellone, che è l'unica cosa per cui l'app si apre di corsa.
+  if (stato.lineeErrore) {
+    return [`<a class="gettone attesa" href="${ROTTA_LINEE}">Stato linee non disponibile</a>`];
+  }
+  const mie = stato.linee.filter((l) => seguita(l.code) && l.status > 0).map((l) => {
+    const st = statoLinea(l.status);
+    return `<a class="gettone" href="${ROTTA_LINEE}/${encodeURIComponent(l.code)}">
+      <span class="bollino ${st.classe}"></span>${esc(l.code.replace(/_/g, ' '))} ${st.etichetta}</a>`;
+  });
   const conta = new Map();
-  linee.forEach((l) => {
+  stato.linee.forEach((l) => {
     const c = statoLinea(l.status).classe;
     conta.set(c, (conta.get(c) || 0) + 1);
   });
   const parti = ['regolare', 'critico', 'grave', 'ignoto'].filter((c) => conta.get(c));
-  if (!parti.length) return '';   // il server non ha mandato nessuna linea
   const detto = parti.map((c) => `${conta.get(c)} ${ETICHETTE_CONTA[c]}`).join(', ');
-  return `<div class="barra-linee" role="img" aria-label="${esc(detto)}">
-      ${parti.map((c) => `<span class="${c}" style="flex:${conta.get(c)}"></span>`).join('')}
-    </div>
-    <p class="conta-linee" aria-hidden="true">${parti.map((c) =>
-      `<span><span class="bollino ${c}"></span>${conta.get(c)} ${ETICHETTE_CONTA[c]}</span>`).join('')}</p>`;
+  return [...mie, `<a class="gettone" href="${ROTTA_LINEE}"${detto ? ` aria-label="Linee: ${esc(detto)}"` : ''}>
+    Linee${parti.map((c) => `<span class="conta"><span class="bollino ${c}"></span>${conta.get(c)}</span>`).join('')}</a>`];
 }
 
 function rigaLinea(l, query) {
@@ -2612,6 +2671,40 @@ function oraDi(iso) {
   return isNaN(d) ? '' : d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 }
 
+/* La ricerca, in un pannello fermo in fondo allo schermo.
+
+   I tre modi sono le due sezioni che la home aveva prima — il modulo per una
+   tratta e le due tessere per il tabellone di una stazione — riunite in un
+   posto solo: la domanda è sempre "da quale stazione", cambia solo cosa se ne
+   vuole sapere. Il campo della stazione è lo stesso per tutti e tre, così
+   cambiando modo non si riscrive niente.
+
+   Sul tabellone intero la sigla resta, e dice la cosa giusta: "DA Monza" sono
+   le partenze da Monza, "A Monza" gli arrivi a Monza. */
+const MODI = [
+  { v: 'tratta', l: 'Tratta', sigla: 'DA', vai: 'Vedi i treni' },
+  { v: 'partenze', l: 'Partenze', sigla: 'DA', vai: 'Vedi le partenze' },
+  { v: 'arrivi', l: 'Arrivi', sigla: 'A', vai: 'Vedi gli arrivi' },
+];
+
+function foglioRicerca() {
+  const modo = MODI.find((m) => m.v === modoRicerca);
+  const tratta = modo.v === 'tratta';
+  return `<section class="foglio" aria-label="Cerca">
+    <div class="segmenti" role="group" aria-label="Cosa cercare">${MODI.map((m) =>
+      `<button type="button" data-modo="${m.v}" aria-pressed="${m.v === modo.v}">${m.l}</button>`).join('')}</div>
+    <div class="gruppo">
+      <div class="gruppo-campi">
+        ${campoStazione('da', modo.sigla, stato.da, tratta ? 'Stazione di partenza' : 'Stazione')}
+        ${tratta ? campoStazione('a', 'A', stato.a, 'Tutte le destinazioni') : ''}
+      </div>
+      ${tratta ? `<button class="inverti" type="button" data-scambia
+              aria-label="Inverti partenza e arrivo">${icona('scambia')}</button>` : ''}
+    </div>
+    <button class="principale" type="button" data-vai ${stato.da ? '' : 'disabled'}>${modo.vai}</button>
+  </section>`;
+}
+
 function campoStazione(quale, sigla, id, vuoto) {
   return `<button class="campo" type="button" data-apri="${quale}">
     <span class="sigla">${sigla}</span>
@@ -2620,59 +2713,63 @@ function campoStazione(quale, sigla, id, vuoto) {
   </button>`;
 }
 
-function rigaPreferito(p) {
-  return `<li class="riga">
-    <a class="riga-tocco" href="${rottaDi(p.f, p.t, p.a)}">
-      <span class="segno">${icona('stella', true)}</span>
-      <span class="testo">${etichettaPreferito(p)}</span>
-      ${modificaPreferiti ? '' : `<span class="chevron">${icona('gallone')}</span>`}
-    </a>
-    ${modificaPreferiti ? `<button class="togli" type="button" data-togli="${esc(chiaveTratta(p))}"
-        aria-label="Togli dai preferiti">✕</button>` : ''}
-  </li>`;
-}
-
-function etichettaPreferito(p) {
-  if (p.a) return `${esc(nomeStazione(p.f))}<span class="qualifica"> · arrivi</span>`;
-  if (p.t) return `${esc(nomeStazione(p.f))} <span class="freccia">→</span> ${esc(nomeStazione(p.t))}`;
-  return `${esc(nomeStazione(p.f))}<span class="qualifica"> · tutte le partenze</span>`;
-}
-
 /* I treni abituali, sotto i preferiti: sono della stessa famiglia — cose che
    si salvano una volta e restano — e non dei treni seguiti, che sono di oggi.
-   Qui si decide in che giorni valgono; il treno di oggi, quando è ora, compare
-   in cima con gli altri seguiti.
+   Il treno di oggi, quando è ora, compare in cima con gli altri seguiti.
 
-   Le righe sono quelle delle fasce, con i giorni sotto: sono sette bersagli da
-   pollice, e su una riga di lista non ci starebbero. */
+   Chiusi sono una riga: l'ora, il treno, i giorni scritti. I sette bottoni dei
+   giorni stavano sempre aperti, ed erano sette bersagli da pollice per una cosa
+   che si cambia alle ferie; ora stanno sotto un tocco, insieme al modo di
+   togliere il treno. */
 function sezioneAbituali() {
   const elenco = abituali();
   if (!elenco.length) return '';
   return `<section class="sezione">
     <div class="testa-sezione"><h2 class="etichetta-sezione">Treni abituali</h2></div>
-    <ul class="fasce">${elenco.map(rigaAbituale).join('')}</ul>
+    <ul class="abituali">${elenco.map(rigaAbituale).join('')}</ul>
   </section>`;
 }
 
 function rigaAbituale(x) {
   const k = chiaveAbituale(x);
+  const aperto = abitualiAperti.has(k);
+  const testa = `<button class="abituale-testa" type="button" data-apri-abituale="${esc(k)}"
+      aria-expanded="${aperto}">
+      <span class="abituale-ora">${esc(x.at)}</span>
+      <span class="abituale-testo">
+        ${etichettaTreno({ category: x.cat, number: x.n, terminus: x.capolinea })}
+        <span class="qualifica">da ${esc(nomeStazione(x.f))} · ${giorniScritti(x.days)}</span>
+      </span>
+      <span class="chevron">${icona('gallone')}</span>
+    </button>`;
+  if (!aperto) return `<li class="abituale">${testa}</li>`;
+
   const giorni = GIORNI.map((g) => {
     const acceso = (x.days || []).includes(g.v);
     return `<button class="giorno${acceso ? ' acceso' : ''}" type="button"
                     data-giorno-abituale="${esc(k)}:${g.v}" aria-pressed="${acceso}"
                     aria-label="${nomeGiorno(g.v)}">${g.l}</button>`;
   }).join('');
-  return `<li class="fascia">
-    <div class="fascia-testa">
-      <span><span class="fascia-quando">${esc(x.at)}</span>
-        ${etichettaTreno({ category: x.cat, number: x.n, terminus: x.capolinea })}
-        <span class="qualifica">da ${esc(nomeStazione(x.f))}</span></span>
-      <button class="togli" type="button" data-togli-abituale="${esc(k)}"
-              aria-label="Togli dai treni abituali">✕</button>
-    </div>
+  return `<li class="abituale">${testa}
     <div class="giorni" role="group" aria-label="Giorni del treno">${giorni}</div>
-    ${(x.days || []).length ? '' : '<p class="nota-fascia">Nessun giorno scelto: per ora non arriva.</p>'}
+    <p class="abituale-piede">
+      <span>${(x.days || []).length ? '' : 'Nessun giorno scelto: per ora non arriva.'}</span>
+      <button class="btn-testo piccolo togli-testo" type="button" data-togli-abituale="${esc(k)}">
+        Togli dai treni abituali</button>
+    </p>
   </li>`;
+}
+
+/* I giorni come si dicono: "lun–ven" per il treno del lavoro, e i giorni uno
+   per uno quando non sono un blocco che ha un nome. Nessun giorno è la pausa
+   delle ferie, e si scrive così. */
+function giorniScritti(giorni = []) {
+  const g = new Set(giorni);
+  if (!g.size) return 'in pausa';
+  if (g.size === 7) return 'tutti i giorni';
+  if (g.size === 5 && [1, 2, 3, 4, 5].every((v) => g.has(v))) return 'lun–ven';
+  if (g.size === 2 && g.has(6) && g.has(0)) return 'sab e dom';
+  return GIORNI.filter((x) => g.has(x.v)).map((x) => nomeGiorno(x.v).slice(0, 3)).join(' ');
 }
 
 function disegnaRisultati() {
@@ -3204,6 +3301,17 @@ app.addEventListener('click', (e) => {
       return [{ ...x, days: giorni.includes(g) ? giorni.filter((y) => y !== g) : [...giorni, g].sort() }];
     });
   }
+  else if (t.closest('[data-apri-abituale]')) {
+    const k = t.closest('[data-apri-abituale]').dataset.apriAbituale;
+    if (!abitualiAperti.delete(k)) abitualiAperti.add(k);
+    disegna();
+  }
+  else if (t.closest('[data-gettone]')) {
+    if (t.closest('[data-gettone]').dataset.gettone === 'scioperi') scioperiAperti = !scioperiAperti;
+    else avvisiStazioneAperti = !avvisiStazioneAperti;
+    disegna();
+  }
+  else if (t.closest('[data-modo]')) { modoRicerca = t.closest('[data-modo]').dataset.modo; disegna(); }
   else if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
   else if (t.closest('[data-scambia]')) {
@@ -3256,14 +3364,6 @@ app.addEventListener('input', (e) => {
 app.addEventListener('toggle', (e) => {
   const d = e.target;
   if (!(d instanceof HTMLDetailsElement)) return;
-  if ('avvisi' in d.dataset) {
-    avvisiStazioneAperti = d.open;
-    return;
-  }
-  if ('scioperi' in d.dataset) {
-    scioperiAperti = d.open;
-    return;
-  }
   if (d.dataset.linea) {
     const codice = d.dataset.linea;
     if (d.open === lineeAperte.has(codice)) return;
