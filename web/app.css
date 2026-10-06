@@ -1021,12 +1021,18 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 .precedenti[open] summary .icona { transform: none; }
 @media (prefers-reduced-motion: reduce) { .precedenti summary .icona { transition: none; } }
 .precedenti .fermate.linea { margin: 0; }
+/* Il filo passa da una lista all'altra senza interrompersi: aperte, sono un
+   viaggio solo. */
+.precedenti .fermate.linea li.fermata:last-child::before { bottom: 0; }
 .precedenti + .fermate.linea li.fermata:first-child::before { top: 0; }
 
 /* Sulla scheda del treno il viaggio è il contenuto della pagina, non il
    dettaglio dentro una riga di tabellone. */
 .fermate.aperta, .precedenti:has(+ .fermate.aperta) { margin-left: 2px; margin-right: 2px; }
 .fermate.aperta { margin-top: 4px; font-size: 15px; }
+/* Dopo le ripiegate, la linea continua dove quelle finiscono: un margine lì
+   era un buco nel filo. */
+.precedenti + .fermate.linea { margin-top: 0; }
 
 /* Dove si trova il treno adesso: sta sopra le fermate perché è la risposta
    alla domanda per cui si è aperta la scheda. */

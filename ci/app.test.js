@@ -975,3 +975,16 @@ assert.match(attesa, /cerco dov'è il treno/, 'con la nota della ricerca sotto')
 
 console.log('fermate previste: ok — 3 casi');
 
+/* Le fermate ripiegate stanno nelle stesse colonne del resto della linea: con
+   i binari e senza la classe che li mette in colonna, il binario andava a capo
+   e finiva sopra il filo verticale, e ogni fermata diventava alta il doppio. */
+const conBinari = fermateDi({ tracked: true, stops: [
+  { name: 'TERNO', scheduled: '15:34', passed: true, platform: '2' },
+  { name: 'ARCORE', scheduled: '16:04', passed: true, platform: '2' },
+  { name: 'MONZA', scheduled: '16:11', platform: '5' },
+] }, 'aperta');
+const [ripiegata, resto] = conBinari.match(/<ol class="[^"]*"/g);
+assert.strictEqual(ripiegata, resto, 'la lista ripiegata ha le stesse classi del resto della linea');
+assert.match(ripiegata, /con-binari/, 'compresa la colonna dei binari');
+
+console.log('fermate ripiegate: ok — 2 casi');

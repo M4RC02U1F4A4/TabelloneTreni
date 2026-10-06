@@ -3364,17 +3364,20 @@ function elencoFermate(d, classe) {
      il treno è appena passato. */
   const prima = ultima > 0 ? d.stops.slice(0, ultima) : [];
   const chiave = d.id ? `${d.id.origin}|${d.id.number}|${d.id.date}` : '';
+  // Le due liste sono un viaggio solo spezzato in due, e devono avere le
+  // stesse colonne: con quattro celle in una griglia da tre il binario delle
+  // fermate ripiegate andava a capo, sopra il filo verticale.
+  const classi = ['fermate', 'linea'];
+  if (conBinari) classi.push('con-binari');
+  if (classe) classi.push(classe);
   const ripiegate = prima.length ? `<details class="precedenti" data-precedenti="${esc(chiave)}"${
     precedentiAperte.has(chiave) ? ' open' : ''}>
       <summary>${icona('giu')}${prima.length} ${prima.length === 1 ? 'fermata precedente' : 'fermate precedenti'}</summary>
-      <ol class="fermate linea">${prima.map(voce).join('')}</ol>
+      <ol class="${classi.join(' ')}">${prima.map(voce).join('')}</ol>
     </details>` : '';
 
   const voci = d.stops.slice(prima.length).map((f, i) =>
     voce(f) + (prima.length + i === ultima ? trenoFra(d, ultima) : '')).join('');
-  const classi = ['fermate', 'linea'];
-  if (conBinari) classi.push('con-binari');
-  if (classe) classi.push(classe);
   return `${ripiegate}<ol class="${classi.join(' ')}">${voci}</ol>`;
 }
 
