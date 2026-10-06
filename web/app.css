@@ -486,6 +486,66 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
    testo scuro. */
 .riga-tocco .testo mark { background: none; color: var(--accento); font-weight: 650; }
 
+/* Il codice della linea in un badge del colore della sua famiglia: S11, RE13
+   sono i nomi che la gente usa, e il percorso li spiega accanto. */
+.codice-linea {
+  flex: none; min-width: 46px; padding: 3px 6px; border-radius: 8px;
+  text-align: center; font-size: 14px; font-weight: 700;
+  background: var(--piano-alto); color: var(--testo);
+}
+.codice-linea.s { background: #2e7d32; color: #fff; }
+.codice-linea.re { background: #c62828; color: #fff; }
+.codice-linea.r { background: #1565c0; color: #fff; }
+.codice-linea.mxp { background: #6a1b9a; color: #fff; }
+.codice-linea.tf { background: #00796b; color: #fff; }
+.stato-linea { display: block; font-size: 13px; font-weight: 400; }
+.stato-linea.regolare { color: var(--verde); }
+.stato-linea.critico { color: var(--ambra); }
+.stato-linea.grave { color: var(--rosso); }
+.stato-linea.ignoto { color: var(--tenue); }
+.perche {
+  display: block; margin-top: 6px; padding: 7px 10px; border-radius: 8px;
+  border-left: 3px solid var(--ambra); background: color-mix(in srgb, var(--ambra) 10%, var(--piano));
+  font-size: 13px; font-weight: 400; line-height: 1.45; overflow-wrap: anywhere;
+}
+/* Le linee che segui e quelle con problemi stanno in un riquadro, come le
+   tessere della home: sono le poche che si guardano. */
+.lista.blocco { border: 1px solid var(--bordo); border-radius: 16px; background: var(--piano); padding: 0 10px; }
+.lista.blocco > .riga:last-child { border-bottom: 0; }
+
+/* Le altre, ripiegate per gruppo. */
+.gruppo-linee { border: 1px solid var(--bordo); border-radius: 14px; background: var(--piano); }
+.gruppo-linee + .gruppo-linee { margin-top: 8px; }
+.gruppo-linee summary {
+  display: flex; align-items: center; gap: 8px; padding: 13px 14px;
+  list-style: none; cursor: pointer;
+}
+.gruppo-linee summary::-webkit-details-marker { display: none; }
+.gruppo-linee summary b { min-width: 0; }
+.gruppo-linee summary small, .gruppo-linee .riassunto { flex: none; white-space: nowrap; }
+.gruppo-linee summary small { color: var(--tenue); font-size: 13px; }
+.gruppo-linee .riassunto { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--tenue); }
+.gruppo-linee .chevron { display: flex; color: var(--tenue); transition: transform 0.15s; }
+.gruppo-linee[open] .chevron { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .gruppo-linee .chevron { transition: none; } }
+.gruppo-linee .lista { margin: 0 10px; }
+.gruppo-linee .lista > .riga:last-child { border-bottom: 0; }
+
+/* Il colpo d'occhio sulla rete, in cima all'elenco. La larghezza minima è
+   quello che rende la barra onesta: senza, una linea grave su sessantacinque
+   sarebbe una fetta di due pixel invisibile. */
+.barra-linee { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; }
+.barra-linee span { background: var(--tenue); min-width: 8px; }
+.barra-linee .regolare { background: var(--verde); }
+.barra-linee .critico { background: var(--ambra); }
+.barra-linee .grave { background: var(--rosso); }
+.conta-linee {
+  margin: 8px 0 0 2px; display: flex; flex-wrap: wrap; gap: 4px 14px;
+  font-size: 12.5px; color: var(--tenue);
+}
+.conta-linee > span { display: flex; align-items: center; gap: 6px; }
+.conta-linee + .sezione { margin-top: 18px; }
+
 /* --- le comunicazioni di una linea --- */
 
 /* La riga con avvisi si apre come una scheda treno: stesso gesto, stesso
@@ -637,7 +697,71 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   gap: 6px 12px;
   padding: 12px 14px;
 }
-.riga-treno.espandibile { grid-template-columns: auto 1fr auto auto; }
+.riga-treno.espandibile { grid-template-columns: auto 1fr auto; }
+
+/* Il tabellone e la tratta sono elenchi a filo, non pile di schede: righe
+   separate da un filo, come sul tabellone vero, e il doppio dei treni per
+   schermata. Il bordo verde di "in partenza" su ogni scheda non diceva più
+   niente, perché ce l'avevano quasi tutte: lo dice una parola, in verde. */
+.tabella { border-top: 1px solid var(--bordo); }
+.tabella > .treno { margin: 0; background: none; border: 0; border-bottom: 1px solid var(--bordo); border-radius: 0; }
+.tabella > .treno .riga-treno { padding: 10px 2px; }
+.tabella > .treno.soppresso { opacity: 1; }
+.tabella > .treno.soppresso .destinazione, .tabella > .treno.soppresso .ora { color: var(--tenue); }
+/* La tratta sta in un riquadro, sotto il prossimo treno: sono il resto della
+   stessa risposta. */
+.tabella.tratta {
+  margin-top: var(--gap); border: 1px solid var(--bordo); border-radius: 16px;
+  background: var(--piano); overflow: hidden;
+}
+.tabella.tratta > .treno .riga-treno { padding: 11px 14px; }
+.tabella.tratta > .treno:last-child { border-bottom: 0; }
+.ora-sep {
+  padding: 5px 14px; font-size: 12px; font-weight: 700; color: var(--tenue);
+  background: var(--sfondo); border-bottom: 1px solid var(--bordo);
+}
+.in-partenza { color: var(--verde); font-weight: 700; }
+.arrivo-tratta { font-weight: 700; font-size: 17px; }
+.durata { margin-left: 8px; font-size: 13px; font-weight: 400; color: var(--tenue); }
+.oltre { color: var(--accento); }
+
+/* Il segno colorato della famiglia del treno, davanti al nome. */
+.marchio { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; }
+.marchio.reg { background: #22a06b; }
+.marchio.av { background: #e6343a; }
+.marchio.ic { background: #3b82f6; }
+.marchio.int { background: #8b5cf6; }
+
+/* Il prossimo treno della tratta, in grande. */
+.treno.primo { border-color: color-mix(in srgb, var(--verde) 45%, var(--bordo)); background: var(--piano-alto); border-radius: 18px; }
+.treno.primo .riga-treno { display: block; padding: 14px 16px; }
+.primo-su { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--tenue); }
+.primo-su .fra { color: var(--verde); }
+.primo-viaggio { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.primo-viaggio .ora { font-size: 38px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+.primo-viaggio .ora.barrato { text-decoration: line-through; }
+.treno.primo.in-ritardo .primo-viaggio .ora { color: var(--rosso); }
+.primo-viaggio .freccia { flex: 1; display: flex; align-items: center; gap: 6px; color: var(--tenue); font-size: 13px; }
+.primo-viaggio .freccia i { flex: 1; height: 2px; background: var(--bordo); border-radius: 1px; }
+.primo-viaggio .arrivo { font-size: 24px; font-weight: 700; }
+.primo-giu { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.primo-giu .binario { margin-left: auto; }
+.treno.primo .avviso { margin-top: 10px; }
+
+/* Partenze e arrivi della stessa stazione, e i filtri per famiglia. */
+.segmenti.facce { grid-template-columns: 1fr 1fr; margin-bottom: 10px; background: var(--piano); border: 1px solid var(--bordo); }
+.segmenti a {
+  padding: 7px 0; border-radius: 9px; text-align: center;
+  color: var(--tenue); font-size: 15px; font-weight: 650;
+}
+.segmenti a[aria-current="true"] { background: var(--piano-alto); color: var(--testo); }
+.filtri { display: flex; gap: 8px; margin: 0 -14px 12px; padding: 0 14px; overflow-x: auto; scrollbar-width: none; }
+.filtri::-webkit-scrollbar { display: none; }
+.filtri button {
+  flex: none; padding: 6px 12px; border-radius: 16px;
+  background: none; border: 1px solid var(--bordo); font-size: 14px; font-weight: 650;
+}
+.filtri button[aria-pressed="true"] { background: var(--testo); color: var(--sfondo); border-color: transparent; }
 summary.riga-treno { cursor: pointer; list-style: none; }
 summary.riga-treno::-webkit-details-marker { display: none; }
 
@@ -647,8 +771,8 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 /* Le due pastiglie stanno sotto l'ora, sulla stessa riga: affiancate ci vanno
    perché senza unità di misura sono due o tre caratteri l'una, e la colonna
    dell'orario è già larga quanto "22:47". */
-.orario .scarti, .scheda-basso .scarti { display: flex; gap: 4px; justify-content: flex-end; margin-top: 1px; }
-.orario .scarto, .scheda-basso .scarto {
+.orario .scarti, .scheda-basso .scarti, .primo-giu .scarti, .fonti .scarti { display: flex; gap: 4px; justify-content: flex-end; margin-top: 1px; }
+.orario .scarto, .scheda-basso .scarto, .primo-giu .scarto, .fonti .scarto {
   font-size: 12px; font-weight: 650;
   padding: 1px 5px; border-radius: 5px;
   /* Larghezza minima e testo centrato: "+12" e "0" occupano lo stesso spazio,
@@ -657,7 +781,7 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 }
 /* Il soppresso e i testi di RFI non sono una misura e non hanno una fonte da
    distinguere: restano la scritta rossa di prima, senza pastiglia. */
-.orario .scarto.solo, .scheda-basso .scarto.solo {
+.orario .scarto.solo, .scheda-basso .scarto.solo, .primo-giu .scarto.solo, .fonti .scarto.solo {
   display: block; padding: 0; background: none; color: var(--rosso); min-width: 0;
 }
 /* Il treno partito dal tabellone che lo pubblicava ha una sola misura, quella
@@ -666,7 +790,7 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    quelli guadagnati, grigio l'orario rispettato. Ed è il numero che si cerca
    guardando la home di un treno che si sta prendendo, quindi è grande come
    l'ora che gli sta sopra invece di essere la cifra minuta di una pastiglia. */
-.orario .scarto.misura, .scheda-basso .scarto.misura {
+.orario .scarto.misura, .scheda-basso .scarto.misura, .primo-giu .scarto.misura, .fonti .scarto.misura {
   display: block; padding: 0; background: none; min-width: 0;
   font-size: 17px; font-weight: 700; letter-spacing: -0.02em;
 }
@@ -687,65 +811,39 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    pezzo più grande della riga e non costa niente in larghezza. */
 .treno.in-ritardo .ora { color: var(--rosso); }
 
-/* Nella legenda le pastiglie sono vuote: un numero d'esempio accanto a una
+/* La legenda: una riga con i due colori, e la spiegazione dietro un tocco.
+   Nella legenda le pastiglie sono vuote: un numero d'esempio accanto a una
    lista di numeri veri si legge come un dato, e a spiegare due colori bastano
-   i due colori. */
-/* Il bordo è nella tinta che quel colore ha sul testo: senza cifra dentro, sul
-   fondo scuro resterebbe il solo fondo della pastiglia, che è tenue apposta per
-   stare dietro a un numero acceso. */
+   i due colori. Il bordo è nella tinta che quel colore ha sul testo. */
+.legenda { margin: 0 2px 12px; font-size: 13px; color: var(--tenue); }
+.legenda summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; }
+.legenda summary::-webkit-details-marker { display: none; }
 .legenda .campione {
-  min-width: 0; width: 22px; height: 16px; padding: 0;
+  flex: none; min-width: 0; width: 18px; height: 12px; padding: 0; border-radius: 4px;
   border: 1px solid currentColor;
 }
-
-/* La legenda è un blocco e non una riga, ed è una scelta che si paga volentieri
-   proprio perché il blocco se ne va: finché c'è, tanto vale che spieghi per
-   davvero — perché ci sono due numeri, non solo quale è quale — e che il modo
-   di mandarlo via sia una parola invece di una ✕ da interpretare. Una ✕ in
-   fondo a una riga grigia si legge come "chiudi questo avviso", che è
-   un'azione, mentre qui la domanda è se hai capito. */
-.legenda {
-  margin: 0 0 var(--gap);
-  padding: 12px 14px;
-  background: var(--piano-alto);
-  border-radius: var(--raggio);
-  color: var(--tenue); font-size: 12.5px;
-}
-.legenda p { margin: 0; display: flex; align-items: center; gap: 8px; }
-.legenda p + p { margin-top: 6px; }
-.legenda .premessa { display: block; margin-bottom: 10px; line-height: 1.45; }
-/* Il campione non si stringe quando il testo accanto va a capo. */
-.legenda .campione { flex: none; }
-.legenda .btn-testo { display: block; margin: 6px 0 -6px auto; }
+.legenda .campione + .campione, .legenda summary > .scarto.vt { margin-left: 6px; }
+.legenda .info { margin-left: auto; display: flex; }
+.legenda .info .icona { width: 18px; height: 18px; }
+.legenda p { margin: 8px 0 0; line-height: 1.45; }
 
 /* ---------- i treni seguiti ---------- */
 
-/* La scheda di un treno seguito è la stessa del tabellone, con una colonna in
-   più per il gallone e una riga in più sotto per dire dov'è. Riusare la scheda
-   e non inventarne una seconda è il punto: sono la stessa cosa — un treno, il
-   suo ritardo, il suo binario — guardata dalla stazione o da sopra il treno. */
-.riga-treno.seguito { grid-template-columns: auto 1fr auto auto; }
-.riga-treno.senza-gallone { grid-template-columns: auto 1fr auto; }
-
-/* Il numero grande qui non è un orario di partenza ma il ritardo, e da solo
-   non si spiega: la didascalia sotto dice di cosa è il numero, con la stessa
-   geometria che aveva il "bin." nella colonna del binario. */
-.orario .cap {
-  display: block; margin-top: 1px;
-  font-size: 10px; color: var(--tenue);
+/* In cima alla scheda di un treno: il ritardo in grande, l'ultimo
+   rilevamento accanto, e sotto le due pastiglie delle due fonti. */
+.sommario {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; align-items: center;
+  padding: 14px 16px; margin-bottom: 12px;
+  background: var(--piano); border: 1px solid var(--bordo); border-radius: 18px;
 }
-
-/* Dov'è adesso: una frase, non un dato incolonnato, quindi prende una riga
-   tutta sua sotto agli altri campi invece di spezzarsi in mezzo a loro. */
-.adesso {
-  grid-column: 1 / -1;
-  padding-top: 8px; border-top: 1px dashed var(--bordo);
-  font-size: 12.5px; color: var(--tenue);
-}
-
-/* Un viaggio finito non è più una cosa da fare: si smorza come un treno
-   soppresso, e mezz'ora dopo se ne va da solo. */
-.treno.concluso { opacity: 0.65; }
+.sommario .rit { grid-row: span 3; font-size: 34px; font-weight: 700; line-height: 1; text-align: center; }
+.sommario .rit small { display: block; font-size: 12px; font-weight: 400; color: var(--tenue); }
+.sommario .rit.tardi { color: var(--rosso); }
+.sommario .rit.presto { color: var(--verde); }
+.sommario b { font-size: 15px; }
+.sommario .dove-sommario { font-size: 13.5px; color: var(--tenue); }
+.sommario .fonti { display: flex; gap: 4px; }
+.sommario .fonti:empty, .sommario .dove-sommario:empty { display: none; }
 
 /* Il provvedimento prende una riga sua in cima alla scheda, prima del ritardo:
    è la cosa che cambia il senso del numero grande, quindi si legge prima di
@@ -761,13 +859,19 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 }
 /* Nella scheda aperta dal tabellone la fascia non sta in una griglia ma in un
    blocco, e va rientrata come le fermate che le stanno sotto. */
-.fermate ~ .provvedimento, details .provvedimento { margin: 0 14px 8px 46px; }
+.fermate ~ .provvedimento, details .provvedimento { margin: 0 14px 8px; }
 
 /* Il segnalibro sotto le fermate. Sta in fondo alla scheda aperta e non sulla
    riga chiusa: è lì che si scopre se c'è qualcosa da seguire. */
-.segui-riga { margin: 0 14px 10px 46px; display: flex; flex-wrap: wrap; column-gap: 18px; }
-.btn-testo.segui { display: flex; align-items: center; gap: 6px; padding-left: 0; }
-.btn-testo.segui .icona { width: 15px; height: 15px; }
+.segui-riga { margin: 4px 14px 14px; display: flex; gap: 8px; }
+.btn-testo.segui {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 10px; border-radius: 12px;
+  background: var(--piano); border: 1px solid var(--bordo); color: var(--testo);
+  font-weight: 700; font-size: 14px; white-space: nowrap;
+}
+.btn-testo.segui[aria-pressed="true"] { background: var(--accento); color: var(--su-accento); border-color: transparent; }
+.btn-testo.segui .icona { width: 16px; height: 16px; }
 
 /* La destinazione sta sopra: è la seconda cosa che si cerca dopo l'ora, e
    prima era sotto una riga di grigio piccolo che si leggeva per forza per
@@ -825,108 +929,109 @@ summary.riga-treno::-webkit-details-marker { display: none; }
    Qui prende il colore dell'accento e la parola al posto di "bin.": la scritta è
    più larga, quindi la colonna si allarga solo su queste righe, che è
    esattamente dove si vuole che l'occhio vada. */
-.binario.cambiato .num {
-  color: var(--accento);
-  background: color-mix(in srgb, var(--accento) 16%, var(--piano-alto));
-}
+.binario.cambiato .num { color: var(--su-accento); background: var(--accento); }
 .binario.cambiato .cap { color: var(--accento); font-weight: 650; }
 
-.apri {
-  color: var(--tenue); opacity: 0.5;
-  display: flex; align-items: center;
-  transition: transform 0.15s ease;
-}
-@media (prefers-reduced-motion: reduce) { .apri { transition: none; } }
-details[open] .apri { transform: rotate(90deg); }
-/* Il gallone sta sempre in fondo alla prima riga, anche quando sotto c'è
-   l'avviso: l'avviso prende tutte le colonne, e senza posto assegnato il
-   gallone — che nel markup viene dopo — finiva a capo, da solo, in prima
-   colonna sotto il testo giallo. */
-.riga-treno.espandibile .apri { grid-column: 4; grid-row: 1; }
-
 /* Gli avvisi restano visibili senza aprire niente: "treno alternativo" o
-   "carrozza in coda" servono mentre si guarda l'elenco, non dopo. */
+   "carrozza in coda" servono mentre si guarda l'elenco, non dopo. Ma in
+   piccolo e in grigio, con il segno nell'accento: RFI li scrive in maiuscolo,
+   e nel colore dell'accento gridavano più del treno. */
 .avviso {
-  grid-column: 1 / -1;
-  padding-top: 8px; border-top: 1px dashed var(--bordo);
-  font-size: 12.5px; color: var(--accento);
+  grid-column: 2 / -1;
+  display: flex; align-items: flex-start; gap: 6px;
+  font-size: 12.5px; color: var(--tenue);
 }
+.avviso .icona { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--accento); }
 
-.fermate {
-  margin: 0 14px 12px 46px; padding: 0 0 0 14px;
-  border-left: 2px solid var(--bordo);
-  font-size: 13.5px;
+/* Il viaggio come una linea: un filo verticale con un punto per fermata,
+   pieno dove il treno è passato e tratteggiato dove deve ancora andare. Le
+   colonne dell'ora e del binario hanno larghezze fisse, perché si leggono
+   scorrendo con un occhio solo; a cedere spazio è il nome, che è l'unico
+   campo che un troncamento lascia ancora riconoscibile. */
+.fermate.linea { margin: 0 14px 12px; font-size: 14px; }
+.fermate.linea li.fermata {
+  position: relative; display: grid; grid-template-columns: 22px 1fr 4.6em; gap: 10px;
+  align-items: center; min-height: 40px;
 }
-.fermate li { display: flex; justify-content: space-between; gap: 10px; padding: 2.5px 0; }
-/* I nomi di ViaggiaTreno sono per esteso, non abbreviati come quelli del
-   tabellone: "MALPENSA AEROPORTO TERMINAL 2" su un telefono andrebbe a capo, e
-   una fermata alta due righe in una lista di venti si sente. */
-.fermate li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fermate li time { flex: none; }
-/* Il binario di ogni fermata sta fra il nome e l'ora, cioè nell'ordine in cui
-   si leggono: dove, da che binario, a che ora. Non si stringe e non si taglia —
-   è di due caratteri — mentre a cedere spazio è il nome, che è l'unico campo
-   che un troncamento lascia ancora riconoscibile.
-
-   In colonna, però, e non appeso alla fine del nome. Appeso, l'ascissa gliela
-   decideva la lunghezza del nome: lungo venti fermate i numeri finivano ognuno
-   in un punto diverso, e quello che sulla carta era il secondo dato del
-   viaggio si leggeva come sporcizia fra il nome e l'ora. Incolonnati si
-   scorrono con un occhio solo, che è il gesto per cui li si guarda. */
-.fermate.con-binari { display: grid; grid-template-columns: 1fr auto auto; column-gap: 10px; }
-/* Le colonne sono della lista, non della riga: definite sulla riga, ognuna se
-   le calcolava per conto suo sui propri contenuti — che è come non averle.
-   La riga le eredita con subgrid, e resta una riga (la classe che la smorza o
-   la evidenzia ha ancora un elemento a cui attaccarsi). */
-.fermate.con-binari li {
-  display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
-  align-items: center;
+.fermate.linea.con-binari li.fermata { grid-template-columns: 22px 1fr 4.6em 2.6em; }
+.fermate.linea li.fermata::before {
+  content: ""; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px;
+  background: repeating-linear-gradient(var(--bordo) 0 5px, transparent 5px 9px);
 }
-/* Dove subgrid non c'è, larghezze fisse: due caratteri di binario e un orario
-   con l'eventuale ritardo ci stanno, e incolonnate valgono più che aderenti. */
-@supports not (grid-template-columns: subgrid) {
-  .fermate.con-binari { display: block; }
-  .fermate.con-binari li { grid-template-columns: 1fr 3.4em 4.8em; grid-column: auto; }
+.fermate.linea li.fermata.passata::before { background: var(--tenue); opacity: 0.5; }
+.fermate.linea li.fermata:first-child::before { top: 50%; }
+.fermate.linea li.fermata:last-child::before { bottom: 50%; }
+.fermate.linea .punto {
+  position: relative; z-index: 1; justify-self: center;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--sfondo); border: 2px solid var(--tenue);
 }
-.fermate.con-binari li .bin-fermata { justify-self: center; }
-/* L'ora resta a filo destro come nella lista senza binari: la colonna è larga
-   quanto la più larga, e dentro le altre andrebbero a sinistra. */
-.fermate.con-binari li time { text-align: right; }
+.fermate.linea li.passata .punto { background: var(--tenue); }
+.fermate.linea .nome { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fermate.linea .nome small { display: block; font-size: 11.5px; font-weight: 700; color: var(--accento); }
+.fermate.linea time { text-align: right; color: var(--tenue); }
+.fermate.linea time small { font-size: 11px; font-weight: 700; margin-left: 3px; }
+.fermate.linea li.passata { color: var(--tenue); }
+.fermate.linea li.passata time small { color: var(--rosso); }
+/* Dove sali e dove scendi: il punto pieno nell'accento, e il nome in
+   grassetto. */
+.fermate.linea li.mia { min-height: 46px; }
+.fermate.linea li.mia .nome, .fermate.linea li.mia time { font-weight: 700; color: var(--testo); }
+.fermate.linea li.mia .punto { width: 15px; height: 15px; border: 0; background: var(--accento); }
+.fermate.linea li.meta-scelta .nome, .fermate.linea li.meta-scelta time { color: var(--accento); }
 .fermate li .bin-fermata {
-  flex: none; min-width: 0;
-  color: var(--tenue); font-size: 12px;
-  padding: 0 5px; border-radius: 5px; background: var(--piano-alto);
+  justify-self: center; min-width: 0;
+  color: var(--tenue); font-size: 12px; font-weight: 700;
+  padding: 1px 6px; border-radius: 6px; background: var(--piano-alto);
 }
-/* La cella che tiene la colonna e non dice niente: nessuna pastiglia, o sulle
-   fermate lontane si vedrebbe una fila di rettangoli vuoti. */
 .fermate li .bin-fermata.vuoto { background: none; padding: 0; }
-.fermate li .bin-fermata.cambiato {
-  color: var(--accento);
-  background: color-mix(in srgb, var(--accento) 16%, var(--piano-alto));
-}
+.fermate li .bin-fermata.cambiato { color: var(--su-accento); background: var(--accento); }
 .fermate li .bin-fermata s { opacity: 0.7; }
 .fermate li.passata .bin-fermata { background: none; padding: 0; }
-.fermate li.meta-scelta { color: var(--accento); font-weight: 600; }
-.fermate li time { color: var(--tenue); }
-.fermate li.meta-scelta time { color: inherit; }
 
-/* Le fermate già servite si smorzano: quello che resta acceso è la parte di
-   viaggio che deve ancora succedere, che è l'unica su cui si può fare
-   qualcosa. */
-.fermate li.passata { color: var(--tenue); }
-.fermate li.passata time { color: var(--tenue); }
-.fermate li.passata time small { font-size: 11px; font-weight: 650; margin-left: 3px; }
-.fermate li.passata.meta-scelta { color: var(--accento); }
+/* Il treno fra due fermate: ha la forma di una riga, perché è la riga che si
+   cerca. */
+.fermate.linea li.treno-qui {
+  position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 10px;
+  align-items: center; margin: 2px 0;
+}
+.fermate.linea li.treno-qui::before {
+  content: ""; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: var(--verde);
+}
+.icona-treno {
+  position: relative; z-index: 1; justify-self: center;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--verde); color: var(--sfondo);
+}
+.icona-treno .icona { width: 14px; height: 14px; }
+.treno-qui p {
+  margin: 0; padding: 7px 11px; border-radius: 10px;
+  background: color-mix(in srgb, var(--verde) 12%, var(--piano)); color: var(--verde); font-size: 13.5px;
+}
+.treno-qui p small { display: block; color: var(--tenue); font-size: 12.5px; }
 
-/* Sulla scheda del treno seguito il viaggio è il contenuto della pagina, non
-   il dettaglio dentro una riga di tabellone: il rientro che lo teneva
-   allineato sotto la destinazione qui non ha niente sopra a cui allinearsi. */
-.fermate.aperta { margin: 4px 2px 0; font-size: 14.5px; }
+/* Le fermate già servite prima dell'ultima, ripiegate. */
+.precedenti { margin: 0 14px; }
+.precedenti summary {
+  display: flex; align-items: center; gap: 6px; padding: 6px 0;
+  list-style: none; cursor: pointer; font-size: 13.5px; color: var(--tenue);
+}
+.precedenti summary::-webkit-details-marker { display: none; }
+.precedenti summary .icona { width: 16px; height: 16px; transition: transform 0.15s; transform: rotate(-90deg); }
+.precedenti[open] summary .icona { transform: none; }
+@media (prefers-reduced-motion: reduce) { .precedenti summary .icona { transition: none; } }
+.precedenti .fermate.linea { margin: 0; }
+.precedenti + .fermate.linea li.fermata:first-child::before { top: 0; }
+
+/* Sulla scheda del treno il viaggio è il contenuto della pagina, non il
+   dettaglio dentro una riga di tabellone. */
+.fermate.aperta, .precedenti:has(+ .fermate.aperta) { margin-left: 2px; margin-right: 2px; }
+.fermate.aperta { margin-top: 4px; font-size: 15px; }
 
 /* Dove si trova il treno adesso: sta sopra le fermate perché è la risposta
    alla domanda per cui si è aperta la scheda. */
 .viaggio-nota {
-  margin: 0 14px 8px 46px; padding: 0;
+  margin: 0 14px 8px; padding: 0;
   color: var(--tenue); font-size: 12.5px;
 }
 

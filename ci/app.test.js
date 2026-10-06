@@ -429,6 +429,9 @@ console.log('ordine dei seguiti: ok — 3 casi');
  * colonna si stesse leggendo. */
 const fermateDi = new Function(`
   const esc = (s) => String(s);
+  const titolo = (s) => String(s);
+  const icona = () => '';
+  const precedentiAperte = new Set();
   const binarioFermata = () => '';
   ${ritaglia('function elencoFermate', '/* Il binario di ogni fermata')}
   return elencoFermate;`)();
@@ -889,3 +892,65 @@ for (const [giorni, atteso] of [
 }
 
 console.log('scheda in home: ok — 9 casi su fra quanto + 7 sui giorni scritti');
+
+/* ------------------------------- tratta, tabellone e linea delle fermate */
+
+/* La durata e il "fra N min" della tratta, la famiglia e il nome di un treno
+   del tabellone, e il treno disegnato fra due fermate: sono conti e
+   traduzioni che, sbagliati, scrivono un dato falso con l'aria di uno vero. */
+const righe = new Function(`
+  ${ritaglia('const MINORI', '/* Segna nel nome')}
+  const canon = (s) => String(s).toLowerCase().trim();
+  ${ritaglia('const QUADRANTE_ROMA', 'function abitualiDiOggi')}
+  ${ritaglia('const GRUPPI_TRENO', '/* Il binario cambiato: si dice da quale')}
+  return { gruppoTreno, servizioDi, durata, fraMinuti };`)();
+
+assert.strictEqual(righe.durata('16:12', '16:31'), 19, 'durata semplice');
+assert.strictEqual(righe.durata('23:50', '00:20'), 30, 'dopo mezzanotte');
+assert.strictEqual(righe.durata('16:12', ''), null, 'senza arrivo niente durata');
+
+for (const [t, gruppo, nome] of [
+  [{ category: "ALTA VELOCITA'", carrier: 'FRECCIAROSSA', number: '9551' }, 'av', 'Frecciarossa 9551'],
+  [{ category: "ALTA VELOCITA'", carrier: 'ITALO', number: '9947' }, 'av', 'Italo 9947'],
+  [{ category: 'EC', carrier: 'TRENITALIA', number: '22' }, 'int', 'EuroCity 22'],
+  [{ category: 'INTERCITY', carrier: 'INTERCITY', number: '673' }, 'ic', 'Intercity 673'],
+  [{ category: 'RV', carrier: 'TRENITALIA', number: '2032' }, 'reg', 'Regionale veloce 2032'],
+  [{ category: 'REG', carrier: 'TRENITALIA TPER', number: '2473' }, 'reg', 'Regionale 2473 · Trenitalia Tper'],
+  [{ category: 'S11', carrier: 'TRENORD', number: '25259' }, 'reg', 'S11 25259 · Trenord'],
+]) {
+  assert.strictEqual(righe.gruppoTreno(t), gruppo, `famiglia di ${nome}`);
+  assert.strictEqual(righe.servizioDi(t), nome, `nome di ${t.category} ${t.number}`);
+}
+
+// Lunedì 21 settembre 2026, le 7:06 di Roma: il treno delle 7:12 parte fra 6,
+// con tre di ritardo fra 9; quello dell'una di notte è di domani, e tace.
+const alle = Date.parse('2026-09-21T05:06:00Z');
+assert.strictEqual(righe.fraMinuti('07:12', 0, alle), 6, 'fra sei minuti');
+assert.strictEqual(righe.fraMinuti('07:12', 3, alle), 9, 'con il ritardo dentro');
+assert.strictEqual(righe.fraMinuti('07:06', 0, alle), null, 'all\'ora non si dice');
+assert.strictEqual(righe.fraMinuti('01:00', 0, alle), null, 'oltre l\'ora tace');
+assert.strictEqual(righe.fraMinuti('06:50', 0, alle), null, 'già partito');
+
+// Il treno sta fra l'ultima fermata servita e la prossima, e le servite prima
+// si ripiegano.
+const viaggioArcore = {
+  tracked: true,
+  stops: [
+    { name: 'CARNATE', scheduled: '15:58', actual: '16:02', delay: 4, passed: true },
+    { name: 'ARCORE', scheduled: '16:04', actual: '16:07', delay: 3, passed: true },
+    { name: 'MONZA', scheduled: '16:11', boarding: true },
+    { name: 'MILANO PORTA GARIBALDI', scheduled: '16:31', chosen: true },
+  ],
+};
+const linea = fermateDi(viaggioArcore);
+assert.match(linea, /<b>Fra ARCORE e MONZA<\/b>/, 'il treno fra le due fermate');
+assert.match(linea, /passato da ARCORE alle 16:07, \+3/, 'da dove è passato, e quando');
+assert.ok(linea.indexOf('treno-qui') > linea.indexOf('ARCORE</span>') && linea.indexOf('treno-qui') < linea.indexOf('MONZA</span>'),
+  'disegnato fra Arcore e Monza');
+assert.match(linea, /1 fermata precedente/, 'Carnate ripiegata');
+assert.match(linea, /Sali qui<\/small>MONZA/, 'dove sali, per nome');
+assert.match(linea, /Scendi qui<\/small>MILANO PORTA GARIBALDI/, 'dove scendi, per nome');
+assert.ok(!/treno-qui/.test(fermateDi({ ...viaggioArcore, tracked: false })), 'non rilevato: nessun treno');
+assert.ok(!/treno-qui/.test(fermateDi({ ...viaggioArcore, arrived: true })), 'arrivato: nessun treno');
+
+console.log('tratta e tabellone: ok — 3 durate, 7 treni, 5 "fra", 8 sulla linea delle fermate');

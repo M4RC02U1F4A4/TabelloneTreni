@@ -164,6 +164,14 @@ const prossimi = new Map(); // chiave -> { stato: 'ok'|'errore', treno }
 let modoRicerca = 'tratta';
 // Gli abituali aperti per cambiarne i giorni. Chiusi, sono una riga.
 const abitualiAperti = new Set();
+// La famiglia di treni a cui si è ristretto il tabellone di una stazione, vuota
+// per tutti. Vale per il tabellone che si sta guardando e si azzera cambiandolo.
+let filtroTipo = '';
+// Le fermate già servite ripiegate sotto "N fermate precedenti", aperte o no,
+// per viaggio: la scheda si ridisegna ogni minuto e non deve richiudersi.
+const precedentiAperte = new Set();
+// I gruppi di linee aperti nell'elenco completo, per lo stesso motivo.
+const gruppiLineeAperti = new Set();
 let timerRinfresco = null;
 let timerEta = null;
 let richiestaInCorso = 0;
@@ -280,6 +288,11 @@ const ICONE = {
   // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
   orologio: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   mira: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/>',
+  // La "i" delle note di RFI e della legenda dei ritardi.
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01"/><path d="M11 12h1v4h1"/>',
+  // Il treno sulla linea delle fermate, fra le due dove si trova.
+  treno: '<rect x="6" y="3" width="12" height="14" rx="3"/><path d="M6 11h12"/><path d="M9 21l-1-3"/>' +
+    '<path d="M15 21l1-3"/>',
   // Il triangolo dei gettoni di sciopero e di avviso: lo stesso segno per
   // tutti e due, il colore dice quale.
   allerta: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' +
@@ -1188,6 +1201,7 @@ async function cambiaRotta() {
     return;
   }
 
+  if (r.da !== stato.da) filtroTipo = '';
   stato.da = r.da; stato.a = r.a; stato.arrivi = r.arrivi;
   ricordaTratta(r);
   stato.dati = null;
@@ -1735,17 +1749,6 @@ function fasciaProvvedimento(d) {
     n ? ` · ${n} ${n === 1 ? 'fermata soppressa' : 'fermate soppresse'}` : ''}</p>`;
 }
 
-/* Il corpo della scheda di un treno seguito: le tre cose che si vogliono
-   sapere da sopra il treno — di quanto è in ritardo, dov'è adesso, e a che
-   binario arriva alla prossima fermata. Sono le stesse in home e sulla scheda
-   aperta, quindi le compone una funzione sola. */
-function corpoSeguito(d, lettoIl) {
-  return `
-    ${fasciaProvvedimento(d)}
-    ${corpoRiga(rigaSeguita(d), false, false)}
-    <div class="adesso">${doveAdesso(d, lettoIl)}</div>`;
-}
-
 /* La riga di tabellone di un treno seguito.
 
    Finché il treno è sul tabellone della stazione da cui lo si segue, è quella
@@ -1901,7 +1904,7 @@ function disegnaTreno(t) {
               aria-label="${salvato ? 'Smetti di seguire questo treno' : 'Segui questo treno'}"
               >${icona('segnalibro', salvato)}</button>
     </div>
-    ${sottotitolo(d && d.origin ? `da ${esc(d.origin)}` : '', rigaFreschezza())}
+    ${sottotitolo(d && d.origin ? `da ${esc(titolo(d.origin))}` : '', rigaFreschezza())}
     ${barraCiclo()}`;
 
   if (!d) {
@@ -1911,13 +1914,9 @@ function disegnaTreno(t) {
     return;
   }
 
-  const riga = rigaSeguita(d);
-  const classi = ['treno'];
-  if (riga.cancelled) classi.push('soppresso');
-  else if (ritardoVero(riga) > 0) classi.push('in-ritardo');
-  if (d.arrived) classi.push('concluso');
   app.innerHTML = `
-    <div class="${classi.join(' ')}"><div class="riga-treno seguito senza-gallone">${corpoSeguito(d, v.lettoIl)}</div></div>
+    ${sommarioTreno(d, v.lettoIl)}
+    ${fasciaProvvedimento(d)}
     ${rigaPosizione(d)}
     ${sezioneMappa(d)}
     ${d.stops && d.stops.length
@@ -1928,6 +1927,29 @@ function disegnaTreno(t) {
   // Dopo l'innerHTML, perché la mappa va agganciata a un posto che esiste: il
   // nodo è quello di prima, spostato, non uno nuovo.
   if (conMappa(d)) montaMappa(d, chiaveTreno(t));
+}
+
+/* In cima alla scheda del treno, la risposta alla prima domanda che si fa da
+   sopra un treno: di quanto è in ritardo, e da dove viene la lettura. Il
+   numero grande è quello che conta — la misura sul treno quando c'è — e sotto
+   restano le due pastiglie, perché le due fonti possono non dire la stessa
+   cosa e la scheda non sceglie al posto di chi guarda.
+
+   Dov'è il treno non si scrive qui: lo disegna la linea delle fermate sotto. */
+function sommarioTreno(d, lettoIl) {
+  const riga = rigaSeguita(d);
+  const r = riga.cancelled ? null : ritardoVero(riga);
+  const l = d.lastSeen || {};
+  const titoloSommario = d.arrived ? 'Arrivato'
+    : (riga.cancelled ? 'Soppresso' : (d.tracked && l.station ? 'Ultimo rilevamento' : 'Non ancora partito'));
+  const dove = d.tracked && l.station
+    ? `${esc(titolo(l.station))}${l.time ? ` alle ${esc(l.time)}` : ''}${etaLettura(lettoIl)}` : '';
+  return `<section class="sommario${riga.cancelled ? ' soppresso' : ''}">
+    <span class="rit ${r === null ? '' : versoRitardo(r)}">${r === null ? '–' : esc(segnoRitardo(r))}<small>minuti</small></span>
+    <b>${titoloSommario}</b>
+    <span class="dove-sommario">${dove}</span>
+    <span class="fonti">${scarti(riga, false)}</span>
+  </section>`;
 }
 
 /* La mappa sta dietro a un tab, chiuso.
@@ -2331,6 +2353,27 @@ const ETICHETTE_CONTA = {
   ignoto: 'senza stato',
 };
 
+function contaLinee(linee) {
+  const conta = new Map();
+  linee.forEach((l) => {
+    const c = statoLinea(l.status).classe;
+    conta.set(c, (conta.get(c) || 0) + 1);
+  });
+  const parti = ['regolare', 'critico', 'grave', 'ignoto'].filter((c) => conta.get(c));
+  const detto = parti.map((c) => `${conta.get(c)} ${ETICHETTE_CONTA[c]}`).join(', ');
+  return { parti, conta, detto };
+}
+
+/* Il codice di una linea come la si chiama — "S11", "RE13" — e il colore della
+   sua famiglia. Il trattino basso è di Trenord, non di chi parla. I colori
+   sono nostri: dicono la famiglia, non copiano la segnaletica. */
+const codiceLinea = (l) => String(l.code).replace(/_/g, '');
+const FAMIGLIE_LINEE = {
+  'LINEE SUBURBANE': 's', 'REGIO EXPRESS': 're', REGIONALI: 'r',
+  'MALPENSA EXPRESS': 'mxp', 'LINEE TRANSFRONTALIERE': 'tf',
+};
+const famigliaLinea = (l) => FAMIGLIE_LINEE[String(l.group || '').toUpperCase()] || '';
+
 function gettoniLinee() {
   if (stato.linee === null) return [`<span class="gettone attesa">Linee</span>`];
   // Sottovoce: che manchino i bollini non deve sembrare che sia rotto il
@@ -2341,15 +2384,9 @@ function gettoniLinee() {
   const mie = stato.linee.filter((l) => seguita(l.code) && l.status > 0).map((l) => {
     const st = statoLinea(l.status);
     return `<a class="gettone" href="${ROTTA_LINEE}/${encodeURIComponent(l.code)}">
-      <span class="bollino ${st.classe}"></span>${esc(l.code.replace(/_/g, ' '))} ${st.etichetta}</a>`;
+      <span class="bollino ${st.classe}"></span>${esc(codiceLinea(l))} ${st.etichetta}</a>`;
   });
-  const conta = new Map();
-  stato.linee.forEach((l) => {
-    const c = statoLinea(l.status).classe;
-    conta.set(c, (conta.get(c) || 0) + 1);
-  });
-  const parti = ['regolare', 'critico', 'grave', 'ignoto'].filter((c) => conta.get(c));
-  const detto = parti.map((c) => `${conta.get(c)} ${ETICHETTE_CONTA[c]}`).join(', ');
+  const { parti, conta, detto } = contaLinee(stato.linee);
   return [...mie, `<a class="gettone" href="${ROTTA_LINEE}"${detto ? ` aria-label="Linee: ${esc(detto)}"` : ''}>
     Linee${parti.map((c) => `<span class="conta"><span class="bollino ${c}"></span>${conta.get(c)}</span>`).join('')}</a>`];
 }
@@ -2361,8 +2398,16 @@ function rigaLinea(l, query) {
       data-campanella="${esc(l.code)}" aria-pressed="${accesa}"
       aria-label="${accesa ? 'Smetti di seguire' : 'Segui'} ${esc(l.name)}"
       >${icona('campana', accesa)}</button>`;
-  const nome = `<span class="segno"><span class="bollino ${st.classe}"></span></span>
-    <span class="testo">${evidenzia(l.name, query)}<span class="qualifica"> · ${st.etichetta}</span></span>`;
+  // Il perché di un bollino acceso si legge senza aprire la riga, quando le
+  // comunicazioni ci sono già — le linee seguite arrivano con le loro. Aperta,
+  // l'elenco intero sta sotto e la prima riga non va ripetuta.
+  const v = avvisiLinea.get(l.code);
+  const primo = l.status > 0 && !lineeAperte.has(l.code) && v && v.stato === 'ok'
+    ? diCircolazione(v.dati)[0] : null;
+  const nome = `<span class="codice-linea ${famigliaLinea(l)}">${esc(codiceLinea(l))}</span>
+    <span class="testo">${evidenzia(l.name, query)}
+      <span class="stato-linea ${st.classe}">${st.etichetta}</span>
+      ${primo ? `<span class="perche">${esc(primo.text)}</span>` : ''}</span>`;
 
   return `<li class="riga con-avvisi">
     <details class="avvisi-linea" data-linea="${esc(l.code)}"${lineeAperte.has(l.code) ? ' open' : ''}>
@@ -2615,6 +2660,11 @@ function disegnaElencoLinee() {
     return;
   }
 
+  if (!query) {
+    dove.innerHTML = elencoLineeInOrdine();
+    return;
+  }
+
   // I gruppi si prendono nell'ordine in cui arrivano invece di ordinarli:
   // è quello in cui Trenord li pubblica, e chi conosce le proprie linee le
   // cerca dove è abituato a trovarle. Un gruppo rimasto senza linee sparisce,
@@ -2631,6 +2681,55 @@ function disegnaElencoLinee() {
       <h2 class="etichetta-sezione">${esc(titolo(g.nome))}</h2>
       <ul class="lista">${g.linee.map((l) => rigaLinea(l, query)).join('')}</ul>
     </section>`).join('');
+}
+
+/* L'elenco senza filtro, in ordine di quanto ti riguarda: prima le linee che
+   segui, poi quelle che hanno un problema adesso, poi tutte le altre ripiegate
+   per gruppo. Erano sessantacinque righe uguali nell'ordine di Trenord, e la
+   linea che si era venuti a guardare stava a metà della terza schermata. */
+function elencoLineeInOrdine() {
+  const mie = stato.linee.filter((l) => seguita(l.code));
+  const guai = stato.linee.filter((l) => !seguita(l.code) && l.status > 0);
+  const altre = stato.linee.filter((l) => !seguita(l.code) && !(l.status > 0));
+  const blocco = (titoloBlocco, linee) => (linee.length ? `<section class="sezione">
+      <h2 class="etichetta-sezione">${titoloBlocco}</h2>
+      <ul class="lista blocco">${linee.map((l) => rigaLinea(l, '')).join('')}</ul>
+    </section>` : '');
+
+  const gruppi = [];
+  for (const l of altre) {
+    const g = gruppi.find((x) => x.nome === l.group);
+    if (g) g.linee.push(l); else gruppi.push({ nome: l.group, linee: [l] });
+  }
+  // Qui dentro ci sono solo linee senza problemi, che quelle stanno sopra:
+  // il riassunto lo dice, invece di far aprire il gruppo per scoprirlo.
+  const ripiegati = gruppi.map((g) => `<details class="gruppo-linee" data-gruppo="${esc(g.nome)}"${
+    gruppiLineeAperti.has(g.nome) ? ' open' : ''}>
+      <summary><b>${esc(titolo(g.nome))}</b><small>${g.linee.length} ${g.linee.length === 1 ? 'linea' : 'linee'}</small>
+        <span class="riassunto">${g.linee.every((l) => l.status === 0)
+          ? '<span class="bollino regolare"></span>tutte regolari' : ''}</span>
+        <span class="chevron">${icona('gallone')}</span></summary>
+      <ul class="lista">${g.linee.map((l) => rigaLinea(l, '')).join('')}</ul>
+    </details>`).join('');
+
+  return `${barraRete(stato.linee)}${blocco('Le tue linee', mie)}${blocco('Con problemi adesso', guai)}${
+    ripiegati ? `<section class="sezione"><h2 class="etichetta-sezione">${
+      mie.length || guai.length ? 'Tutte le altre' : 'Tutte le linee'}</h2>${ripiegati}</section>` : ''}`;
+}
+
+/* Il colpo d'occhio sulla rete intera, in cima all'elenco: la barra dice la
+   proporzione e sotto ci sono i numeri scritti — il colore da solo non è
+   un'informazione per tutti, e una fetta rossa larga tre pixel va comunque
+   letta. Il minimo di larghezza è per lei: una linea grave su sessantacinque
+   è l'unica cosa che questa barra deve far vedere. */
+function barraRete(linee) {
+  const { parti, conta, detto } = contaLinee(linee);
+  if (!parti.length) return '';
+  return `<div class="barra-linee" role="img" aria-label="${esc(detto)}">
+      ${parti.map((c) => `<span class="${c}" style="flex:${conta.get(c)}"></span>`).join('')}
+    </div>
+    <p class="conta-linee" aria-hidden="true">${parti.map((c) =>
+      `<span><span class="bollino ${c}"></span>${conta.get(c)} ${ETICHETTE_CONTA[c]}</span>`).join('')}</p>`;
 }
 
 /* Cosa succede quando accendi una campanella, detto prima di accenderla. Una
@@ -2779,33 +2878,33 @@ function disegnaRisultati() {
   const questa = { f: stato.da, t: stato.arrivi ? null : stato.a, a: stato.arrivi || undefined };
   const salvato = ePreferito(questa);
 
-  /* "Partenze" non si scrive: sono il caso normale — dalla ricerca, da una
-     tratta salvata, dal tasto partenze — e il caso normale non si annuncia. Chi
-     è arrivato qui sa già di guardare delle partenze, perché è quello che ha
-     chiesto un tocco fa.
-
-     "Arrivi" invece sì. È l'eccezione, e c'è un modo di arrivarci in cui non
-     si ricorda di averla chiesta: una stazione salvata fra i preferiti come
-     arrivi, riaperta il mese dopo. Lì il titolo è il nome della stazione e
-     basta, e senza questa parola due tabelloni identici direbbero il
-     contrario l'uno dell'altro. */
-  const cosa = stato.arrivi ? 'Arrivi' : '';
+  const tratta = !!stato.a && !stato.arrivi;
 
   testa.innerHTML = `
     <div class="testa-riga">
       <a class="tasto" href="#/" aria-label="Torna alla home">${icona('indietro')}</a>
-      <h1 class="titolo">${esc(daNome)}${aNome && !stato.arrivi ?
-        ` <span class="freccia">→</span> ${esc(aNome)}` : ''}</h1>
+      <h1 class="titolo">${esc(daNome)}${tratta ? ` <span class="freccia">→</span> ${esc(aNome)}` : ''}</h1>
       <button class="tasto" type="button" data-preferito aria-pressed="${salvato}"
               aria-label="${salvato ? 'Togli dai preferiti' : 'Aggiungi ai preferiti'}">${icona('stella', salvato)}</button>
     </div>
-    ${sottotitolo(esc(cosa), rigaFreschezza())}
+    ${sottotitolo(tratta && d && d.trains.length
+      ? `${d.trains.length} ${d.trains.length === 1 ? 'treno' : 'treni'} fino alle ${esc(d.trains[d.trains.length - 1].time)}`
+      : '', rigaFreschezza())}
     ${barraCiclo()}`;
 
+  /* Sul tabellone di una stazione partenze e arrivi sono le due facce della
+     stessa cosa, e si passa dall'una all'altra senza tornare in home. Prima
+     "Arrivi" era una parola nel sottotitolo — l'unico modo di sapere quale
+     faccia si stava guardando — e per cambiarla si ripartiva dalla ricerca. */
+  const facce = tratta ? '' : `<div class="segmenti facce" role="group" aria-label="Partenze o arrivi">
+      <a href="${rottaDi(stato.da, null, false)}" aria-current="${!stato.arrivi}">Partenze</a>
+      <a href="${rottaDi(stato.da, null, true)}" aria-current="${stato.arrivi}">Arrivi</a>
+    </div>`;
+
   if (!d) {
-    app.innerHTML = stato.errore
+    app.innerHTML = facce + (stato.errore
       ? `<p class="errore">${esc(stato.errore)}</p>`
-      : `<ul>${scheletro().repeat(5)}</ul>`;
+      : `<ul>${scheletro().repeat(5)}</ul>`);
     return;
   }
 
@@ -2816,14 +2915,56 @@ function disegnaRisultati() {
       qui sotto ci sono tutti gli arrivi, senza il filtro per ${esc(aNome)}.</p>`);
   }
 
-  const corpo = d.trains.length
-    ? `<ul>${d.trains.map((t) => rigaTreno(t, d, conMisure(d))).join('')}</ul>`
-    : `<div class="senza-risultati">
+  if (!d.trains.length) {
+    app.innerHTML = facce + note.join('') + `<div class="senza-risultati">
          <p>Nessun treno da ${esc(daNome)}${d.filtered ? ` che ferma a ${esc(aNome)}` : ''}.</p>
          <p>Il tabellone copre solo le prossime ore.</p>
        </div>`;
+    return;
+  }
 
-  app.innerHTML = note.join('') + legenda(d) + corpo;
+  app.innerHTML = facce + note.join('') + legenda(d)
+    + (d.filtered && !d.arrivals ? elencoTratta(d) : elencoStazione(d));
+}
+
+/* La tratta: il prossimo treno in grande, poi gli altri in un elenco solo, con
+   un separatore a ogni cambio d'ora — su quaranta righe di orari simili è il
+   segno che dice dove si è arrivati scorrendo. Il più veloce si dice, perché
+   sulla stessa tratta un regionale veloce e un suburbano possono prendere un
+   quarto d'ora di differenza, e dall'ora di partenza non si vede. */
+function elencoTratta(d) {
+  const misure = conMisure(d);
+  const i = d.trains.findIndex((t) => !t.cancelled);
+  const primo = i >= 0 ? d.trains[i] : null;
+  const altri = d.trains.filter((t) => t !== primo);
+  const durate = d.trains.filter((t) => !t.cancelled).map((t) => durata(t.time, t.arrival)).filter((x) => x !== null);
+  const minima = durate.length > 1 && Math.min(...durate) < Math.max(...durate) ? Math.min(...durate) : null;
+  const veloce = minima === null ? null : d.trains.find((t) => !t.cancelled && durata(t.time, t.arrival) === minima);
+
+  let ora = null;
+  const righe = altri.map((t) => {
+    const h = String(t.time).slice(0, 2);
+    const sep = ora !== null && h !== ora ? `<li class="ora-sep">ore ${Number(h)}</li>` : '';
+    ora = h;
+    return sep + rigaTreno(t, d, misure, t === veloce ? 'veloce' : '');
+  }).join('');
+  return `${primo ? `<ul>${rigaTreno(primo, d, misure, 'primo')}</ul>` : ''}
+    ${righe ? `<ul class="tabella tratta">${righe}</ul>` : ''}`;
+}
+
+/* Il tabellone di una stazione: righe a filo come quelle del tabellone vero, il
+   doppio dei treni per schermata delle schede di prima, e i filtri per
+   famiglia quando ce n'è più di una. */
+function elencoStazione(d) {
+  const misure = conMisure(d);
+  const presenti = GRUPPI_TRENO.filter(([g]) => d.trains.some((t) => gruppoTreno(t) === g));
+  const filtro = presenti.some(([g]) => g === filtroTipo) ? filtroTipo : '';
+  const filtri = presenti.length > 1 ? `<div class="filtri" role="group" aria-label="Che treni">
+      <button type="button" data-tipo="" aria-pressed="${!filtro}">Tutti</button>
+      ${presenti.map(([g, nome]) => `<button type="button" data-tipo="${g}" aria-pressed="${g === filtro}">${nome}</button>`).join('')}
+    </div>` : '';
+  const treni = filtro ? d.trains.filter((t) => gruppoTreno(t) === filtro) : d.trains;
+  return `${filtri}<ul class="tabella">${treni.map((t) => rigaTreno(t, d, misure)).join('')}</ul>`;
 }
 
 // Ha la forma di una scheda vera, così l'elenco non sobbalza quando i dati
@@ -2907,54 +3048,89 @@ const conMisure = (d) => d.trains.some((t) => ritardoLive(t) !== null);
 /* La legenda compare solo se almeno un treno porta la misura di ViaggiaTreno:
    con la sola colonna di RFI non ci sarebbero due colori da spiegare.
 
-   E si chiude. È una didascalia di primo utilizzo — spiega un codice colore che
-   si impara una volta — ma stava sopra ogni tabellone di ogni giorno, nel posto
-   che appartiene alla prima partenza. Chiusa non torna: la scelta è di chi
-   guarda, non un conto alla rovescia deciso qui.
-
-   Il titolo sulle pastiglie è la via di ritorno per chi la chiude e poi non
-   ricorda: non è granché su un telefono, dove non si passa sopra con il dito,
-   ma non costa niente e su un portatile risponde. */
-const legendaChiusa = () => leggi('tt.legenda', false);
-
+   È una riga sola, con i due colori e il loro nome, e la spiegazione intera
+   sta dietro un tocco. Prima era un riquadro di quattro righe con un "Ho
+   capito" per chiuderlo: spiegava un codice che si impara una volta, ma stava
+   sopra ogni tabellone nel posto della prima partenza — e chi lo chiudeva
+   perdeva per sempre il modo di ricordarsi quale colore fosse quale. */
 function legenda(d) {
-  if (!conMisure(d) || legendaChiusa()) return '';
-  return `<div class="legenda">
-    <p class="premessa">Su alcuni treni il ritardo arriva da due parti, e non
-      sempre dicono lo stesso numero.</p>
-    <p><span class="scarto rfi campione"></span> quello scritto sul tabellone di RFI</p>
-    <p><span class="scarto vt campione"></span> quello misurato sul treno in corsa</p>
-    <button class="btn-testo" type="button" data-chiudi-legenda>Ho capito</button>
-  </div>`;
+  if (!conMisure(d)) return '';
+  return `<details class="legenda">
+    <summary><span class="scarto rfi campione"></span>tabellone RFI
+      <span class="scarto vt campione"></span>sul treno
+      <span class="info" aria-label="Cosa vogliono dire">${icona('info')}</span></summary>
+    <p>Su alcuni treni il ritardo arriva da due parti, e non sempre dicono lo
+      stesso numero: quello scritto sul tabellone di RFI, e quello misurato sul
+      treno in corsa da ViaggiaTreno.</p>
+  </details>`;
 }
 
-/* Il corpo di una riga di tabellone: l'ora con le letture del ritardo, dove va
-   il treno, il binario, e l'avviso se c'è.
+/* Che famiglia di treno è, per i filtri e per il segno colorato accanto al
+   nome. Quattro famiglie e non le venti categorie di RFI: davanti al
+   tabellone di Centrale la domanda è "il regionale o la Freccia", non "RV o
+   REG". I colori sono nostri, non quelli dei vettori: dicono la famiglia, non
+   la marca. */
+const GRUPPI_TRENO = [
+  ['reg', 'Regionali'], ['av', 'Alta velocità'], ['ic', 'Intercity'], ['int', 'Internazionali'],
+];
 
-   Lo usa anche la scheda di un treno seguito, che è la stessa cosa guardata da
-   un'altra porta. Prima erano due composizioni separate e divergevano: sul
-   tabellone il ritardo era in pastiglia e con due fonti, sulla scheda era un
-   numero grande con una fonte sola — e su un treno che ViaggiaTreno non aveva
-   ancora rilevato quella fonte non diceva niente, così la scheda annunciava
-   "non ancora partito" mentre la riga, a uno schermo di distanza, dava lo
-   stesso treno in ritardo di un quarto d'ora. */
-function corpoRiga(t, arrivi, riservaVT) {
-  const dettagli = [
-    t.arrival ? `<span class="arrivo">arrivo ${esc(t.arrival)}</span>` : '',
-    esc([t.category, t.number].filter(Boolean).join(' ')),
-    t.arrival ? '' : esc(vettoreDi(t)),
-  ].filter(Boolean).join(' · ');
-  return `
-    <div class="orario">
-      <span class="ora ${t.cancelled ? 'barrato' : ''}">${esc(t.time)}</span>
-      ${scarti(t, riservaVT)}
-    </div>
-    <div class="dove">
-      <div class="destinazione">${arrivi ? '<span class="da">da</span> ' : ''}${esc(titolo(t.terminus))}</div>
-      <span class="meta">${dettagli}</span>
-    </div>
-    ${cellaBinario(t.platform, cambioBinario(t))}
-    ${t.notes ? `<div class="avviso">${esc(t.notes)}</div>` : ''}`;
+function gruppoTreno(t) {
+  const c = (t.category || '').trim().toUpperCase();
+  if (c.startsWith('ALTA VELOCIT') || /ITALO|FRECCIA/.test((t.carrier || '').toUpperCase())) return 'av';
+  if (/^(EC|EN|RJ|TGV|EUROCITY|EURONIGHT)$/.test(c)) return 'int';
+  if (/^(IC|ICN|INTERCITY)/.test(c)) return 'ic';
+  return 'reg';
+}
+
+/* Il nome del treno come lo si dice: "Frecciarossa 9551", "Regionale veloce
+   2032". RFI scrive la categoria in sigla e la ripete come vettore — "ALTA
+   VELOCITA' 9551 · FRECCIAROSSA" — e le due metà dicevano la stessa cosa in
+   due modi illeggibili. Sull'alta velocità il nome è il vettore; sui regionali
+   il vettore si aggiunge, perché a Milano sono di due aziende diverse e i
+   biglietti non valgono sull'altra. Le sigle che la gente usa davvero — RE,
+   S11 — restano sigle. */
+const NOMI_CATEGORIA = {
+  REG: 'Regionale', RV: 'Regionale veloce', IC: 'Intercity', INTERCITY: 'Intercity',
+  ICN: 'Intercity Notte', 'INTERCITY NOTTE': 'Intercity Notte', EC: 'EuroCity', EN: 'EuroNight',
+};
+
+function servizioDi(t) {
+  const c = (t.category || '').trim().toUpperCase();
+  const nome = c.startsWith('ALTA VELOCIT')
+    ? (t.carrier ? titolo(t.carrier) : 'Alta velocità')
+    : (NOMI_CATEGORIA[c] || (t.category || '').trim());
+  const pezzi = [[nome, t.number].filter(Boolean).join(' ')];
+  if (gruppoTreno(t) === 'reg' && t.carrier && canon(t.carrier) !== 'trenitalia') pezzi.push(titolo(t.carrier));
+  return pezzi.join(' · ');
+}
+
+/* Quanto dura il viaggio, dall'ora di partenza a quella di arrivo. Sono due
+   "HH:MM" senza giorno: un arrivo che sembra prima della partenza è dopo
+   mezzanotte. */
+function durata(da, a) {
+  const minuti = (s) => {
+    const [h, m] = String(s).split(':').map(Number);
+    return h * 60 + m;
+  };
+  if (!da || !a) return null;
+  const d = minuti(a) - minuti(da);
+  if (Number.isNaN(d)) return null;
+  return d < 0 ? d + 24 * 60 : d;
+}
+
+/* Fra quanti minuti parte un treno del tabellone, con il ritardo dentro. L'ora
+   è un "HH:MM" di Roma senza giorno: oggi, o domani se oggi è passata da più
+   di sei ore — la stessa regola del server. Come sulla scheda in home tace
+   oltre l'ora, e a treno già partito. */
+function fraMinuti(hhmm, ritardo, adesso = Date.now()) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  const q = new Date(quadranteRoma(adesso));
+  const oggi = Date.UTC(q.getUTCFullYear(), q.getUTCMonth(), q.getUTCDate());
+  let parte = istanteRoma(oggi + (h * 60 + m) * 60_000);
+  if (parte < adesso - 6 * 60 * 60_000) parte = istanteRoma(oggi + 24 * 60 * 60_000 + (h * 60 + m) * 60_000);
+  const minuti = Math.round((parte + Math.max(ritardo || 0, 0) * 60_000 - adesso) / 60_000);
+  return minuti >= 1 && minuti <= 60 ? minuti : null;
 }
 
 /* Il binario cambiato: si dice da quale, non solo che è successo.
@@ -2972,31 +3148,95 @@ function cambioBinario(t) {
   return 'cambiato';
 }
 
-/* Su alcuni treni RFI ripete la categoria anche come vettore
-   ("INTERCITY NOTTE · INTERCITY NOTTE"): si scrive una volta sola. */
-const vettoreDi = (t) =>
-  (t.carrier && canon(t.carrier) !== canon(t.category || '') ? t.carrier : '');
+/* L'orario con le letture del ritardo sotto: la prima colonna di ogni riga. */
+const orarioDi = (t, misure) => `<div class="orario">
+    <span class="ora ${t.cancelled ? 'barrato' : ''}">${esc(t.time)}</span>
+    ${scarti(t, misure)}
+  </div>`;
 
-function rigaTreno(t, d, misure) {
+/* Le note di RFI — "CARROZZA 1 IN CODA AL TRENO - GATE B" — restano scritte
+   come le scrive RFI, ma in piccolo e in grigio, con un segno davanti: prima
+   erano in maiuscolo e nel colore dell'accento, e su un tabellone di Centrale
+   gridavano più dei treni a cui si riferivano. */
+const notaDi = (t) => (t.notes
+  ? `<div class="avviso">${icona('info')}<span>${esc(t.notes)}</span></div>` : '');
+
+/* La riga del tabellone di una stazione: dove va il treno, che treno è, il
+   binario. */
+function corpoStazione(t, d, misure) {
+  return `${orarioDi(t, misure)}
+    <div class="dove">
+      <div class="destinazione">${d.arrivals ? '<span class="da">da</span> ' : ''}${esc(titolo(t.terminus))}</div>
+      <span class="meta"><i class="marchio ${gruppoTreno(t)}"></i>${
+        t.boarding && !t.cancelled ? '<span class="in-partenza">in partenza</span> · ' : ''}${esc(servizioDi(t))}</span>
+    </div>
+    ${cellaBinario(t.platform, cambioBinario(t))}
+    ${notaDi(t)}`;
+}
+
+/* Dove va il treno è la destinazione scelta, uguale su ogni riga: scriverla
+   quaranta volte non diceva niente. Al suo posto quello che cambia da un treno
+   all'altro — a che ora arrivi e quanto ci metti.
+
+   Il capolinea si scrive solo quando il treno va oltre, ed è l'unica volta in
+   cui conta: si riconosce dalle fermate, perché la fermata scelta non è
+   l'ultima. Confrontare i nomi non funzionerebbe — RFI scrive "MI.P.GARIBALDI"
+   dove il catalogo dice "MILANO PORTA GARIBALDI". */
+function corpoTratta(t, d, misure, piuVeloce) {
+  const min = durata(t.time, t.arrival);
+  const ultima = (t.stops || [])[(t.stops || []).length - 1];
+  const oltre = ultima && t.arrival && ultima.time !== t.arrival;
+  return `${orarioDi(t, misure)}
+    <div class="dove">
+      <div class="destinazione">${t.arrival
+        ? `<span class="arrivo-tratta">→ ${esc(t.arrival)}</span>${min !== null
+          ? `<span class="durata">${min} min${piuVeloce ? ' · il più veloce' : ''}</span>` : ''}`
+        : esc(titolo(t.terminus))}</div>
+      <span class="meta">${esc(servizioDi(t))}${oltre
+        ? ` · <span class="oltre">prosegue per ${esc(titolo(t.terminus))}</span>` : ''}</span>
+    </div>
+    ${cellaBinario(t.platform, cambioBinario(t))}
+    ${notaDi(t)}`;
+}
+
+/* Il prossimo treno della tratta, in grande: partenza, durata e arrivo su una
+   riga, e fra quanto parte. È la risposta alla domanda per cui si apre una
+   tratta salvata, e prima era la prima di quaranta righe uguali. */
+function corpoPrimo(t, misure) {
+  const min = durata(t.time, t.arrival);
+  const fra = fraMinuti(t.time, ritardoVero(t));
+  return `<div class="primo-su"><span>${esc(servizioDi(t))} · il prossimo</span>${
+      fra ? `<b class="fra">fra ${fra} min</b>` : ''}</div>
+    <div class="primo-viaggio">
+      <span class="ora ${t.cancelled ? 'barrato' : ''}">${esc(t.time)}</span>
+      <span class="freccia"><i></i>${min !== null ? `${min} min` : ''}<i></i></span>
+      <span class="arrivo">${esc(t.arrival || '')}</span>
+    </div>
+    <div class="primo-giu">${scarti(t, misure)}${cellaBinario(t.platform, cambioBinario(t))}</div>
+    ${notaDi(t)}`;
+}
+
+function rigaTreno(t, d, misure, modo = '') {
   const soppresso = t.cancelled;
   const classi = ['treno'];
   if (soppresso) classi.push('soppresso');
   else if (t.boarding) classi.push('parte');
   if (!soppresso && ritardoVero(t) > 0) classi.push('in-ritardo');
+  if (modo === 'primo') classi.push('primo');
+
+  let corpo;
+  if (modo === 'primo') corpo = corpoPrimo(t, misure);
+  else if (d.filtered && !d.arrivals) corpo = corpoTratta(t, d, misure, modo === 'veloce');
+  else corpo = corpoStazione(t, d, misure);
 
   const espandibile = t.stops && t.stops.length > 0;
-  const contenuto = `
-    ${corpoRiga(t, d.arrivals, misure)}
-    ${espandibile ? `<span class="apri" aria-hidden="true">${icona('gallone')}</span>` : ''}`;
-
-  const riga = `riga-treno${espandibile ? ' espandibile' : ''}`;
   if (!espandibile) {
-    return `<li class="${classi.join(' ')}"><div class="${riga}">${contenuto}</div></li>`;
+    return `<li class="${classi.join(' ')}"><div class="riga-treno">${corpo}</div></li>`;
   }
-  // La scheda intera è il <summary>: toccare il treno apre le sue fermate.
+  // La riga intera è il <summary>: toccare il treno apre le sue fermate.
   return `<li class="${classi.join(' ')}">
     <details data-treno="${esc(t.number)}"${aperti.has(t.number) ? ' open' : ''}>
-      <summary class="${riga}">${contenuto}</summary>
+      <summary class="riga-treno espandibile">${corpo}</summary>
       ${fermate(t)}
     </details>
   </li>`;
@@ -3086,11 +3326,10 @@ function bottoneSegui(d, ora) {
    inventarlo qui vorrebbe dire stampare un orario che nessuno ha calcolato,
    con l'aria di essere un dato. */
 function viaggioReale(d) {
-  const dove = d.tracked && d.lastSeen && d.lastSeen.station
-    ? `<p class="viaggio-nota">rilevato a ${esc(titolo(d.lastSeen.station))}${
-        d.lastSeen.time ? ` alle ${esc(d.lastSeen.time)}` : ''}</p>`
-    : '<p class="viaggio-nota">non ancora partito</p>';
-  return fasciaProvvedimento(d) + dove + elencoFermate(d);
+  // Dov'è il treno lo dice la linea delle fermate, che lo disegna fra due di
+  // loro; qui resta da dire solo quando non è ancora partito.
+  const nota = d.tracked ? '' : '<p class="viaggio-nota">non ancora partito</p>';
+  return fasciaProvvedimento(d) + nota + elencoFermate(d);
 }
 
 function elencoFermate(d, classe) {
@@ -3100,19 +3339,64 @@ function elencoFermate(d, classe) {
   // mancava il dato. La colonna esiste solo se almeno una fermata ne ha uno,
   // altrimenti sarebbe una colonna vuota lungo tutto il viaggio.
   const conBinari = d.stops.some((f) => f.platform);
-  const voci = d.stops.map((f) => {
-    const classi = [];
+  let ultima = -1;
+  d.stops.forEach((f, i) => { if (f.passed) ultima = i; });
+
+  const voce = (f) => {
+    const classi = ['fermata'];
     if (f.passed) classi.push('passata');
-    if (f.chosen) classi.push('meta-scelta');
+    if (f.boarding) classi.push('mia');
+    if (f.chosen) classi.push('mia', 'meta-scelta');
     const ora = esc(f.scheduled || f.actual || '') + (f.passed && f.delay
       ? ` <small>${f.delay > 0 ? '+' : ''}${f.delay}</small>` : '');
-    return `<li class="${classi.join(' ')}">
-      <span>${esc(f.name)}</span>${conBinari ? binarioFermata(f) : ''}<time>${ora}</time></li>`;
-  }).join('');
-  const classi = ['fermate'];
+    // "Sali qui" e "Scendi qui" per nome e non solo per colore: il colore
+    // diceva che quella fermata era diversa, non perché.
+    const cosa = f.chosen ? 'Scendi qui' : (f.boarding ? 'Sali qui' : '');
+    return `<li class="${classi.join(' ')}"><span class="punto"></span>
+      <span class="nome">${cosa ? `<small>${cosa}</small>` : ''}${esc(titolo(f.name))}</span>
+      <time>${ora}</time>${conBinari ? binarioFermata(f) : ''}</li>`;
+  };
+
+  /* Le fermate servite prima dell'ultima si ripiegano: a viaggio inoltrato
+     erano dieci righe spente prima di arrivare a quella che si cercava, cioè
+     dov'è il treno adesso. L'ultima servita resta fuori, perché è da lì che
+     il treno è appena passato. */
+  const prima = ultima > 0 ? d.stops.slice(0, ultima) : [];
+  const chiave = d.id ? `${d.id.origin}|${d.id.number}|${d.id.date}` : '';
+  const ripiegate = prima.length ? `<details class="precedenti" data-precedenti="${esc(chiave)}"${
+    precedentiAperte.has(chiave) ? ' open' : ''}>
+      <summary>${icona('giu')}${prima.length} ${prima.length === 1 ? 'fermata precedente' : 'fermate precedenti'}</summary>
+      <ol class="fermate linea">${prima.map(voce).join('')}</ol>
+    </details>` : '';
+
+  const voci = d.stops.slice(prima.length).map((f, i) =>
+    voce(f) + (prima.length + i === ultima ? trenoFra(d, ultima) : '')).join('');
+  const classi = ['fermate', 'linea'];
   if (conBinari) classi.push('con-binari');
   if (classe) classi.push(classe);
-  return `<ol class="${classi.join(' ')}">${voci}</ol>`;
+  return `${ripiegate}<ol class="${classi.join(' ')}">${voci}</ol>`;
+}
+
+/* Il treno, disegnato fra l'ultima fermata servita e la prossima.
+
+   Non è l'ultimo rilevamento di ViaggiaTreno, che spesso non è una stazione
+   — "1°BIVIO FIDENZA OVEST" — ma le fermate stesse: quelle che ViaggiaTreno
+   dà per servite, e la prima che non lo è ancora. Fra un rilevamento e l'altro
+   il treno può aver già passato la prossima, quindi vale "all'ultimo
+   rilevamento", come tutto il resto della scheda.
+
+   A che ora arriverà alla prossima non si scrive: sarebbe l'ora prevista più
+   il ritardo di adesso, cioè una proiezione che nessuno ha calcolato, e l'ora
+   prevista c'è già sulla riga sotto. */
+function trenoFra(d, ultima) {
+  const da = d.stops[ultima];
+  const a = d.stops[ultima + 1];
+  if (!d.tracked || d.arrived || !da || !a) return '';
+  const quando = [da.actual ? `alle ${esc(da.actual)}` : '', da.delay ? `${da.delay > 0 ? '+' : ''}${da.delay}` : '']
+    .filter(Boolean).join(', ');
+  return `<li class="treno-qui"><span class="icona-treno">${icona('treno')}</span>
+    <p><b>Fra ${esc(titolo(da.name))} e ${esc(titolo(a.name))}</b>
+      <small>passato da ${esc(titolo(da.name))}${quando ? ` ${quando}` : ''}</small></p></li>`;
 }
 
 /* Il binario di ogni fermata, che è la seconda cosa che si chiede da sopra un
@@ -3280,7 +3564,6 @@ app.addEventListener('click', (e) => {
       f[i].giorni = giorni.includes(g) ? giorni.filter((x) => x !== g) : [...giorni, g].sort();
     });
   }
-  else if (t.closest('[data-chiudi-legenda]')) { scrivi('tt.legenda', true); disegna(); }
   else if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
   else if (t.closest('[data-abituale]')) alternaAbitualeDa(t.closest('[data-abituale]'));
   else if (t.closest('[data-togli-abituale]')) {
@@ -3312,6 +3595,7 @@ app.addEventListener('click', (e) => {
     disegna();
   }
   else if (t.closest('[data-modo]')) { modoRicerca = t.closest('[data-modo]').dataset.modo; disegna(); }
+  else if (t.closest('[data-tipo]')) { filtroTipo = t.closest('[data-tipo]').dataset.tipo; disegna(); }
   else if (t.closest('[data-apri]')) apriScelta(t.closest('[data-apri]').dataset.apri);
   else if (t.closest('[data-vai]')) vaiAiRisultati();
   else if (t.closest('[data-scambia]')) {
@@ -3364,6 +3648,16 @@ app.addEventListener('input', (e) => {
 app.addEventListener('toggle', (e) => {
   const d = e.target;
   if (!(d instanceof HTMLDetailsElement)) return;
+  // Le fermate ripiegate e i gruppi di linee non chiedono niente al server:
+  // basta ricordarsi com'erano, per il prossimo ridisegno.
+  if ('precedenti' in d.dataset) {
+    if (d.open) precedentiAperte.add(d.dataset.precedenti); else precedentiAperte.delete(d.dataset.precedenti);
+    return;
+  }
+  if ('gruppo' in d.dataset) {
+    if (d.open) gruppiLineeAperti.add(d.dataset.gruppo); else gruppiLineeAperti.delete(d.dataset.gruppo);
+    return;
+  }
   if (d.dataset.linea) {
     const codice = d.dataset.linea;
     if (d.open === lineeAperte.has(codice)) return;
