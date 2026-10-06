@@ -408,7 +408,7 @@ func TestViaggioCoordinateAccettate(t *testing.T) {
 // Una ViaggiaTreno finta che risponde sempre lo stesso viaggio.
 type liveFinto struct{ a *vt.Andamento }
 
-func (liveFinto) Treni(context.Context, string, bool) (map[string]vt.Treno, error) {
+func (liveFinto) Treni(context.Context, string, bool, time.Time) (map[string]vt.Treno, error) {
 	return nil, nil
 }
 func (l liveFinto) Andamento(context.Context, string, string, int64) (*vt.Andamento, error) {

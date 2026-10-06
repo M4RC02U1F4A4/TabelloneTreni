@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // clienteSu punta il client a un server di prova e registra i percorsi chiesti.
@@ -36,7 +37,7 @@ func TestRitardiSullaRispostaVera(t *testing.T) {
 	corpo := fixture(t)
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
 
-	r, err := c.Treni(context.Background(), "S01645", false)
+	r, err := c.Treni(context.Background(), "S01645", false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +107,7 @@ func TestBinarioCambiato(t *testing.T) {
 	corpo := fixture(t)
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write(corpo) })
 
-	r, err := c.Treni(context.Background(), "S01645", false)
+	r, err := c.Treni(context.Background(), "S01645", false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,10 +164,10 @@ func TestNonPartitoNonEUnaMisura(t *testing.T) {
 func TestArriviEPartenzeSonoDuePercorsi(t *testing.T) {
 	c, chiesti := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[]")) })
 
-	if _, err := c.Treni(context.Background(), "S01645", false); err != nil {
+	if _, err := c.Treni(context.Background(), "S01645", false, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Treni(context.Background(), "S01645", true); err != nil {
+	if _, err := c.Treni(context.Background(), "S01645", true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if len(*chiesti) != 2 {
@@ -185,7 +186,7 @@ func TestArriviEPartenzeSonoDuePercorsi(t *testing.T) {
 func TestCorpoVuoto(t *testing.T) {
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) {})
 
-	r, err := c.Treni(context.Background(), "S01645", false)
+	r, err := c.Treni(context.Background(), "S01645", false, time.Now())
 	if err != nil {
 		t.Fatalf("corpo vuoto trattato come errore: %v", err)
 	}
@@ -199,7 +200,7 @@ func TestErroreHTTP(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	if _, err := c.Treni(context.Background(), "S01645", false); err == nil {
+	if _, err := c.Treni(context.Background(), "S01645", false, time.Now()); err == nil {
 		t.Fatal("un 500 deve dare errore")
 	}
 }
@@ -212,7 +213,7 @@ func TestSiPresentaComeUnBrowser(t *testing.T) {
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) {
 		visti = append(visti, r.UserAgent())
 	})
-	c.Treni(context.Background(), "S01645", false)
+	c.Treni(context.Background(), "S01645", false, time.Now())
 	c.Andamento(context.Background(), "S01645", "2247", 1789941600000)
 	if len(visti) != 2 {
 		t.Fatalf("richieste = %d, attese 2", len(visti))

@@ -101,15 +101,19 @@ type treno struct {
 // Ci sono dentro tutti i treni della risposta, non solo quelli già rilevati: il
 // ritardo di un treno non ancora partito non esiste, ma il suo binario sì — ed
 // è proprio prima della partenza che un cambio di binario conta.
-func (c *Client) Treni(ctx context.Context, codice string, arrivi bool) (map[string]Treno, error) {
+//
+// quando è l'ora a cui si guarda la stazione. L'elenco non è il giorno intero:
+// va da un quarto d'ora prima a circa un'ora e tre quarti dopo, e un treno più
+// avanti si trova solo chiedendo un'ora più avanti.
+func (c *Client) Treni(ctx context.Context, codice string, arrivi bool, quando time.Time) (map[string]Treno, error) {
 	verso := "partenze"
 	if arrivi {
 		verso = "arrivi"
 	}
 	// ViaggiaTreno vuole la data nel formato di Date.prototype.toString() di
 	// JavaScript, perché il suo frontend gliela passa così.
-	quando := time.Now().Format("Mon Jan 02 2006 15:04:05 GMT-0700")
-	url := fmt.Sprintf("%s/%s/%s/%s", c.base, verso, codice, urlQuote(quando))
+	url := fmt.Sprintf("%s/%s/%s/%s", c.base, verso, codice,
+		urlQuote(quando.Format("Mon Jan 02 2006 15:04:05 GMT-0700")))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

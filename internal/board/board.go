@@ -34,7 +34,7 @@ type Source interface {
 // senza resta un servizio che funziona, solo con qualche colonna in meno — e
 // perché i test non devono uscire in rete per averla.
 type Live interface {
-	Treni(ctx context.Context, codice string, arrivi bool) (map[string]vt.Treno, error)
+	Treni(ctx context.Context, codice string, arrivi bool, quando time.Time) (map[string]vt.Treno, error)
 	Andamento(ctx context.Context, codOrigine, numero string, data int64) (*vt.Andamento, error)
 }
 
@@ -51,6 +51,10 @@ type Service struct {
 	// dito di chi tocca la stessa scheda due volte di seguito.
 	muAnd  sync.Mutex
 	viaggi map[string]*viaggio
+	// Le coordinate dei treni che l'elenco di ViaggiaTreno di adesso non porta
+	// ancora, trovate chiedendolo all'ora del treno. Stanno sotto lo stesso
+	// lucchetto degli andamenti, di cui sono il primo passo.
+	coordinate map[string]vt.Treno
 
 	// Cache delle sole fermate, per i treni di cui RFI non le pubblica.
 	// Separata da viaggi perché ha una scadenza diversa: dove si trova un treno
@@ -84,11 +88,12 @@ type voce struct {
 
 func New(src Source, cat *stations.Catalogo) *Service {
 	return &Service{
-		src:      src,
-		catalogo: cat,
-		cache:    map[chiave]*voce{},
-		viaggi:   map[string]*viaggio{},
-		fermate:  map[string][]vt.Fermata{},
+		src:        src,
+		catalogo:   cat,
+		cache:      map[chiave]*voce{},
+		viaggi:     map[string]*viaggio{},
+		coordinate: map[string]vt.Treno{},
+		fermate:    map[string][]vt.Fermata{},
 	}
 }
 
@@ -464,7 +469,7 @@ func (s *Service) leggiLive(ctx context.Context, placeID int, arrivi bool) <-cha
 		ch <- nil
 		return ch
 	}
-	go func() { ch <- s.treniDa(ctx, st, arrivi) }()
+	go func() { ch <- s.treniDa(ctx, st, arrivi, time.Now()) }()
 	return ch
 }
 
@@ -474,7 +479,7 @@ func (s *Service) leggiLive(ctx context.Context, placeID int, arrivi bool) <-cha
 // sotterraneo — le due richieste partono insieme, perché in fila costerebbero
 // la somma di due servizi lenti, e se una fallisce restano i treni dell'altra:
 // mezzo tabellone con i ritardi misurati è meglio di nessuno.
-func (s *Service) treniDa(ctx context.Context, st *stations.Station, arrivi bool) map[string]vt.Treno {
+func (s *Service) treniDa(ctx context.Context, st *stations.Station, arrivi bool, quando time.Time) map[string]vt.Treno {
 	codici := st.CodiciVT()
 	risposte := make([]map[string]vt.Treno, len(codici))
 
@@ -483,7 +488,7 @@ func (s *Service) treniDa(ctx context.Context, st *stations.Station, arrivi bool
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			r, err := s.live.Treni(ctx, codice, arrivi)
+			r, err := s.live.Treni(ctx, codice, arrivi, quando)
 			if err != nil {
 				log.Printf("ViaggiaTreno per %s (%s): %v", st.Name, codice, err)
 				return
@@ -563,9 +568,93 @@ func (s *Service) Andamento(ctx context.Context, placeID int, arrivals bool, num
 
 	t, ok := s.misureDi(placeID, arrivals)[numero]
 	if !ok || t.CodOrigine == "" || t.DataPartenza == 0 {
-		return nil, nil
+		if t, ok = s.coordinateAllOra(ctx, placeID, arrivals, numero); !ok {
+			return nil, nil
+		}
 	}
 	return s.Viaggio(ctx, t.CodOrigine, numero, t.DataPartenza)
+}
+
+// coordinateAllOra cerca le coordinate di un treno che il tabellone RFI porta e
+// l'elenco di ViaggiaTreno no.
+//
+// I due tabelloni non coprono lo stesso tempo: RFI elenca quaranta treni, che
+// in una stazione di provincia sono il pomeriggio intero, mentre ViaggiaTreno
+// si ferma a un'ora e tre quarti da adesso. Ogni treno oltre quel limite
+// risultava sconosciuto, e la scheda diceva che ViaggiaTreno non lo seguiva —
+// quando lo segue benissimo, solo in un elenco chiesto per un'altra ora.
+// Quell'elenco si chiede qui, all'ora del treno, una volta sola: le coordinate
+// di un treno non cambiano, e la scheda aperta si rilegge ogni minuto.
+//
+// ponytail: un treno che ViaggiaTreno non conosce davvero (gli Italo) rifà la
+// ricerca a ogni rilettura, perché un "non c'è" non si tiene — potrebbe essere
+// un 403 o un timeout. Una scadenza sui negativi, se diventano troppi.
+func (s *Service) coordinateAllOra(ctx context.Context, placeID int, arrivals bool, numero string) (vt.Treno, bool) {
+	st := s.catalogo.ByID(placeID)
+	if st == nil || st.VT == "" {
+		return vt.Treno{}, false
+	}
+	quando, ok := allOra(s.oraInTabellone(placeID, arrivals, numero), time.Now())
+	if !ok {
+		return vt.Treno{}, false
+	}
+	// Il giorno sta nella chiave: lo stesso numero domani è un altro treno.
+	k := fmt.Sprintf("%d|%t|%s|%s", placeID, arrivals, numero, quando.Format("2006-01-02"))
+	s.muAnd.Lock()
+	t, gia := s.coordinate[k]
+	s.muAnd.Unlock()
+	if gia {
+		return t, true
+	}
+
+	t = s.treniDa(ctx, st, arrivals, quando)[numero]
+	if t.CodOrigine == "" || t.DataPartenza == 0 {
+		return vt.Treno{}, false
+	}
+	s.muAnd.Lock()
+	defer s.muAnd.Unlock()
+	sfoltisci(s.coordinate, AndamentoMax)
+	s.coordinate[k] = t
+	return t, true
+}
+
+// oraInTabellone è l'ora con cui il tabellone in cache porta quel treno, vuota
+// se il tabellone non c'è o il treno non ci sta.
+func (s *Service) oraInTabellone(placeID int, arrivals bool, numero string) string {
+	s.mu.Lock()
+	v := s.cache[chiave{placeID, arrivals}]
+	s.mu.Unlock()
+	if v == nil {
+		return ""
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.board == nil {
+		return ""
+	}
+	for _, t := range v.board.Trains {
+		if strings.TrimSpace(t.Number) == numero {
+			return t.Time
+		}
+	}
+	return ""
+}
+
+// allOra è l'istante di un orario del tabellone, che è un "HH:MM" senza giorno:
+// oggi a Roma, oppure domani se oggi quell'ora è passata da un pezzo — alle 23
+// un tabellone porta i treni dell'una di notte. Sei ore bastano a tenere oggi
+// i treni in ritardo, che restano sul tabellone dopo la loro ora.
+func allOra(hhmm string, adesso time.Time) (time.Time, bool) {
+	h, err := time.Parse("15:04", hhmm)
+	if err != nil || erroreFuso != nil {
+		return time.Time{}, false
+	}
+	a := adesso.In(roma)
+	t := time.Date(a.Year(), a.Month(), a.Day(), h.Hour(), h.Minute(), 0, 0, roma)
+	if t.Before(a.Add(-6 * time.Hour)) {
+		t = t.AddDate(0, 0, 1)
+	}
+	return t, true
 }
 
 // Viaggio è lo stesso andamento, chiesto con le coordinate invece che con il

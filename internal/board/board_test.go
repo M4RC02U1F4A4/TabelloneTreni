@@ -265,6 +265,11 @@ type liveFinta struct {
 	misure    map[string]vt.Treno
 	perCodice map[string]map[string]vt.Treno
 	err       error
+	// Quello che ViaggiaTreno elenca chiedendogli un'ora diversa da adesso:
+	// la sua finestra va da poco prima di quell'ora a un'ora e tre quarti
+	// dopo, e i treni più avanti nel tabellone RFI stanno solo lì.
+	piuTardi map[string]vt.Treno
+	quando   []time.Time
 
 	andamenti    int
 	chiestoPer   string
@@ -273,12 +278,16 @@ type liveFinta struct {
 	errAndamento error
 }
 
-func (r *liveFinta) Treni(ctx context.Context, codice string, arrivi bool) (map[string]vt.Treno, error) {
+func (r *liveFinta) Treni(ctx context.Context, codice string, arrivi bool, quando time.Time) (map[string]vt.Treno, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.chiamate++
 	r.codice, r.arrivi = codice, arrivi
 	r.chiesti = append(r.chiesti, codice)
+	r.quando = append(r.quando, quando)
+	if r.piuTardi != nil && time.Since(quando).Abs() > time.Minute {
+		return r.piuTardi, r.err
+	}
 	if r.perCodice != nil {
 		return r.perCodice[codice], r.err
 	}
@@ -556,6 +565,73 @@ func TestAndamentoUsaLeCoordinateDelTabellone(t *testing.T) {
 	atteso := "S01700|" + trenoA + "|1788645600000"
 	if live.chiestoPer != atteso {
 		t.Errorf("chiesto per %q, atteso %q", live.chiestoPer, atteso)
+	}
+}
+
+// Un treno che il tabellone RFI porta ma che l'elenco di ViaggiaTreno di
+// adesso non ha ancora — è oltre l'ora e tre quarti che quell'elenco copre — si
+// cerca chiedendo l'elenco all'ora del treno. Prima la scheda diceva che
+// ViaggiaTreno non lo seguiva, e non era vero.
+func TestAndamentoDiUnTrenoLontano(t *testing.T) {
+	live := &liveFinta{
+		misure:   map[string]vt.Treno{},
+		piuTardi: map[string]vt.Treno{trenoA: {CodOrigine: "S01700", DataPartenza: 1788645600000}},
+		viaggio:  viaggioFinto(),
+	}
+	s, _ := servizioConLive("partenze-1715.html", live)
+	r, err := s.Get(context.Background(), garibaldi, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ora := ""
+	for _, tr := range r.Trains {
+		if tr.Number == trenoA {
+			ora = tr.Time
+		}
+	}
+
+	a, err := s.Andamento(context.Background(), garibaldi, false, trenoA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == nil || live.chiestoPer != "S01700|"+trenoA+"|1788645600000" {
+		t.Fatalf("andamento = %+v, chiesto per %q", a, live.chiestoPer)
+	}
+	ultima := live.quando[len(live.quando)-1]
+	if got := ultima.In(roma).Format("15:04"); got != ora {
+		t.Errorf("elenco chiesto alle %s, il treno è delle %s", got, ora)
+	}
+
+	// Le coordinate di un treno non cambiano: la rilettura al minuto della
+	// scheda aperta non rifà la ricerca.
+	chiamate := live.chiamate
+	if _, err := s.Andamento(context.Background(), garibaldi, false, trenoA); err != nil {
+		t.Fatal(err)
+	}
+	if live.chiamate != chiamate {
+		t.Errorf("ricerca rifatta: %d chiamate, erano %d", live.chiamate, chiamate)
+	}
+}
+
+// L'ora del tabellone è un "HH:MM" senza giorno: alle 23 un treno dell'una di
+// notte è di domani, non di ventidue ore fa.
+func TestAllOra(t *testing.T) {
+	sera := time.Date(2026, 10, 6, 23, 10, 0, 0, roma)
+	casi := []struct {
+		ora, atteso string
+	}{
+		{"23:40", "2026-10-06 23:40"},
+		{"22:55", "2026-10-06 22:55"}, // in ritardo, ancora sul tabellone
+		{"01:05", "2026-10-07 01:05"},
+	}
+	for _, c := range casi {
+		got, ok := allOra(c.ora, sera)
+		if !ok || got.Format("2006-01-02 15:04") != c.atteso {
+			t.Errorf("allOra(%s) = %s %v, atteso %s", c.ora, got.Format("2006-01-02 15:04"), ok, c.atteso)
+		}
+	}
+	if _, ok := allOra("", sera); ok {
+		t.Error("un'ora vuota non è un'ora")
 	}
 }
 
