@@ -200,6 +200,7 @@ func (c *Client) Andamento(ctx context.Context, codOrigine, numero string, data 
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", UserAgent)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, err

@@ -203,3 +203,23 @@ func TestErroreHTTP(t *testing.T) {
 		t.Fatal("un 500 deve dare errore")
 	}
 }
+
+// Davanti a ViaggiaTreno c'è Akamai, che allo User-Agent di Go risponde 403 su
+// tutt'e due le chiamate: senza quello di un browser l'app perde in silenzio
+// la seconda fonte, e ogni scheda dice che ViaggiaTreno non segue il treno.
+func TestSiPresentaComeUnBrowser(t *testing.T) {
+	var visti []string
+	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) {
+		visti = append(visti, r.UserAgent())
+	})
+	c.Treni(context.Background(), "S01645", false)
+	c.Andamento(context.Background(), "S01645", "2247", 1789941600000)
+	if len(visti) != 2 {
+		t.Fatalf("richieste = %d, attese 2", len(visti))
+	}
+	for i, ua := range visti {
+		if !strings.HasPrefix(ua, "Mozilla/5.0") {
+			t.Errorf("richiesta %d con User-Agent %q", i, ua)
+		}
+	}
+}

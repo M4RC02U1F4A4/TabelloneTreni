@@ -24,6 +24,14 @@ import (
 
 const base = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno"
 
+// UserAgent deve somigliare a quello di un browser, come per trenord.it e per
+// lo stesso motivo: davanti a ViaggiaTreno c'è Akamai, che allo User-Agent di
+// Go risponde 403 sia sulle partenze sia sull'andamento di un treno. Senza,
+// la seconda fonte spariva in silenzio — è facoltativa, e un 403 si logga e
+// basta — e ogni scheda aperta diceva che ViaggiaTreno non segue il treno.
+var UserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+	"(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+
 // Treno è quello che ViaggiaTreno sa di un treno del tabellone.
 type Treno struct {
 	// Ritardo in minuti, negativo se il treno è in anticipo. È nil finché il
@@ -107,6 +115,7 @@ func (c *Client) Treni(ctx context.Context, codice string, arrivi bool) (map[str
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", UserAgent)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, err
