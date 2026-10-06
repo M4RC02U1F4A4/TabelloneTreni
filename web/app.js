@@ -3251,9 +3251,10 @@ function fermate(t) {
   // la si riconosce dall'orario di arrivo, e va evidenziata una volta sola —
   // un treno può ripassare a orari diversi ma non due volte allo stesso.
   const evidenziata = t.arrival ? t.stops.findIndex((f) => f.time === t.arrival) : -1;
-  const voci = t.stops.map((f, i) =>
-    `<li class="${i === evidenziata ? 'meta-scelta' : ''}">
-      <span>${esc(titolo(f.name))}</span><time>${esc(f.time)}</time></li>`).join('');
+  // Disegnate sulla stessa linea del viaggio vero, che è quello che le
+  // sostituisce appena arriva: con un elenco a parte la scheda si apriva in una
+  // forma e un secondo dopo ne prendeva un'altra, sotto gli occhi.
+  const previste = { stops: t.stops.map((f, i) => ({ name: f.name, scheduled: f.time, chosen: i === evidenziata })) };
   // Le fermate previste restano leggibili in ogni caso: sostituirle con
   // un'attesa toglierebbe un'informazione che c'è già. Sotto, però, va detto
   // com'è andata la ricerca del viaggio vero — anche quando è andata a vuoto,
@@ -3264,7 +3265,7 @@ function fermate(t) {
     errore: 'viaggio non disponibile adesso',
   };
   const nota = viaggio ? `<p class="viaggio-nota">${note[viaggio.stato]}</p>` : '';
-  return `<ol class="fermate">${voci}</ol>${nota}${d ? bottoneSegui(d, t.time) : ''}`;
+  return `${elencoFermate(previste)}${nota}${d ? bottoneSegui(d, t.time) : ''}`;
 }
 
 /* "Segui" sta qui dentro, nella scheda aperta, e non sulla riga chiusa del

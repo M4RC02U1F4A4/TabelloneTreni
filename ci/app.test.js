@@ -954,3 +954,24 @@ assert.ok(!/treno-qui/.test(fermateDi({ ...viaggioArcore, tracked: false })), 'n
 assert.ok(!/treno-qui/.test(fermateDi({ ...viaggioArcore, arrived: true })), 'arrivato: nessun treno');
 
 console.log('tratta e tabellone: ok — 3 durate, 7 treni, 5 "fra", 8 sulla linea delle fermate');
+
+/* Le fermate previste, prima che arrivi il viaggio vero, sono disegnate sulla
+   stessa linea: con il markup di prima la scheda si apriva come un elenco
+   senza stile e cambiava forma un secondo dopo, sotto gli occhi — o restava
+   così, quando ViaggiaTreno il treno non lo segue. */
+const previste = new Function('elencoFermate', `
+  const esc = (s) => String(s);
+  const titolo = (s) => String(s);
+  const viaggi = new Map([['24562', { stato: 'attesa' }]]);
+  const bottoneSegui = () => '';
+  ${ritaglia('function fermate(t)', '/* "Segui" sta qui dentro')}
+  return fermate;`)(fermateDi);
+const attesa = previste({ number: '24562', arrival: '16:31', stops: [
+  { name: 'SESTO S.GIOVANNI', time: '16:16' }, { name: 'MILANO PORTA GARIBALDI', time: '16:31' },
+] });
+assert.match(attesa, /class="fermate linea/, 'le previste sono sulla linea, come il viaggio vero');
+assert.match(attesa, /meta-scelta[^>]*>[\s\S]*Scendi qui<\/small>MILANO PORTA GARIBALDI/, 'e dove si scende è segnato');
+assert.match(attesa, /cerco dov'è il treno/, 'con la nota della ricerca sotto');
+
+console.log('fermate previste: ok — 3 casi');
+
