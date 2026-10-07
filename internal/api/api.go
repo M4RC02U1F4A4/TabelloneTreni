@@ -457,6 +457,19 @@ var (
 // telefono può avere l'orologio storto, ma resta un margine.
 const giorniAmmessi = 3 * 24 * time.Hour
 
+// AttesaRiga è quanto il viaggio aspetta le righe di RFI, le due insieme,
+// prima di partire senza.
+//
+// Il viaggio arriva qui dopo aver già aspettato ViaggiaTreno, fino a venti
+// secondi, e ogni riga può aspettare un tabellone freddo: RFI, la misura di
+// ViaggiaTreno, le fermate. In fila il telefono rinunciava prima della
+// risposta, e la scheda seguita restava vecchia per un di più. Senza riga il
+// telefono mostra la sola misura di ViaggiaTreno, e il tabellone, che si
+// legge comunque fino in fondo, è in cache al giro dopo.
+//
+// È una variabile solo perché un test non aspetti sei secondi.
+var AttesaRiga = 6 * time.Second
+
 // viaggio restituisce il viaggio di un treno seguito, che si identifica con le
 // coordinate di ViaggiaTreno e non con un tabellone.
 //
@@ -498,10 +511,28 @@ func (s *Server) viaggio(w http.ResponseWriter, r *http.Request) {
 	// Porta Garibaldi sono la stessa cosa e su un intercity preso a Rogoredo no.
 	da, _ := strconv.Atoi(q.Get("from"))
 	viaggio := viaggioJSON(a, s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from")), s.dovePassa)
-	if riga := s.rigaTabellone(r.Context(), da, q.Get("to"), numero); riga != nil {
-		viaggio["row"] = riga
-	} else if riga := s.rigaProssima(r.Context(), a, numero); riga != nil {
-		viaggio["nextRow"] = riga
+	// Il contesto non è quello della richiesta: scaduta AttesaRiga la
+	// risposta parte, e la lettura deve poter finire lo stesso per riempire
+	// la cache del tabellone.
+	ctx := context.WithoutCancel(r.Context())
+	to := q.Get("to")
+	type righe struct{ row, nextRow *rfi.Train }
+	lette := make(chan righe, 1)
+	go func() {
+		if riga := s.rigaTabellone(ctx, da, to, numero); riga != nil {
+			lette <- righe{row: riga}
+			return
+		}
+		lette <- righe{nextRow: s.rigaProssima(ctx, a, numero)}
+	}()
+	select {
+	case l := <-lette:
+		if l.row != nil {
+			viaggio["row"] = l.row
+		} else if l.nextRow != nil {
+			viaggio["nextRow"] = l.nextRow
+		}
+	case <-time.After(AttesaRiga):
 	}
 	rispondiViaggio(w, r, viaggio)
 }

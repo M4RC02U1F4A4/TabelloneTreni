@@ -106,9 +106,9 @@ func (s *Servizio) leggiTreni(ctx context.Context) {
 // ponytail: letture in fila, una dopo l'altra. Con i treni che ci si aspetta —
 // una manciata — è un secondo scarso; al tetto di quaranta, e con ViaggiaTreno
 // che arriva agli otto secondi di ogni lettura, il budget scade e gli ultimi
-// treni saltano il giro. Se dovesse capitare davvero, la strada è un pugno di letture in
-// parallelo, non un budget più lungo: il giro dopo parte comunque fra un
-// minuto.
+// treni saltano il giro. Se dovesse capitare davvero, la strada è un pugno di
+// letture in parallelo, non un budget più lungo: il giro dopo parte comunque
+// fra un minuto.
 func (s *Servizio) leggiViaggi(ctx context.Context, seguiti []TrenoSeguito) map[string]*vt.Andamento {
 	ctx, annulla := context.WithTimeout(ctx, IntervalloTreni)
 	defer annulla()

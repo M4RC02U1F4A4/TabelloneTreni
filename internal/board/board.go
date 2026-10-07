@@ -228,11 +228,11 @@ const FermateMax = 500
 // AttesaFermate è quanto si aspetta ViaggiaTreno prima di rispondere comunque.
 //
 // A cache fredda, in un giorno di sciopero, sono una ventina di richieste a un
-// servizio a cui qui se ne concedono otto di secondi (vedi fermateSupplenti):
-// aspettarle tutte vorrebbe dire una pagina che si apre in otto secondi. I treni non ancora risolti semplicemente
-// non compaiono in questa passata e arrivano dalla cache al rinfresco dopo,
-// mezzo minuto più tardi — una tratta quasi completa subito è più utile di una
-// completa fra otto secondi, che nessuno resta a guardare.
+// servizio a cui fermateSupplenti dà otto secondi: aspettarle tutte vorrebbe
+// dire una pagina che si apre in otto secondi. I treni non ancora risolti
+// semplicemente non compaiono in questa passata e arrivano dalla cache al
+// rinfresco dopo, mezzo minuto più tardi — una tratta quasi completa subito è
+// più utile di una completa fra otto secondi, che nessuno resta a guardare.
 const AttesaFermate = 2500 * time.Millisecond
 
 // fermateSupplenti chiede a ViaggiaTreno le fermate dei treni per cui RFI non

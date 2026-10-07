@@ -763,8 +763,10 @@ async function caricaViaggioSeguito(t, forza) {
     ? t
     : { ...t, a: t.a || (salvato && salvato.a), f: t.f || (salvato && salvato.f) };
   try {
-    // Più del tabellone (15 s): il server aspetta ViaggiaTreno fino a venti secondi e poi legge i tabelloni, e una scheda che aspetta un po' di più vale più di una che resta vecchia.
-    const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(25_000) });
+    // Più del tabellone (15 s): il server aspetta ViaggiaTreno fino a venti
+    // secondi e le righe di RFI fino a sei, e una scheda che aspetta un po' di
+    // più vale più di una che resta vecchia.
+    const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(30_000) });
     if (controllaVersione(r)) return false;
     if (!r.ok) {
       // Il server che risponde male su un treno di un giorno passato vuol dire
@@ -785,6 +787,11 @@ async function caricaViaggioSeguito(t, forza) {
     // sparire è solo la mezz'ora di attesa, che teneva in lista un viaggio
     // finito per nessuno.
     if (d.arrived) smettiDiSeguire(k);
+    // Il treno di ieri che ViaggiaTreno non traccia più è finito come quello
+    // che il server non conosce: se ne va. Quello di oggi non tracciato resta,
+    // è solo non ancora partito; il notturno di ieri ancora in viaggio torna
+    // tracciato e resta anche lui.
+    else if (!d.tracked && diIeri(t)) smettiDiSeguire(k);
     return true;
   } catch {
     // L'ultima lettura buona resta, in memoria e su disco: su un treno la rete
@@ -799,10 +806,11 @@ async function caricaViaggioSeguito(t, forza) {
 /* Se il giorno di partenza è prima della mezzanotte di Roma di adesso.
 
    Serve a una cosa sola: decidere cosa vuol dire una risposta non ok del
-   server. Per il treno di oggi è un guasto passeggero, e si tiene l'ultima
-   lettura buona; per il treno di ieri è ViaggiaTreno che se l'è dimenticato —
-   risponde vuoto, il server 502 — e tenerla voleva dire una scheda in home
-   fino a mezzogiorno per un treno arrivato la sera prima.
+   server, o un treno non tracciato. Per il treno di oggi è un guasto
+   passeggero o un treno non ancora partito, e si tiene; per il treno di ieri è
+   ViaggiaTreno che se l'è dimenticato — risponde 204, il server "non
+   tracciato" — e tenerlo voleva dire una scheda in home fino a mezzogiorno per
+   un treno arrivato la sera prima.
 
    Un `d` fuori dall'intervallo delle date (una rotta scritta a mano) non è di
    ieri: 8.64e15 è il limite di Date, oltre il quale Intl lancia. */

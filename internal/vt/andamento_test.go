@@ -119,10 +119,10 @@ func TestAndamentoAspettaPiuDelTabellone(t *testing.T) {
 func TestUnViaggioLentoArrivaUnTabelloneLentoNo(t *testing.T) {
 	corpo := fixtureAndamento(t)
 	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(time.Second)
+		time.Sleep(300 * time.Millisecond)
 		w.Write(corpo)
 	})
-	c.hc.Timeout = 200 * time.Millisecond
+	c.hc.Timeout = 50 * time.Millisecond
 
 	a, err := c.Andamento(context.Background(), "S01700", "2247", 1788645600000)
 	if err != nil {

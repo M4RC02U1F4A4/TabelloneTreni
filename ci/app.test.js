@@ -1023,6 +1023,9 @@ const risposte = {
   guasta: async () => ({ ok: false, status: 502, json: async () => ({ error: 'andamento non disponibile' }) }),
   rete: async () => { throw new Error('rete'); },
   inViaggio: async () => ({ ok: true, json: async () => ({ tracked: true, arrived: false, stops: [{ scheduled: '22:00', passed: true }] }) }),
+  // Il treno che ViaggiaTreno non traccia: per quello di ieri è il 204 che il
+  // server ora legge come "non tracciato", non più un 502.
+  nonTracciato: async () => ({ ok: true, json: async () => ({ tracked: false }) }),
 };
 
 async function provaSeguito(nome, risposta, d, resta) {
@@ -1032,9 +1035,9 @@ async function provaSeguito(nome, risposta, d, resta) {
   await env.caricaViaggioSeguito(t, true);
   const vivi = JSON.parse(env.memoria.get('tt.seguiti'));
   assert.strictEqual(vivi.length, resta ? 1 : 0, nome);
-  // Tolto il segnalibro, la scheda aperta deve sapere che la lettura è fallita:
-  // in 'attesa' cercherebbe il treno per sempre.
-  if (!resta) assert.strictEqual(env.viaggiSeguiti.get(`${t.o}|${t.n}|${t.d}`).stato, 'errore', `${nome}: stato errore`);
+  // Tolto il segnalibro, la scheda aperta deve avere una risposta — l'errore o
+  // il "non tracciato": in 'attesa' cercherebbe il treno per sempre.
+  if (!resta) assert.notStrictEqual(env.viaggiSeguiti.get(`${t.o}|${t.n}|${t.d}`).stato, 'attesa', `${nome}: non resta in attesa`);
 }
 
 (async () => {
@@ -1043,7 +1046,9 @@ async function provaSeguito(nome, risposta, d, resta) {
   await provaSeguito('il treno di oggi resta, la rete torna', risposte.rete, stanotte, true);
   await provaSeguito('il treno di oggi resta anche su un 502', risposte.guasta, stanotte, true);
   await provaSeguito('il treno notturno di ieri ancora in viaggio resta', risposte.inViaggio, ieri, true);
-  console.log('segnalibro di ieri: ok — 5 casi');
+  await provaSeguito('il treno di ieri che ViaggiaTreno non traccia più se ne va', risposte.nonTracciato, ieri, false);
+  await provaSeguito('il treno di oggi non tracciato resta: non è ancora partito', risposte.nonTracciato, stanotte, true);
+  console.log('segnalibro di ieri: ok — 7 casi');
 })().catch((e) => { console.error(e); process.exit(1); });
 
 const env = fabbricaSeguito(risposte.rete, stamattina);

@@ -460,6 +460,78 @@ func TestInCorsaIlRitardoRFIELaProssimaFermata(t *testing.T) {
 	}
 }
 
+// Una RFI finta su cui il treno 2536 è sul tabellone di Centrale, ma che non
+// risponde finché il test non la libera: è il tabellone freddo in una mattina
+// in cui RFI arranca.
+type sorgenteFerma struct{ via chan struct{} }
+
+func (s sorgenteFerma) Fetch(ctx context.Context, placeID int, arrivals bool) (*rfi.Board, error) {
+	<-s.via
+	b := &rfi.Board{PlaceID: placeID, Station: "PROVA", Arrivals: arrivals}
+	if placeID == 1728 && !arrivals {
+		b.Trains = []rfi.Train{{Number: "2536", Time: "18:40", Terminus: "CREMA", Delay: 5}}
+	}
+	return b, nil
+}
+
+// Il viaggio ha già aspettato ViaggiaTreno: la riga di RFI è un di più, e se il
+// tabellone non arriva entro AttesaRiga il viaggio parte senza. La cache del
+// tabellone si riempie in sottofondo per il giro dopo.
+func TestUnTabelloneLentoNonTrattieneIlViaggio(t *testing.T) {
+	prima := AttesaRiga
+	AttesaRiga = 100 * time.Millisecond
+	t.Cleanup(func() { AttesaRiga = prima })
+
+	a := &vt.Andamento{Stazione: "MILANO CENTRALE", Fermate: []vt.Fermata{
+		{Codice: "S01700", Nome: "MILANO CENTRALE"},
+		{Codice: "S01605", Nome: "CREMA"},
+	}}
+	oggi := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	percorso := "/api/journey?origin=S01700&number=2536&date=" + oggi + "&from=1728"
+	leggi := func(src sorgenteFerma) (map[string]any, time.Duration) {
+		t.Helper()
+		h := serverSu(board.New(src, stations.Default).ConLive(liveFinto{a}), "")
+		inizio := time.Now()
+		res := chiedi(t, h, percorso, nil)
+		durata := time.Since(inizio)
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("stato = %d, atteso 200", res.StatusCode)
+		}
+		var d map[string]any
+		if err := json.NewDecoder(res.Body).Decode(&d); err != nil {
+			t.Fatal(err)
+		}
+		return d, durata
+	}
+
+	ferma := sorgenteFerma{via: make(chan struct{})}
+	t.Cleanup(func() { close(ferma.via) })
+	d, durata := leggi(ferma)
+	if durata > time.Second {
+		t.Errorf("risposta in %v: il tabellone lento ha trattenuto il viaggio", durata)
+	}
+	if d["tracked"] != true {
+		t.Errorf("tracked = %v: il viaggio deve arrivare comunque", d["tracked"])
+	}
+	_, conRiga := d["row"]
+	_, conProssima := d["nextRow"]
+	if conRiga || conProssima {
+		t.Errorf("row %v, nextRow %v: il tabellone non era arrivato", conRiga, conProssima)
+	}
+
+	libera := sorgenteFerma{via: make(chan struct{})}
+	close(libera.via)
+	d, _ = leggi(libera)
+	riga, ok := d["row"].(map[string]any)
+	if !ok {
+		t.Fatal("row assente con un tabellone che risponde subito")
+	}
+	if riga["delay"] != float64(5) {
+		t.Errorf("row.delay = %v, atteso 5", riga["delay"])
+	}
+}
+
 // Il serializzatore è il posto dove queste due cose si decidono, e si prova
 // direttamente: montare una finta ViaggiaTreno sotto al server per leggere due
 // campi vorrebbe dire provare il cablaggio invece della regola.
