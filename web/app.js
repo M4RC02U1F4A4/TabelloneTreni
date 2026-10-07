@@ -774,12 +774,25 @@ async function caricaViaggioSeguito(t, forza) {
     if (d.arrived) smettiDiSeguire(k);
     return true;
   } catch {
-    // L'ultima lettura buona resta, in memoria e su disco: su un treno la rete
-    // cade a tratti, e la posizione di un minuto fa vale più di una riga vuota.
+    // Il treno di ieri che non si legge più è finito: ViaggiaTreno lo ha
+    // dimenticato, e il segnalibro se ne va come se fosse arrivato. Per il
+    // treno di oggi vale il contrario — l'ultima lettura buona resta, in
+    // memoria e su disco: su un treno la rete cade a tratti, e la posizione
+    // di un minuto fa vale più di una riga vuota.
+    if (diIeri(t)) { smettiDiSeguire(k); return false; }
     if (!gia || gia.stato !== 'ok') viaggiSeguiti.set(k, { stato: 'errore' });
     return false;
   }
 }
+
+/* Se il giorno di partenza è prima della mezzanotte di Roma di adesso.
+
+   Serve a una cosa sola: decidere cosa vuol dire una lettura fallita. Per il
+   treno di oggi è la rete che cade in galleria, e si tiene l'ultima lettura
+   buona; per il treno di ieri è ViaggiaTreno che se l'è dimenticato — risponde
+   vuoto, il server 502 — e tenerla voleva dire una scheda in home fino a
+   mezzogiorno per un treno arrivato la sera prima. */
+const diIeri = (t, adesso = Date.now()) => quadranteRoma(t.d) < quadranteRoma(adesso) - (quadranteRoma(adesso) % 86_400_000);
 
 /* Tutti i treni seguiti insieme. Sono pochi per definizione — si seguono i
    treni che si prendono — e partono in parallelo: in fila la home aspetterebbe

@@ -988,3 +988,63 @@ assert.strictEqual(ripiegata, resto, 'la lista ripiegata ha le stesse classi del
 assert.match(ripiegata, /con-binari/, 'compresa la colonna dei binari');
 
 console.log('fermate ripiegate: ok — 2 casi');
+
+/* ------------------------------ il segnalibro del treno di ieri */
+
+/* ViaggiaTreno dimentica i treni di ieri, e il server risponde 502: prima la
+   lettura fallita teneva l'ultima lettura buona — giusto in galleria — e il
+   treno di ieri sera restava in home fino a mezzogiorno. Una lettura fallita
+   di un treno di un giorno passato ora toglie il segnalibro; una lettura
+   riuscita e non arrivata lo tiene anche se è di ieri (il treno notturno). */
+const fabbricaSeguito = (fetch, adesso) => new Function('fetch', 'Date', 'AbortSignal', `
+  const seguiti = () => JSON.parse(memoria.get('tt.seguiti') || '[]');
+  const memoria = new Map();
+  const scrivi = (k, v) => memoria.set(k, JSON.stringify(v));
+  const chiaveTreno = (t) => \`\${t.o}|\${t.n}|\${t.d}\`;
+  const viaggiSeguiti = new Map();
+  const seguitiInHome = seguiti;
+  const dimenticaViaggio = () => {};
+  const ricordaViaggio = () => {};
+  const controllaVersione = () => false;
+  const API = { viaggio: () => 'api/journey' };
+  ${ritaglia('const QUADRANTE_ROMA', 'function abitualiDiOggi')}
+  ${ritaglia('const smettiDiSeguire', "/* L'ultima lettura di ogni treno seguito")}
+  ${ritaglia('async function caricaViaggioSeguito', '/* Tutti i treni seguiti insieme')}
+  return { memoria, viaggiSeguiti, caricaViaggioSeguito, diIeri };`)(
+  fetch, { now: () => adesso, UTC: Date.UTC }, { timeout: () => undefined });
+
+// Martedì 22 settembre 2026 alle 08:00 di Roma (06:00 UTC).
+const stamattina = Date.parse('2026-09-22T06:00:00Z');
+const ieri = Date.UTC(2026, 8, 20, 22);   // la mezzanotte di Roma del 21
+const stanotte = Date.UTC(2026, 8, 21, 22);   // la mezzanotte di Roma del 22
+
+const risposte = {
+  guasta: async () => ({ ok: false, status: 502, json: async () => ({ error: 'andamento non disponibile' }) }),
+  rete: async () => { throw new Error('rete'); },
+  inViaggio: async () => ({ ok: true, json: async () => ({ tracked: true, arrived: false, stops: [{ scheduled: '22:00', passed: true }] }) }),
+};
+
+async function provaSeguito(nome, risposta, d, resta) {
+  const env = fabbricaSeguito(risposta, stamattina);
+  const t = { o: 'S01322', n: '24854', d, f: 1841 };
+  env.memoria.set('tt.seguiti', JSON.stringify([t]));
+  await env.caricaViaggioSeguito(t, true);
+  const vivi = JSON.parse(env.memoria.get('tt.seguiti'));
+  assert.strictEqual(vivi.length, resta ? 1 : 0, nome);
+}
+
+(async () => {
+  await provaSeguito('il treno di ieri che il server non conosce più se ne va', risposte.guasta, ieri, false);
+  await provaSeguito('anche se a cadere è la rete', risposte.rete, ieri, false);
+  await provaSeguito('il treno di oggi resta, la rete torna', risposte.rete, stanotte, true);
+  await provaSeguito('il treno di oggi resta anche su un 502', risposte.guasta, stanotte, true);
+  await provaSeguito('il treno notturno di ieri ancora in viaggio resta', risposte.inViaggio, ieri, true);
+  console.log('segnalibro di ieri: ok — 5 casi');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+const env = fabbricaSeguito(risposte.rete, stamattina);
+assert.strictEqual(env.diIeri({ d: ieri }, stamattina), true, 'ieri è di ieri');
+assert.strictEqual(env.diIeri({ d: stanotte }, stamattina), false, 'oggi no');
+// Alle 00:30 di Roma il treno partito "ieri" alle 23:50 è di ieri: la regola
+// vale, e una rete caduta lo toglie — costa poco, il viaggio è quasi finito.
+assert.strictEqual(env.diIeri({ d: ieri }, Date.parse('2026-09-21T22:30:00Z')), true, 'a mezzanotte e mezza ieri è già ieri');
