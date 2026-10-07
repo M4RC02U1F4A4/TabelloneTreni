@@ -3383,6 +3383,14 @@ function elencoFermate(d, classe) {
   // mancava il dato. La colonna esiste solo se almeno una fermata ne ha uno,
   // altrimenti sarebbe una colonna vuota lungo tutto il viaggio.
   const conBinari = d.stops.some((f) => f.platform);
+  // Dove si scende. La fermata scelta quando c'è; senza — treno seguito dal
+  // tabellone intero, senza una destinazione — il capolinea, che è la stessa
+  // regola di fermataArrivo() per la riga del GPS: due parti della scheda
+  // non devono dire due cose diverse sulla stessa fermata. Tranne se è anche
+  // quella da cui si sale, che allora non è un posto dove si scende.
+  const ultimaFermata = d.stops[d.stops.length - 1];
+  const scesa = d.stops.find((f) => f.chosen)
+    || (ultimaFermata && !ultimaFermata.boarding ? ultimaFermata : null);
   let ultima = -1;
   d.stops.forEach((f, i) => { if (f.passed) ultima = i; });
 
@@ -3390,12 +3398,12 @@ function elencoFermate(d, classe) {
     const classi = ['fermata'];
     if (f.passed) classi.push('passata');
     if (f.boarding) classi.push('mia');
-    if (f.chosen) classi.push('mia', 'meta-scelta');
+    if (f === scesa) classi.push('mia', 'meta-scelta');
     const ora = esc(f.scheduled || f.actual || '') + (f.passed && f.delay
       ? ` <small>${f.delay > 0 ? '+' : ''}${f.delay}</small>` : '');
     // "Sali qui" e "Scendi qui" per nome e non solo per colore: il colore
     // diceva che quella fermata era diversa, non perché.
-    const cosa = f.chosen ? 'Scendi qui' : (f.boarding ? 'Sali qui' : '');
+    const cosa = f === scesa ? 'Scendi qui' : (f.boarding ? 'Sali qui' : '');
     return `<li class="${classi.join(' ')}"><span class="punto"></span>
       <span class="nome">${cosa ? `<small>${cosa}</small>` : ''}${esc(titolo(f.name))}</span>
       <time>${ora}</time>${conBinari ? binarioFermata(f) : ''}</li>`;

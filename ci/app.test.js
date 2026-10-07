@@ -1129,3 +1129,34 @@ const tira = new Function('document', 'scrollY', `
   assert.match(dove({ tracked: true, lastSeen: { station: 'SESTO', time: '08:00' } }, tre), /letto 3 minuti fa$/, 'rilevato');
   console.log('età prima della partenza: ok — 4 casi');
 }
+
+/* ------------------------------ "Scendi qui" senza una fermata scelta */
+
+/* Seguito dal tabellone intero, senza destinazione, nessuna fermata è
+   `chosen`: la riga del GPS già prende il capolinea come arrivo, e la linea
+   deve dire la stessa cosa. */
+const senzaScelta = fermateDi({ tracked: true, stops: [
+  { name: 'MONZA', scheduled: '08:12', boarding: true },
+  { name: 'SESTO S.GIOVANNI', scheduled: '08:16' },
+  { name: 'MILANO PORTA GARIBALDI', scheduled: '08:31' },
+] });
+assert.match(senzaScelta, /Scendi qui<\/small>MILANO PORTA GARIBALDI/, 'senza scelta si scende al capolinea');
+assert.strictEqual((senzaScelta.match(/Scendi qui/g) || []).length, 1, 'una volta sola');
+
+// Con una scelta, il capolinea resta una fermata qualunque.
+const conScelta = fermateDi({ tracked: true, stops: [
+  { name: 'MONZA', scheduled: '08:12', boarding: true },
+  { name: 'SESTO S.GIOVANNI', scheduled: '08:16', chosen: true },
+  { name: 'MILANO PORTA GARIBALDI', scheduled: '08:31' },
+] });
+assert.match(conScelta, /Scendi qui<\/small>SESTO S.GIOVANNI/, 'con la scelta, la scelta');
+assert.ok(!/Scendi qui<\/small>MILANO PORTA GARIBALDI/.test(conScelta), 'e non il capolinea');
+
+// Si sale all'ultima fermata (caso limite): niente "Scendi qui" sulla stessa.
+const allUltima = fermateDi({ tracked: true, stops: [
+  { name: 'SESTO S.GIOVANNI', scheduled: '08:16' },
+  { name: 'MILANO PORTA GARIBALDI', scheduled: '08:31', boarding: true },
+] });
+assert.ok(!/Scendi qui/.test(allUltima), 'dove si sale non si scende');
+
+console.log('scendi qui: ok — 5 casi');
