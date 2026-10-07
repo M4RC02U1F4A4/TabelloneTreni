@@ -914,14 +914,15 @@ const fabbricaTabelloni = (fetch, adesso, elenco) => new Function('fetch', 'Date
   const chieste = [];
   let risposta = async () => ({ ok: true, json: async () => ({ trains: [{ number: '24854' }, { number: 2433 }] }) });
   const fetch = (url) => { chieste.push(url); return risposta(); };
-  const env = fabbricaTabelloni(fetch, alle512, [
+  const elenco = [
     { o: 'S01322', n: 24854, f: 1841, at: '07:12', days: feriali },   // a due ore: si chiede
     { o: 'S01322', n: '24856', f: 1841, at: '08:12', days: feriali }, // stessa stazione: una lettura sola
     { o: 'S00137', n: '2433', f: '2433', at: '06:30', days: feriali }, // un'altra stazione
     { o: 'S00137', n: '2435', f: 2500, at: '05:30', days: feriali },  // a diciotto minuti: c'è già
     { o: 'S00137', n: '2437', f: 2600, at: '12:00', days: feriali },  // a sette ore: troppo presto
     { o: 'S00137', n: '2439', f: 2700, at: '07:00', days: [6] },      // non oggi
-  ]);
+  ];
+  const env = fabbricaTabelloni(fetch, alle512, elenco);
   await env.caricaTabelloniAbituali();
   assert.deepStrictEqual(chieste.sort(), ['api/board?from=1841', 'api/board?from=2433'],
     'una lettura per stazione, solo dove il tabellone decide, e senza destinazione');
@@ -937,6 +938,14 @@ const fabbricaTabelloni = (fetch, adesso, elenco) => new Function('fetch', 'Date
   await env.caricaTabelloniAbituali();
   assert.strictEqual(env.inTabellone(1841, '24854'), true, 'una lettura fallita tiene quella di prima');
 
+  // Una stazione che non serve più esce dalla mappa: la lista di ieri non deve
+  // far comparire un abituale stamattina, in una PWA rimasta in memoria.
+  elenco.splice(0, 2); // via i due abituali da 1841
+  risposta = async () => ({ ok: true, json: async () => ({ trains: [{ number: 2433 }] }) });
+  await env.caricaTabelloniAbituali();
+  assert.strictEqual(env.inTabellone(1841, '24854'), false, 'una stazione che non serve più si dimentica');
+  assert.strictEqual(env.inTabellone('2433', '2433'), true, 'quella ancora chiesta resta');
+
   // Nessun abituale vicino, nessuna lettura.
   chieste.length = 0;
   await fabbricaTabelloni(fetch, alle512, [
@@ -945,7 +954,7 @@ const fabbricaTabelloni = (fetch, adesso, elenco) => new Function('fetch', 'Date
   ]).caricaTabelloniAbituali();
   assert.deepStrictEqual(chieste, [], 'senza abituali da decidere non si legge niente');
 
-  console.log('tabelloni degli abituali: ok — una lettura per stazione, solo se serve, la vecchia se cade');
+  console.log('tabelloni degli abituali: ok — una lettura per stazione, solo se serve, la vecchia se cade, via quelle che non servono');
 })().catch((e) => { console.error(e); process.exit(1); });
 
 /* ----------------------------------- la scheda in home: fra quanto, e i giorni */
@@ -1322,7 +1331,7 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
   ${ritaglia('const ritardoLive', 'const conMisure')}
   ${ritaglia('function numeroBinario', '/* Il provvedimento')}
-  ${ritaglia('/* Il prossimo treno di ogni tratta salvata', '/* I numeri sul tabellone delle partenze')}
+  ${ritaglia('/* Il tabellone di ogni preferito, per le tessere in home', '/* I numeri sul tabellone delle partenze')}
   ${ritaglia('function prossimoTreno(p)', '/* I treni seguiti stanno sopra')}
   return { caricaProssimi, prossimoTreno, ritardoMedio };`)(
   fetch, { timeout: () => undefined }, elenco, chiaveTratta, esc);

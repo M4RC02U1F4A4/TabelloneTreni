@@ -15,7 +15,7 @@ con l'orario a cui ci arrivano.
 - **i treni cancellati restano nella tratta**, con la scritta *soppresso*, anche quando RFI non pubblica le loro fermate — che è sempre, ed è il giorno di sciopero il giorno in cui serve saperlo
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
 - si aggiorna da solo una volta al minuto, e si ferma quando la pagina non è in primo piano
-- le tratte si salvano fra i preferiti, e in home **ognuna dice già il suo prossimo treno** — ora, ritardo e binario — senza doverla aprire
+- le tratte si salvano fra i preferiti, e in home **ognuna dice già il suo prossimo treno** — ora, ritardo e binario — senza doverla aprire; una stazione sola dice invece il ritardo medio e i treni soppressi
 - la ricerca sta in un pannello fermo in fondo allo schermo, a portata di pollice: una tratta, oppure le partenze o gli arrivi di una stazione
 - installabile sulla schermata iniziale del telefono
 - immagine Docker da 16 MB con due servizi dentro, nessun database, nessuno stato su disco

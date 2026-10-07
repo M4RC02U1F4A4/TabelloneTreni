@@ -194,8 +194,9 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   border: 3px solid var(--bordo); border-top-color: var(--accento);
   background: var(--piano); opacity: 0; pointer-events: none;
   translate: -50% 0; rotate: 0deg;
-  /* I 0.15s dell'opacità sono anche nel setTimeout di fine aggiornamento in
-     tiraPerAggiornare(): cambiati qui, vanno cambiati là. */
+  /* I 0.15s dell'opacità li aspetta il setTimeout di fine aggiornamento in
+     tiraPerAggiornare(), che dura 200 ms per tenere 50 ms di margine:
+     allungati qui, va allungato anche quello. */
   transition: opacity 0.15s, border-color 0.15s, translate 0.2s ease-out, rotate 0.2s ease-out;
 }
 .tira.segue { transition: opacity 0.15s, border-color 0.15s; }

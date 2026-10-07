@@ -863,7 +863,9 @@ async function caricaAvvisiStazione() {
   }
 }
 
-/* Il prossimo treno di ogni tratta salvata, per le tessere in home.
+/* Il tabellone di ogni preferito, per le tessere in home: il prossimo treno
+   se ha una destinazione, la media dei ritardi e le soppressioni se è una
+   stazione sola.
 
    Si tiene il tabellone intero e non solo il primo treno: la tessera di una
    stazione sola ci fa la media dei ritardi (vedi prossimoTreno).
@@ -918,6 +920,10 @@ const inTabellone = (f, n) => {
 async function caricaTabelloniAbituali() {
   const stazioni = new Set();
   abitualiDiOggi(abituali(), new Date(), (f) => { stazioni.add(String(f)); return false; });
+  // Le stazioni che non si chiedono più escono dalla mappa: tenute, la lista di
+  // ieri sopravvivrebbe alla notte in una PWA rimasta in memoria, e stamattina
+  // farebbe comparire un abituale prima che RFI lo elenchi.
+  for (const f of numeriInTabellone.keys()) if (!stazioni.has(f)) numeriInTabellone.delete(f);
   await Promise.all([...stazioni].map(async (f) => {
     try {
       const d = await leggiJSON(API.tabellone(f), { signal: AbortSignal.timeout(25_000) });
@@ -1325,12 +1331,13 @@ function rinfrescaHome() {
     // partito il giro dei seguiti, qui sopra: il suo viaggio si legge adesso,
     // invece di lasciare la scheda vuota fino al minuto dopo. Quelli del giro
     // hanno già la loro voce, messa prima della prima attesa, e non si
-    // rileggono due volte.
+    // rileggono due volte. Senza un abituale nuovo non si ridisegna: è quasi
+    // ogni minuto, e gli altri gruppi ridisegnano già per conto loro.
     caricaTabelloniAbituali()
-      .then(() => Promise.all(seguitiInHome()
-        .filter((t) => !viaggiSeguiti.has(chiaveTreno(t)))
-        .map((t) => caricaViaggioSeguito(t))))
-      .then(ridisegna),
+      .then(() => {
+        const nuovi = seguitiInHome().filter((t) => !viaggiSeguiti.has(chiaveTreno(t)));
+        if (nuovi.length) return Promise.all(nuovi.map((t) => caricaViaggioSeguito(t))).then(ridisegna);
+      }),
     // Il server tiene gli avvisi dieci minuti e le linee hanno l'ETag: un giro al
     // minuto costa due 304 e non due pagine di RFI.
     Promise.all([caricaLinee(), caricaAvvisiStazione()]).then(ridisegna),
@@ -1528,7 +1535,8 @@ function disegnaHome() {
 }
 
 /* Le tratte salvate, due per riga: ognuna è una tessera grande quanto un
-   pollice, e dice il prossimo treno senza doverla aprire. È la domanda per cui
+   pollice, e dice il prossimo treno senza doverla aprire — o, se è una
+   stazione sola, il ritardo medio e le soppressioni. È la domanda per cui
    si apre l'app la mattina — "quando passa il prossimo" — e prima la risposta
    stava a un tocco e un caricamento di distanza. */
 function sezionePreferiti() {
@@ -3707,16 +3715,18 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     el.style.translate = `-50% ${soglia}px`;
     Promise.resolve(rinfresca()).catch(() => {}).then(() => {
       // Prima svanisce, poi torna su e smette di girare: tutto insieme, il
-      // cerchio salterebbe in cima mentre ancora si vede. I 150 ms sono la
-      // dissolvenza di .tira in app.css. Il gesto resta occupato fino ad allora,
-      // perché un tocco nuovo non si veda togliere il cerchio da sotto il dito.
+      // cerchio salterebbe in cima mentre ancora si vede. I 200 ms coprono la
+      // dissolvenza di .tira in app.css, che è di 0.15s, con 50 ms di margine:
+      // un timer che scatta col fotogramma in ritardo non lo fa saltare a metà.
+      // Il gesto resta occupato fino ad allora, perché un tocco nuovo non si
+      // veda togliere il cerchio da sotto il dito.
       el.classList.remove('visibile');
       setTimeout(() => {
         occupato = false;
         el.classList.remove('pronto', 'gira');
         el.style.translate = '';
         el.style.rotate = '';
-      }, 150);
+      }, 200);
     });
   }, { passive: true });
 }
