@@ -191,7 +191,7 @@ func aggiungiCoordinate(percorso string) error {
 // un numero sbagliato risponde vuoto invece di sbagliare, cioè nel modo più
 // scomodo possibile.
 func coordinateDi(codiceVT string) (float64, float64, error) {
-	b, err := get(baseVT + "regione/" + codiceVT)
+	b, err := get(clientCoordinate, baseVT+"regione/"+codiceVT, 1<<20)
 	if err != nil {
 		return 0, 0, fmt.Errorf("regione: %w", err)
 	}
@@ -199,7 +199,7 @@ func coordinateDi(codiceVT string) (float64, float64, error) {
 	if reg == "" {
 		return 0, 0, fmt.Errorf("regione vuota")
 	}
-	corpo, err := get(baseVT + "dettaglioStazione/" + codiceVT + "/" + reg)
+	corpo, err := get(clientCoordinate, baseVT+"dettaglioStazione/"+codiceVT+"/"+reg, 1<<20)
 	if err != nil {
 		return 0, 0, fmt.Errorf("dettaglio: %w", err)
 	}
@@ -222,7 +222,7 @@ func coordinateDi(codiceVT string) (float64, float64, error) {
 // fonte possibile: la ricerca stazione del sito RFI è interamente lato client,
 // quindi non esiste alcun endpoint da interrogare.
 func scaricaRFI() (map[int]string, error) {
-	body, err := get(urlRFI)
+	body, err := get(clientElenchi, urlRFI, 8<<20)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func scaricaViaggiaTreno() (map[string]datiVT, error) {
 	out := map[string]datiVT{}
 	var ultimoErr error
 	for reg := 0; reg <= 22; reg++ {
-		body, err := get(urlVT + strconv.Itoa(reg))
+		body, err := get(clientElenchi, urlVT+strconv.Itoa(reg), 8<<20)
 		if err != nil {
 			ultimoErr = err
 			continue
@@ -369,17 +369,23 @@ func ripulisci(nome string, alias []string) []string {
 	return out
 }
 
-// client è uno per tutto il comando. Lo User-Agent dice chi siamo, e non è
-// cortesia soltanto: allo User-Agent di Go ViaggiaTreno risponde 403.
-var client = &http.Client{Timeout: 30 * time.Second}
+// Gli elenchi pesano centinaia di KB, una coordinata poche righe: due attese e
+// due tetti diversi.
+var (
+	clientElenchi    = &http.Client{Timeout: 30 * time.Second}
+	clientCoordinate = &http.Client{Timeout: 20 * time.Second}
+)
 
-func get(u string) ([]byte, error) {
+// get scarica un indirizzo, al massimo limite byte. Lo User-Agent dice chi
+// siamo, e non è cortesia soltanto: allo User-Agent di Go ViaggiaTreno
+// risponde 403.
+func get(cli *http.Client, u string, limite int64) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "TabelloneTreni/genstations")
-	resp, err := client.Do(req)
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -387,5 +393,5 @@ func get(u string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: HTTP %d", u, resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	return io.ReadAll(io.LimitReader(resp.Body, limite))
 }
