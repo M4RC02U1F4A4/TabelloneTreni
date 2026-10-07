@@ -61,8 +61,10 @@ func (t Treno) Cambiato() bool {
 
 // Client interroga ViaggiaTreno. Lo zero value non è utilizzabile: usare New.
 type Client struct {
-	hc   *http.Client
-	base string
+	// Due client, due attese: vedi NewClient.
+	hc      *http.Client
+	hcLento *http.Client
+	base    string
 	// I provvedimenti già annotati nel log, per non riscrivere la stessa riga a
 	// ogni rilettura dello stesso treno. Vedi annotaProvvedimento.
 	provvedimentiVisti sync.Map
@@ -70,11 +72,17 @@ type Client struct {
 
 func NewClient() *Client {
 	return &Client{
-		// Il servizio è lento e ogni tanto non risponde affatto. Il timeout sta
-		// sotto a quello del tabellone RFI perché questa è la lettura
-		// facoltativa delle due: se tarda, si serve il tabellone senza.
-		hc:   &http.Client{Timeout: 8 * time.Second},
-		base: base,
+		// Il servizio è lento e ogni tanto non risponde affatto. Per i
+		// tabelloni il timeout sta sotto a quello di RFI perché lì questa è la
+		// lettura facoltativa delle due, e il tabellone la aspetta insieme a
+		// RFI: se tarda, si serve il tabellone senza.
+		hc: &http.Client{Timeout: 8 * time.Second},
+		// Il viaggio di un treno invece è la lettura di ViaggiaTreno, non ce
+		// n'è un'altra: un errore dopo otto secondi lasciava la scheda seguita
+		// vecchia per ore nelle mattine in cui il servizio arranca, e aspettare
+		// venti secondi vale più di un errore.
+		hcLento: &http.Client{Timeout: 20 * time.Second},
+		base:    base,
 	}
 }
 

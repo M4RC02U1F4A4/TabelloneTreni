@@ -201,11 +201,16 @@ func (c *Client) Andamento(ctx context.Context, codOrigine, numero string, data 
 		return nil, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
-	resp, err := c.hc.Do(req)
+	resp, err := c.hcLento.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	// Il treno di ieri: ViaggiaTreno risponde 204, senza corpo. Non è un
+	// errore, è "non lo traccio", come il 200 vuoto qui sotto.
+	if resp.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
 	}

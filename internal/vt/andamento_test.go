@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 )
 
 // Il 2247 è stato catturato in corsa: due fermate servite e quattro ancora da
@@ -82,6 +83,56 @@ func TestAndamentoCorpoVuoto(t *testing.T) {
 	}
 	if a != nil {
 		t.Fatal("un corpo vuoto non può produrre un andamento")
+	}
+}
+
+// Per un treno che non traccia più — quello di ieri — ViaggiaTreno risponde
+// 204 senza corpo, non 200 vuoto. È la stessa risposta: nessun andamento.
+func TestNoContentNonEUnErrore(t *testing.T) {
+	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	a, err := c.Andamento(context.Background(), "S01645", "2504", 1791237600000)
+	if err != nil {
+		t.Fatalf("204 trattato come errore: %v", err)
+	}
+	if a != nil {
+		t.Fatal("un 204 non può produrre un andamento")
+	}
+}
+
+// Il viaggio aspetta ViaggiaTreno più a lungo del tabellone: il tabellone
+// aspetta la misura insieme a RFI e otto secondi sono già tanti, il viaggio
+// invece è la lettura di ViaggiaTreno e un errore dopo otto secondi lasciava
+// la scheda seguita vecchia per ore nelle mattine in cui ViaggiaTreno arranca.
+func TestAndamentoAspettaPiuDelTabellone(t *testing.T) {
+	c := NewClient()
+	if c.hcLento.Timeout <= c.hc.Timeout {
+		t.Fatalf("viaggio %v, tabellone %v: il viaggio deve aspettare di più", c.hcLento.Timeout, c.hc.Timeout)
+	}
+	if c.hcLento.Timeout < 20*time.Second {
+		t.Fatalf("viaggio %v: sotto i venti secondi ViaggiaTreno nelle sue mattine storte non risponde", c.hcLento.Timeout)
+	}
+}
+
+// Lo stesso server lento, i due tempi in campo: il tabellone rinuncia, il
+// viaggio aspetta e la risposta arriva. Il timeout del tabellone è ridotto qui
+// perché il test non duri otto secondi.
+func TestUnViaggioLentoArrivaUnTabelloneLentoNo(t *testing.T) {
+	corpo := fixtureAndamento(t)
+	c, _ := clienteSu(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(time.Second)
+		w.Write(corpo)
+	})
+	c.hc.Timeout = 200 * time.Millisecond
+
+	a, err := c.Andamento(context.Background(), "S01700", "2247", 1788645600000)
+	if err != nil {
+		t.Fatalf("il viaggio ha rinunciato come il tabellone: %v", err)
+	}
+	if a == nil {
+		t.Fatal("nessun andamento")
+	}
+	if _, err := c.Treni(context.Background(), "S01645", false, time.Now()); err == nil {
+		t.Fatal("il tabellone ha aspettato quanto il viaggio")
 	}
 }
 

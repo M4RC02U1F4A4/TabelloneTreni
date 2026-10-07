@@ -763,7 +763,8 @@ async function caricaViaggioSeguito(t, forza) {
     ? t
     : { ...t, a: t.a || (salvato && salvato.a), f: t.f || (salvato && salvato.f) };
   try {
-    const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(15_000) });
+    // Più del tabellone (15 s): il server aspetta ViaggiaTreno fino a venti secondi e poi legge i tabelloni, e una scheda che aspetta un po' di più vale più di una che resta vecchia.
+    const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(25_000) });
     if (controllaVersione(r)) return false;
     if (!r.ok) {
       // Il server che risponde male su un treno di un giorno passato vuol dire
