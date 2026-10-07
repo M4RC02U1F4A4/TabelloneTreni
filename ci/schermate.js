@@ -48,6 +48,9 @@ const VISTE = {
 
 async function apri(page, vista) {
   await page.route('**/api/journey**', (r) => r.fulfill({ json: viaggio }));
+  // Un avviso finto a Porta Garibaldi, come il viaggio: senza avvisi veri il
+  // gettone non c'è, e home-avvisi misurerebbe la home normale senza dirlo.
+  await page.route('**/api/notices**', (r) => r.fulfill({ json: { stations: [{ placeId: 1715, station: 'MILANO PORTA GARIBALDI', notices: ['ASCENSORE BINARIO 3 FUORI SERVIZIO FINO AL 14 OTTOBRE'] }] } }));
   await page.addInitScript((s) => {
     // Due tessere affiancate con "da Milano Porta Garibaldi" sopra il nome, in
     // una riga sola: a 360 px la riga non sta in mezza finestra, e allargava
@@ -93,13 +96,20 @@ async function controllaOverflow(page) {
       }
     }
     // Uno scroller verticale che non dovrebbe esserci: una riga di gettoni
-    // alta un pixel meno del suo contenuto mostra una barra dentro la riga.
+    // più bassa del suo contenuto mostra una barra dentro la riga. Il pixel
+    // di tolleranza è quello del controllo in orizzontale: scrollHeight e
+    // clientHeight sono arrotondati, e un mezzo pixel diventerebbe un falso
+    // colpevole.
     for (const el of document.querySelectorAll('body *')) {
       const o = getComputedStyle(el).overflowY;
       if ((o === 'auto' || o === 'scroll') && el.scrollHeight > el.clientHeight + 1 && !el.closest('#scelta')) {
         colpevoli.push('scrollY:' + el.tagName.toLowerCase() + '.' + String(el.className).trim().split(/\s+/).join('.'));
       }
     }
+    // La barra della pagina non si deve vedere: su un telefono compariva a
+    // ogni apertura sopra il pannello di ricerca. Nei browser senza testa le
+    // barre si sovrappongono e non occupano spazio, quindi si guarda lo stile.
+    if (getComputedStyle(document.documentElement).scrollbarWidth !== 'none') colpevoli.push('scrollbar:html');
     return [...new Set(colpevoli)].slice(0, 8);
   });
 }
