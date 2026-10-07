@@ -853,7 +853,10 @@ async function caricaProssimi() {
   await Promise.all(preferiti().map(async (p) => {
     const k = chiaveTratta(p);
     try {
-      const r = await fetch(API.tabellone(p.f, p.t, p.a));
+      // Lo stesso limite della lettura dei treni seguiti: una richiesta appesa
+      // terrebbe la tessera sui tre puntini fino al giro dopo, e il gesto di
+      // aggiornare a girare a vuoto aspettandola.
+      const r = await fetch(API.tabellone(p.f, p.t, p.a), { signal: AbortSignal.timeout(15_000) });
       if (controllaVersione(r)) return;
       if (!r.ok) throw new Error(`errore ${r.status}`);
       const d = await r.json();
@@ -1249,11 +1252,13 @@ async function cambiaRotta() {
    si guarda di corsa, né le tessere delle tratte, che sono la seconda. */
 function rinfrescaHome() {
   const ridisegna = () => { if (leggiRotta().vista === 'home') disegna(); };
-  aggiornaSeguiti(true).then(ridisegna);
-  caricaProssimi().then(ridisegna);
-  // Il server tiene gli avvisi dieci minuti e le linee hanno l'ETag: un giro al
-  // minuto costa due 304 e non due pagine di RFI.
-  Promise.all([caricaLinee(), caricaAvvisiStazione()]).then(ridisegna);
+  return Promise.all([
+    aggiornaSeguiti(true).then(ridisegna),
+    caricaProssimi().then(ridisegna),
+    // Il server tiene gli avvisi dieci minuti e le linee hanno l'ETag: un giro al
+    // minuto costa due 304 e non due pagine di RFI.
+    Promise.all([caricaLinee(), caricaAvvisiStazione()]).then(ridisegna),
+  ]);
 }
 
 /* ------------------------------------------------------------------ timer */
@@ -1326,9 +1331,10 @@ for (const evento of ['pageshow', 'focus']) window.addEventListener(evento, alRi
    riempie a ogni lettura: si guarda una volta e si è capito il ritmo, senza
    una parola in più su una riga che ne ha già abbastanza.
 
-   Un modo per forzare la rilettura non c'è, ed è voluto: un tabellone che si
-   può rileggere ogni due secondi invita a rileggerlo ogni due secondi, e RFI
-   pubblica lo stesso dato per un minuto intero.
+   Per forzare la rilettura c'è il gesto di tirare la pagina in giù, come in
+   ogni app, e nessun tasto: un tasto sempre in vista invita a premerlo ogni
+   due secondi, e RFI pubblica lo stesso dato per un minuto intero — il server
+   lo tiene trenta secondi, quindi un gesto ripetuto costa poco anche lì.
 
    Il ritardo negativo è quello che tiene la barretta onesta. L'animazione
    riparte da capo a ogni disegno, e disegna() la chiama una dozzina di gestori
@@ -1703,9 +1709,11 @@ function distanzaScritta(m) {
    si leggerebbe peggio. */
 function doveAdesso(d, lettoIl) {
   if (d.arrived) return d.terminus ? `arrivato a ${esc(titolo(d.terminus))}` : 'arrivato';
-  if (!d.tracked) return 'non ancora partito';
   const l = d.lastSeen || {};
-  if (!l.station) return 'non ancora partito';
+  // L'età anche prima della partenza: è lì, in banchina, che si guarda la
+  // scheda per il ritardo e il binario, e una lettura di cinque minuti fa che
+  // non lo dice sembra quella di adesso.
+  if (!d.tracked || !l.station) return `non ancora partito${etaLettura(lettoIl)}`;
   return `rilevato a ${esc(titolo(l.station))}${l.time ? ` alle ${esc(l.time)}` : ''}${etaLettura(lettoIl)}`;
 }
 
@@ -1914,7 +1922,12 @@ function disegnaTreno(t) {
   // ma il tasto resta spento: non è salvato, e premerlo lo salva davvero — con
   // la stessa chiave, quindi la scheda in home resta una.
   const segnalibro = seguitiInHome().find((x) => chiaveTreno(x) === k);
-  const oggetto = d
+  //
+  // Un viaggio senza `id` è il treno che ViaggiaTreno non traccia ancora — il
+  // server risponde `tracked: false` e basta — e vale come nessun viaggio: lì
+  // daSeguire() lanciava, e la scheda restava ferma senza mai far partire il
+  // timer.
+  const oggetto = d && d.id
     ? daSeguire(d, (segnalibro || t).a, (segnalibro || t).f)
     : (segnalibro || t);
 
@@ -3502,7 +3515,67 @@ async function scaricaViaggio(numero) {
   disegna();
 }
 
+/* ---- tira per aggiornare ---- */
+
+/* Rilegge quello che la vista corrente rilegge già una volta al minuto: è lo
+   stesso giro, chiesto con un gesto invece che dal timer. Torna una promessa
+   perché il cerchio deve girare finché i dati non sono arrivati. */
+function rinfrescaVista() {
+  const r = leggiRotta();
+  if (r.vista === 'home') return rinfrescaHome();
+  if (r.vista === 'risultati') return caricaTabellone();
+  if (r.vista === 'linee') return caricaLinee().then(() => { if (leggiRotta().vista === 'linee') disegna(); });
+  if (r.vista === 'treno') return rilettura(r.treno)();
+  return Promise.resolve();
+}
+
+/* Trascinare in giù con la pagina in cima aggiorna, come in ogni app.
+
+   Il browser non lo fa da sé: Safari no, e Chrome lo spegne perché il body ha
+   overscroll-behavior-y: contain, messo per non far rimbalzare la pagina. Sono
+   tre ascoltatori sul documento e un cerchio che segue il dito; nessuna
+   libreria, perché il gesto è questo e basta.
+
+   Parte solo con scrollY a zero: a metà di una lista lunga trascinare in giù è
+   scorrere. E non dentro la mappa, che il dito lo usa per spostarla, né nel
+   selettore stazione, che è una lista sua. */
+function tiraPerAggiornare(el, soglia, rinfresca) {
+  let inizio = null;   // la Y del tocco, o null se il gesto non è partito
+  let tirato = 0;
+  let occupato = false;
+  document.addEventListener('touchstart', (e) => {
+    const t = e.target;
+    const dentro = t && typeof t.closest === 'function' && t.closest('.mappa, #scelta');
+    inizio = !occupato && scrollY === 0 && !dentro ? e.touches[0].clientY : null;
+    tirato = 0;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (inizio === null) return;
+    // Il cerchio segue il dito con un freno: a metà strada si sente che manca
+    // poco, oltre la soglia che è fatta.
+    tirato = Math.max(0, e.touches[0].clientY - inizio) * 0.5;
+    el.style.transform = `translate(-50%, ${Math.min(tirato, soglia * 1.3)}px)`;
+    el.classList.toggle('pronto', tirato >= soglia);
+    el.classList.add('visibile');
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    if (inizio === null) return;
+    inizio = null;
+    if (tirato < soglia) { el.classList.remove('visibile', 'pronto'); el.style.transform = ''; return; }
+    occupato = true;
+    el.classList.add('gira');
+    el.style.transform = `translate(-50%, ${soglia}px)`;
+    Promise.resolve(rinfresca()).catch(() => {}).then(() => {
+      occupato = false;
+      el.classList.remove('visibile', 'pronto', 'gira');
+      el.style.transform = '';
+    });
+  }, { passive: true });
+}
+
 /* ------------------------------------------------------------------ eventi */
+
+tiraPerAggiornare($('#tira'), 70, rinfrescaVista);
 
 /* Il segnalibro si tocca da due posti — la scheda aperta di un tabellone e la
    scheda del treno stesso — e fa la stessa cosa da tutti e due. */

@@ -1056,3 +1056,52 @@ assert.strictEqual(env.diIeri({ d: ieri }, Date.parse('2026-09-21T22:30:00Z')), 
 // Un giorno fuori dalle date (una rotta scritta a mano) non è di ieri, e non lancia.
 assert.strictEqual(env.diIeri({ d: Infinity }, stamattina), false, 'un giorno infinito non è di ieri');
 assert.strictEqual(env.diIeri({ d: 1e17 }, stamattina), false, 'nemmeno uno oltre il limite di Date');
+
+/* ------------------------------------------ tira per aggiornare */
+
+/* Il gesto rilegge quello che la vista corrente rilegge già al minuto, e
+   parte solo con la pagina in cima: a metà di una lista lunga trascinare in
+   giù è scorrere, non aggiornare. */
+const tira = new Function('document', 'scrollY', `
+  const chiamate = [];
+  const rinfrescaHome = () => { chiamate.push('home'); return Promise.resolve(); };
+  const caricaTabellone = () => { chiamate.push('tabellone'); return Promise.resolve(); };
+  const caricaLinee = () => { chiamate.push('linee'); return Promise.resolve(); };
+  const rilettura = (t) => () => { chiamate.push('treno ' + t.n); return Promise.resolve(); };
+  const disegna = () => {};
+  let vista = 'home';
+  const leggiRotta = () => ({ vista, treno: { n: '24854' } });
+  ${ritaglia('/* ---- tira per aggiornare ---- */', '/* ------------------------------------------------------------------ eventi */')}
+  return { chiamate, rinfrescaVista, tiraPerAggiornare, setVista: (v) => { vista = v; } };`);
+
+{
+  const ascoltatori = {};
+  const doc = { addEventListener: (t, f) => { ascoltatori[t] = f; } };
+  const el = { style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+  const env = tira(doc, 0);
+  let rinfrescate = 0;
+  env.tiraPerAggiornare(el, 70, () => { rinfrescate++; return Promise.resolve(); });
+
+  const tocco = (y, target = {}) => ({ touches: [{ clientY: y }], target: { closest: () => target.dentroMappa ? {} : null } });
+  // Un trascinamento corto non aggiorna.
+  ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(140)); ascoltatori.touchend({});
+  assert.strictEqual(rinfrescate, 0, 'sotto la soglia non si aggiorna');
+  // Dentro la mappa il dito muove la mappa, anche tirando quanto basterebbe.
+  // Prima di quello lungo: dopo, il gesto sarebbe ancora occupato ad aspettare
+  // la rilettura, e il caso passerebbe per il motivo sbagliato.
+  ascoltatori.touchstart(tocco(100, { dentroMappa: true })); ascoltatori.touchmove(tocco(260)); ascoltatori.touchend({});
+  assert.strictEqual(rinfrescate, 0, 'dentro la mappa non si aggiorna');
+  // Uno lungo sì: il cerchio scende a metà del dito, 160 px sono 80 oltre i 70.
+  ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(260)); ascoltatori.touchend({});
+  assert.strictEqual(rinfrescate, 1, 'oltre la soglia si aggiorna');
+
+  // Ogni vista rilegge la sua cosa.
+  (async () => {
+    for (const [v, atteso] of [['home', 'home'], ['risultati', 'tabellone'], ['linee', 'linee'], ['treno', 'treno 24854']]) {
+      env.setVista(v);
+      await env.rinfrescaVista();
+      assert.strictEqual(env.chiamate[env.chiamate.length - 1], atteso, `vista ${v}`);
+    }
+    console.log('tira per aggiornare: ok — 3 casi sul gesto + 4 sulle viste');
+  })().catch((e) => { console.error(e); process.exit(1); });
+}

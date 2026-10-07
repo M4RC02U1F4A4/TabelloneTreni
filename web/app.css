@@ -183,6 +183,24 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   .ciclo i { animation: none; width: 100%; }
 }
 
+/* Il cerchio di "tira per aggiornare": nascosto sopra l'intestazione, scende
+   col dito e gira finché i dati non sono arrivati. */
+.tira {
+  position: fixed; z-index: 6; top: calc(env(safe-area-inset-top) + 8px); left: 50%;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 3px solid var(--bordo); border-top-color: var(--accento);
+  background: var(--piano); opacity: 0; pointer-events: none;
+  transform: translate(-50%, 0);
+  transition: opacity 0.15s;
+}
+.tira.visibile { opacity: 1; }
+.tira.pronto { border-color: var(--accento); border-top-color: var(--bordo); }
+/* La traslazione è la soglia passata a tiraPerAggiornare(): l'animazione
+   sovrascrive il transform scritto dal JS, e se cambia una va cambiata l'altra. */
+.tira.gira { animation: gira 0.8s linear infinite; }
+@keyframes gira { to { transform: translate(-50%, 70px) rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tira { transition: none; } .tira.gira { animation: none; border-color: var(--accento); } }
+
 /* Le icone sono quadrate e centrate sulla loro griglia: il centraggio del
    contenitore basta, non serve nessuna correzione ottica per glifo. */
 .icona { display: block; width: 20px; height: 20px; }
