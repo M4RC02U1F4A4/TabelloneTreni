@@ -329,25 +329,6 @@ function idrataCampi() {
 
 const preferiti = () => leggi('tt.preferiti', []);
 const chiaveTratta = (p) => `${p.f}>${p.t || ''}${p.a ? '>a' : ''}`;
-/* La stessa chiave, per il tabellone che si sta guardando. Ha un nome suo
-   perché è il punto in cui due forme diverse — un preferito salvato e una
-   rotta letta dall'URL — devono dare la stessa stringa: se smettessero di
-   combaciare non si romperebbe niente a schermo, la home resterebbe
-   nell'ordine di prima e in silenzio. */
-const chiaveRotta = (r) => chiaveTratta({ f: r.da, t: r.a, a: r.arrivi });
-
-/* Quale tratta salvata si sta guardando, per rimetterla in cima alla home.
-
-   Solo se è salvata, ed è tutto il punto: prima ci finiva ogni tabellone
-   aperto, quindi bastava una ricerca al volo — Bergamo per un fine settimana —
-   perché la chiave puntasse a una tratta che fra i preferiti non c'è. Lì
-   preferitiOrdinati() non trova niente da alzare e l'ordine torna quello di
-   inserimento, senza che niente sembri rotto: la funzione smette di funzionare
-   e basta. */
-function ricordaTratta(r) {
-  const chiave = chiaveRotta(r);
-  if (preferiti().some((p) => chiaveTratta(p) === chiave)) scrivi('tt.ultima', chiave);
-}
 
 function alternaPreferito(p) {
   const k = chiaveTratta(p);
@@ -1247,7 +1228,6 @@ async function cambiaRotta() {
 
   if (r.da !== stato.da) filtroTipo = '';
   stato.da = r.da; stato.a = r.a; stato.arrivi = r.arrivi;
-  ricordaTratta(r);
   stato.dati = null;
   stato.errore = null;
   // Schede aperte e viaggi valgono per il tabellone che si sta lasciando.
@@ -1467,7 +1447,7 @@ function disegnaHome() {
    si apre l'app la mattina — "quando passa il prossimo" — e prima la risposta
    stava a un tocco e un caricamento di distanza. */
 function sezionePreferiti() {
-  const fav = preferitiOrdinati();
+  const fav = preferiti();
   if (!fav.length) return '';
   return `<section class="sezione">
     <div class="testa-sezione">
@@ -1516,20 +1496,6 @@ function prossimoTreno(p) {
   const r = ritardoVero(t);
   return `<span class="poi"><b>${esc(t.time)}</b>${r > 0 ? `<span class="rit">+${r}</span>` : ''}${
     t.platform ? `<span${t.platformChanged ? ' class="cambiato"' : ''}>bin ${numeroBinario(t.platform)}</span>` : ''}</span>`;
-}
-
-/* Il preferito guardato per ultimo va in cima. La mattina si guarda l'andata e
-   la sera il ritorno: riaprendo l'app la direzione di adesso è già la prima,
-   senza doverla chiedere e senza una preferenza da impostare.
-
-   Solo il primo si sposta, gli altri restano nell'ordine in cui erano. E si
-   sposta al disegno, non nel salvataggio: l'ordine in memoria resta quello in
-   cui le tratte sono state aggiunte, che è quello che "Modifica" mostra. */
-function preferitiOrdinati() {
-  const fav = preferiti();
-  const ultima = leggi('tt.ultima', '');
-  const i = fav.findIndex((p) => chiaveTratta(p) === ultima);
-  return i > 0 ? [fav[i], ...fav.slice(0, i), ...fav.slice(i + 1)] : fav;
 }
 
 /* I treni seguiti stanno sopra a tutto il resto, ed è l'unica sezione che si

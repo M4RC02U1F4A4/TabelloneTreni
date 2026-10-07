@@ -63,16 +63,13 @@ for (const n of nomi) {
 
 console.log(`titolo: ok — 18 casi + ${nomi.length} stazioni del catalogo`);
 
-/* ------------------------------------- la tratta aperta per ultima, in home */
+/* -------------------------------------------------- i preferiti e il router */
 
-/* preferitiOrdinati() riconosce il preferito da guardare confrontando la
- * chiave della tratta con quella salvata quando si apre un tabellone. Le due
- * chiavi nascono da due forme diverse — un preferito salvato e una rotta letta
- * dall'URL — e se smettessero di combaciare non si romperebbe niente a schermo:
- * la home resterebbe semplicemente nell'ordine di prima, in silenzio. */
-const pezzoChiavi = ritaglia('const chiaveTratta =', 'function alternaPreferito');
-const chiaveTratta = new Function(`${pezzoChiavi}; return chiaveTratta;`)();
-const chiaveRotta = new Function(`${pezzoChiavi}; return chiaveRotta;`)();
+/* Una tessera della home porta all'indirizzo di rottaDi(), e il router lo
+ * rilegge con leggiRotta(): se le due smettessero di combaciare il tocco su un
+ * preferito aprirebbe un altro tabellone, o la home. */
+const chiaveTratta = new Function(
+  `${ritaglia('const chiaveTratta =', 'function alternaPreferito')}; return chiaveTratta;`)();
 const rottaDi = new Function(`${ritaglia('const rottaDi =', 'const ROTTA_LINEE')}; return rottaDi;`)();
 
 // leggiRotta() legge location.hash: le si dà un location finto e per il resto
@@ -86,45 +83,24 @@ for (const preferito of [
   { f: 1393, t: null, a: undefined },        // tutte le partenze da Gallarate
   { f: 1393, t: null, a: true },             // gli arrivi a Gallarate
 ]) {
-  // Il giro completo: dal preferito all'indirizzo su cui porta, da lì alla
-  // rotta che il router legge, e da quella alla chiave che si salva.
+  // Il giro completo: dal preferito all'indirizzo su cui porta, e da lì alla
+  // rotta che il router legge.
   const r = leggiRotta({ hash: rottaDi(preferito.f, preferito.t, preferito.a) })();
-  assert.strictEqual(r.vista, 'risultati', JSON.stringify(preferito));
-  assert.strictEqual(
-    chiaveRotta(r),
-    chiaveTratta(preferito),
-    `la chiave della rotta non combacia con quella del preferito: ${JSON.stringify(preferito)}`);
+  assert.deepStrictEqual(
+    r,
+    { vista: 'risultati', da: preferito.f, a: preferito.t, arrivi: Boolean(preferito.a) },
+    `il router non riporta al preferito: ${JSON.stringify(preferito)}`);
 }
 
-// Due tratte diverse non devono cadere sulla stessa chiave, altrimenti in cima
-// finirebbe quella sbagliata.
+// Due tratte diverse non devono cadere sulla stessa chiave: alternaPreferito()
+// toglierebbe quella sbagliata, e la ✕ di Modifica con lei.
 const chiavi = [
   { f: 1393, t: 1715 }, { f: 1715, t: 1393 }, { f: 1393, t: null },
   { f: 1393, t: null, a: true }, { f: 1715, t: null },
 ].map(chiaveTratta);
 assert.strictEqual(new Set(chiavi).size, chiavi.length, `chiavi in collisione: ${chiavi}`);
 
-/* E ricordaTratta() se ne ricorda solo quando è una tratta salvata: una
- * ricerca al volo non deve cancellare quale preferito si stava usando. */
-const salvate = [{ f: 1393, t: 1715 }, { f: 1715, t: 1393 }];
-const nuovaRicorda = (rotta) => {
-  let scritto;
-  new Function('preferiti', 'scrivi',
-    `${pezzoChiavi}; return ricordaTratta;`)(() => salvate, (_k, v) => { scritto = v; })(rotta);
-  return scritto;
-};
-
-assert.strictEqual(
-  nuovaRicorda({ da: 1715, a: 1393, arrivi: false }), '1715>1393',
-  'una tratta salvata deve essere ricordata');
-assert.strictEqual(
-  nuovaRicorda({ da: 2263, a: null, arrivi: false }), undefined,
-  'una ricerca al volo non deve toccare la tratta ricordata');
-assert.strictEqual(
-  nuovaRicorda({ da: 1393, a: null, arrivi: true }), undefined,
-  'gli arrivi a una stazione salvata solo in partenza non sono quella tratta');
-
-console.log('tratte: ok — 4 giri completi + 3 casi su ricordaTratta');
+console.log('tratte: ok — 4 giri completi + 1 controllo sulle chiavi');
 
 /* ------------------------------------------- il numero del binario e il SOT */
 
