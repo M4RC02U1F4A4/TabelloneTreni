@@ -756,6 +756,10 @@ l'immagine non gira da root e un volume nuovo appartiene a root. In Kubernetes
 lo fa `fsGroup`; con Docker serve un giro da un'altra immagine, visto che questa
 è distroless e non ha una shell — il comando sta in `compose.yaml`.
 
+Le schermate si misurano in locale con `ci/schermate.js` (serve Playwright
+con Chromium e il server avviato su `:18080`): controlla che nessuna vista
+scorra in orizzontale e salva uno screenshot per tema in `.render/schermate/`.
+
 ## Aggiornare il catalogo delle stazioni
 
 Il catalogo (2435 stazioni con i loro alias e, per 2423 di esse, il codice
