@@ -185,22 +185,34 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 
 /* Il cerchio di "tira per aggiornare": sta sopra l'intestazione (z-index 6
    contro 5) ed è trasparente finché il dito non tira davvero, poi scende col
-   dito e gira finché i dati non sono arrivati. */
+   dito e gira finché i dati non sono arrivati. Dove il dito lo lascia ci
+   scivola invece di saltarci, e il colore di "pronto" cambia in dissolvenza;
+   finché il dito lo tiene, segue spegne le transizioni di posizione e giro. */
 .tira {
   position: fixed; z-index: 6; top: calc(env(safe-area-inset-top) + 8px); left: 50%;
   width: 30px; height: 30px; border-radius: 50%;
   border: 3px solid var(--bordo); border-top-color: var(--accento);
   background: var(--piano); opacity: 0; pointer-events: none;
-  transform: translate(-50%, 0);
-  transition: opacity 0.15s;
+  translate: -50% 0; rotate: 0deg;
+  /* I 0.15s dell'opacità sono anche nel setTimeout di fine aggiornamento in
+     tiraPerAggiornare(): cambiati qui, vanno cambiati là. */
+  transition: opacity 0.15s, border-color 0.15s, translate 0.2s ease-out, rotate 0.2s ease-out;
 }
+.tira.segue { transition: opacity 0.15s, border-color 0.15s; }
 .tira.visibile { opacity: 1; }
 .tira.pronto { border-color: var(--accento); border-top-color: var(--bordo); }
-/* La traslazione è la soglia passata a tiraPerAggiornare(): l'animazione
-   sovrascrive il transform scritto dal JS, e se cambia una va cambiata l'altra. */
+/* Il giro sta nel transform, che il JS non tocca: posizione e angolo del dito
+   sono in translate e rotate, e il browser li compone col transform. Così
+   l'animazione non deve ripetere la soglia di tiraPerAggiornare() e parte
+   dall'angolo in cui il dito ha lasciato il cerchio. */
 .tira.gira { animation: gira 0.8s linear infinite; }
-@keyframes gira { to { transform: translate(-50%, 70px) rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .tira { transition: none; } .tira.gira { animation: none; border-color: var(--accento); } }
+@keyframes gira { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .tira, .tira.segue { transition: none; }
+  /* Important perché il giro del dito è scritto dal JS nello stile in linea. */
+  .tira { rotate: none !important; }
+  .tira.gira { animation: none; border-color: var(--accento); }
+}
 
 /* Le icone sono quadrate e centrate sulla loro griglia: il centraggio del
    contenitore basta, non serve nessuna correzione ottica per glifo. */

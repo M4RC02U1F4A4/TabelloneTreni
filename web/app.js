@@ -3551,7 +3551,13 @@ function rinfrescaVista() {
 
    Parte solo con scrollY a zero: a metà di una lista lunga trascinare in giù è
    scorrere. E non dentro la mappa, che il dito lo usa per spostarla, né nel
-   selettore stazione, che è una lista sua. */
+   selettore stazione, che è una lista sua.
+
+   Il cerchio non scatta mai: col dito sopra lo segue alla lettera (la classe
+   segue spegne le transizioni, se no lo rincorrerebbe in ritardo), lasciato
+   scivola dove deve andare. La posizione sta in translate e il giro del dito in
+   rotate, non nel transform: il transform è dell'animazione gira, che così
+   continua dall'angolo in cui il dito l'ha lasciato invece di ripartire da zero. */
 function tiraPerAggiornare(el, soglia, rinfresca) {
   let inizio = null;   // la Y del tocco, o null se il gesto non è partito
   let tirato = 0;
@@ -3562,6 +3568,7 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     // Minore o uguale: durante il rimbalzo iOS dà scrollY negativo.
     inizio = !occupato && scrollY <= 0 && !dentro ? e.touches[0].clientY : null;
     tirato = 0;
+    if (inizio !== null) el.classList.add('segue');
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
     if (inizio === null) return;
@@ -3572,13 +3579,20 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     if (dy < 0) { inizio = null; lascia(); return; }
     // Il cerchio segue il dito con un freno: a metà strada si sente che manca
     // poco, oltre la soglia che è fatta. Sotto i 4 px resta nascosto, perché un
-    // tocco che trema non lo faccia lampeggiare.
+    // tocco che trema non lo faccia lampeggiare. Intanto gira col tirato, anche
+    // oltre il tetto: il dito che va ancora avanti si vede.
     tirato = dy * 0.5;
-    el.style.transform = `translate(-50%, ${Math.min(tirato, soglia * 1.3)}px)`;
+    el.style.translate = `-50% ${Math.min(tirato, soglia * 1.3)}px`;
+    el.style.rotate = `${tirato * 3}deg`;
     el.classList.toggle('pronto', tirato >= soglia);
     el.classList.toggle('visibile', tirato > 4);
   }, { passive: true });
-  const lascia = () => { el.classList.remove('visibile', 'pronto'); el.style.transform = ''; };
+  // Tolto segue tornano le transizioni: il cerchio risale svanendo e si srotola.
+  const lascia = () => {
+    el.classList.remove('visibile', 'pronto', 'segue');
+    el.style.translate = '';
+    el.style.rotate = '';
+  };
   // Un tocco annullato dal sistema (una chiamata, un gesto di iOS) è un
   // rilascio sotto soglia: il cerchio se ne va e non si rilegge niente.
   document.addEventListener('touchcancel', () => {
@@ -3591,19 +3605,28 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     inizio = null;
     if (tirato < soglia) { lascia(); return; }
     occupato = true;
+    // Da dov'era scivola alla soglia e lì gira, partendo dall'angolo che ha.
+    el.classList.remove('segue');
     el.classList.add('gira');
-    el.style.transform = `translate(-50%, ${soglia}px)`;
+    el.style.translate = `-50% ${soglia}px`;
     Promise.resolve(rinfresca()).catch(() => {}).then(() => {
-      occupato = false;
-      el.classList.remove('visibile', 'pronto', 'gira');
-      el.style.transform = '';
+      // Prima svanisce, poi torna su e smette di girare: tutto insieme, il
+      // cerchio salterebbe in cima mentre ancora si vede. I 150 ms sono la
+      // dissolvenza di .tira in app.css. Il gesto resta occupato fino ad allora,
+      // perché un tocco nuovo non si veda togliere il cerchio da sotto il dito.
+      el.classList.remove('visibile');
+      setTimeout(() => {
+        occupato = false;
+        el.classList.remove('pronto', 'gira');
+        el.style.translate = '';
+        el.style.rotate = '';
+      }, 150);
     });
   }, { passive: true });
 }
 
 /* ------------------------------------------------------------------ eventi */
 
-// Il 70 è anche in @keyframes gira, in app.css: cambiato qui, va cambiato là.
 tiraPerAggiornare($('#tira'), 70, rinfrescaVista);
 
 /* Il segnalibro si tocca da due posti — la scheda aperta di un tabellone e la
