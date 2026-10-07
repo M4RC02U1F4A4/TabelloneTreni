@@ -761,7 +761,15 @@ async function caricaViaggioSeguito(t, forza) {
   try {
     const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(15_000) });
     if (controllaVersione(r)) return false;
-    if (!r.ok) throw new Error(`errore ${r.status}`);
+    if (!r.ok) {
+      // Il server che risponde male su un treno di un giorno passato vuol dire
+      // che ViaggiaTreno lo ha dimenticato: è finito, e il segnalibro se ne va
+      // come se fosse arrivato. Solo qui e non nel catch: la rete che cade o il
+      // timeout non dicono niente del treno, e l'Intercity Notte partito ieri
+      // sera, letto alle sei in galleria, deve restare.
+      if (diIeri(t)) smettiDiSeguire(k);
+      throw new Error(`errore ${r.status}`);
+    }
     const d = await r.json();
     viaggiSeguiti.set(k, { stato: 'ok', dati: d, lettoIl: Date.now() });
     ricordaViaggio(k, d);
@@ -774,12 +782,10 @@ async function caricaViaggioSeguito(t, forza) {
     if (d.arrived) smettiDiSeguire(k);
     return true;
   } catch {
-    // Il treno di ieri che non si legge più è finito: ViaggiaTreno lo ha
-    // dimenticato, e il segnalibro se ne va come se fosse arrivato. Per il
-    // treno di oggi vale il contrario — l'ultima lettura buona resta, in
-    // memoria e su disco: su un treno la rete cade a tratti, e la posizione
-    // di un minuto fa vale più di una riga vuota.
-    if (diIeri(t)) { smettiDiSeguire(k); return false; }
+    // L'ultima lettura buona resta, in memoria e su disco: su un treno la rete
+    // cade a tratti, e la posizione di un minuto fa vale più di una riga vuota.
+    // Vale anche per il treno di ieri appena tolto: senza lo stato di errore,
+    // in 'attesa' la sua scheda aperta resterebbe a cercarlo per sempre.
     if (!gia || gia.stato !== 'ok') viaggiSeguiti.set(k, { stato: 'errore' });
     return false;
   }
@@ -787,12 +793,16 @@ async function caricaViaggioSeguito(t, forza) {
 
 /* Se il giorno di partenza è prima della mezzanotte di Roma di adesso.
 
-   Serve a una cosa sola: decidere cosa vuol dire una lettura fallita. Per il
-   treno di oggi è la rete che cade in galleria, e si tiene l'ultima lettura
-   buona; per il treno di ieri è ViaggiaTreno che se l'è dimenticato — risponde
-   vuoto, il server 502 — e tenerla voleva dire una scheda in home fino a
-   mezzogiorno per un treno arrivato la sera prima. */
-const diIeri = (t, adesso = Date.now()) => quadranteRoma(t.d) < quadranteRoma(adesso) - (quadranteRoma(adesso) % 86_400_000);
+   Serve a una cosa sola: decidere cosa vuol dire una risposta non ok del
+   server. Per il treno di oggi è un guasto passeggero, e si tiene l'ultima
+   lettura buona; per il treno di ieri è ViaggiaTreno che se l'è dimenticato —
+   risponde vuoto, il server 502 — e tenerla voleva dire una scheda in home
+   fino a mezzogiorno per un treno arrivato la sera prima.
+
+   Un `d` fuori dall'intervallo delle date (una rotta scritta a mano) non è di
+   ieri: 8.64e15 è il limite di Date, oltre il quale Intl lancia. */
+const diIeri = (t, adesso = Date.now()) => Math.abs(t.d) <= 8.64e15
+  && quadranteRoma(t.d) < quadranteRoma(adesso) - (quadranteRoma(adesso) % 86_400_000);
 
 /* Tutti i treni seguiti insieme. Sono pochi per definizione — si seguono i
    treni che si prendono — e partono in parallelo: in fila la home aspetterebbe

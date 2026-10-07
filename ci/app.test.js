@@ -993,9 +993,10 @@ console.log('fermate ripiegate: ok — 2 casi');
 
 /* ViaggiaTreno dimentica i treni di ieri, e il server risponde 502: prima la
    lettura fallita teneva l'ultima lettura buona — giusto in galleria — e il
-   treno di ieri sera restava in home fino a mezzogiorno. Una lettura fallita
-   di un treno di un giorno passato ora toglie il segnalibro; una lettura
-   riuscita e non arrivata lo tiene anche se è di ieri (il treno notturno). */
+   treno di ieri sera restava in home fino a mezzogiorno. Una risposta non ok
+   del server su un treno di un giorno passato ora toglie il segnalibro; la rete
+   caduta no, e nemmeno una lettura riuscita e non arrivata, anche se il treno
+   è di ieri (il notturno letto all'alba in galleria). */
 const fabbricaSeguito = (fetch, adesso) => new Function('fetch', 'Date', 'AbortSignal', `
   const seguiti = () => JSON.parse(memoria.get('tt.seguiti') || '[]');
   const memoria = new Map();
@@ -1031,11 +1032,14 @@ async function provaSeguito(nome, risposta, d, resta) {
   await env.caricaViaggioSeguito(t, true);
   const vivi = JSON.parse(env.memoria.get('tt.seguiti'));
   assert.strictEqual(vivi.length, resta ? 1 : 0, nome);
+  // Tolto il segnalibro, la scheda aperta deve sapere che la lettura è fallita:
+  // in 'attesa' cercherebbe il treno per sempre.
+  if (!resta) assert.strictEqual(env.viaggiSeguiti.get(`${t.o}|${t.n}|${t.d}`).stato, 'errore', `${nome}: stato errore`);
 }
 
 (async () => {
   await provaSeguito('il treno di ieri che il server non conosce più se ne va', risposte.guasta, ieri, false);
-  await provaSeguito('anche se a cadere è la rete', risposte.rete, ieri, false);
+  await provaSeguito('la rete caduta non lo toglie, nemmeno a un treno di ieri', risposte.rete, ieri, true);
   await provaSeguito('il treno di oggi resta, la rete torna', risposte.rete, stanotte, true);
   await provaSeguito('il treno di oggi resta anche su un 502', risposte.guasta, stanotte, true);
   await provaSeguito('il treno notturno di ieri ancora in viaggio resta', risposte.inViaggio, ieri, true);
@@ -1045,6 +1049,10 @@ async function provaSeguito(nome, risposta, d, resta) {
 const env = fabbricaSeguito(risposte.rete, stamattina);
 assert.strictEqual(env.diIeri({ d: ieri }, stamattina), true, 'ieri è di ieri');
 assert.strictEqual(env.diIeri({ d: stanotte }, stamattina), false, 'oggi no');
-// Alle 00:30 di Roma il treno partito "ieri" alle 23:50 è di ieri: la regola
-// vale, e una rete caduta lo toglie — costa poco, il viaggio è quasi finito.
+// Alle 00:30 di Roma il treno partito "ieri" alle 23:50 è di ieri: lo toglie
+// solo il server che non lo conosce più, mai la rete — che è caduta a un
+// treno ancora in viaggio, magari per altre dieci ore.
 assert.strictEqual(env.diIeri({ d: ieri }, Date.parse('2026-09-21T22:30:00Z')), true, 'a mezzanotte e mezza ieri è già ieri');
+// Un giorno fuori dalle date (una rotta scritta a mano) non è di ieri, e non lancia.
+assert.strictEqual(env.diIeri({ d: Infinity }, stamattina), false, 'un giorno infinito non è di ieri');
+assert.strictEqual(env.diIeri({ d: 1e17 }, stamattina), false, 'nemmeno uno oltre il limite di Date');
