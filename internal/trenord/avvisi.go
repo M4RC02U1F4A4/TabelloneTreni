@@ -1,12 +1,11 @@
 package trenord
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -109,23 +108,11 @@ type Dettaglio struct {
 // chiede solo per le linee che qualcuno segue o che qualcuno sta guardando.
 func (c *Client) Dettaglio(ctx context.Context, codice string) (*Dettaglio, error) {
 	q := url.Values{"code": {strings.ToUpper(codice)}, "L": {"0"}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dettaglioURL+"?"+q.Encode(), nil)
+	body, err := c.get(ctx, dettaglioURL+"?"+q.Encode())
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", UserAgent)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Language", "it-IT,it;q=0.9")
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("richiesta a Trenord: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Trenord ha risposto %s", resp.Status)
-	}
-	return ParseDettaglio(resp.Body)
+	return ParseDettaglio(bytes.NewReader(body))
 }
 
 // ParseDettaglio legge la pagina di una linea.

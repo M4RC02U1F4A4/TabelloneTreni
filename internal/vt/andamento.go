@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"math"
-	"net/http"
 	"strconv"
 	"time"
 )
@@ -100,8 +98,7 @@ func (f Fermata) Binario() string {
 // solo non si sta confrontando niente, e un "cambiato" annunciato per un campo
 // mancante manderebbe qualcuno a cercare un binario che non è cambiato affatto.
 func (f Fermata) BinarioCambiato() bool {
-	return f.BinarioProgrammato != "" && f.BinarioEffettivo != "" &&
-		f.BinarioProgrammato != f.BinarioEffettivo
+	return cambiato(f.BinarioProgrammato, f.BinarioEffettivo)
 }
 
 type andamento struct {
@@ -196,29 +193,12 @@ func compatta(v []json.RawMessage) string {
 func (c *Client) Andamento(ctx context.Context, codOrigine, numero string, data int64) (*Andamento, error) {
 	url := fmt.Sprintf("%s/andamentoTreno/%s/%s/%d", c.base, codOrigine, numero, data)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	body, err := get(ctx, c.hcLento, url)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", UserAgent)
-	resp, err := c.hcLento.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	// Il treno di ieri: ViaggiaTreno risponde 204, senza corpo. Non è un
-	// errore, è "non lo traccio", come il 200 vuoto qui sotto.
-	if resp.StatusCode == http.StatusNoContent {
-		return nil, nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return nil, err
-	}
-	// Un treno che ViaggiaTreno non traccia risponde 200 con il corpo vuoto.
+	// Un treno che ViaggiaTreno non traccia risponde 200 con il corpo vuoto, e
+	// il treno di ieri 204: non è un errore, è "non lo traccio".
 	if len(body) == 0 {
 		return nil, nil
 	}

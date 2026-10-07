@@ -17,19 +17,21 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 const base = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno"
 
-// UserAgent deve somigliare a quello di un browser, come per trenord.it e per
+// userAgent deve somigliare a quello di un browser, come per trenord.it e per
 // lo stesso motivo: davanti a ViaggiaTreno c'è Akamai, che allo User-Agent di
 // Go risponde 403 sia sulle partenze sia sull'andamento di un treno. Senza,
 // la seconda fonte spariva in silenzio — è facoltativa, e un 403 si logga e
 // basta — e ogni scheda aperta diceva che ViaggiaTreno non segue il treno.
-var UserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+const userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
 	"(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 
 // Treno è quello che ViaggiaTreno sa di un treno del tabellone.
@@ -55,8 +57,11 @@ type Treno struct {
 // niente, e un "cambiato" annunciato per un dato mancante manderebbe la gente a
 // cercare un binario che non è cambiato affatto.
 func (t Treno) Cambiato() bool {
-	return t.BinarioProgrammato != "" && t.BinarioEffettivo != "" &&
-		t.BinarioProgrammato != t.BinarioEffettivo
+	return cambiato(t.BinarioProgrammato, t.BinarioEffettivo)
+}
+
+func cambiato(programmato, effettivo string) bool {
+	return programmato != "" && effettivo != "" && programmato != effettivo
 }
 
 // Client interroga ViaggiaTreno. Lo zero value non è utilizzabile: usare New.
@@ -123,20 +128,7 @@ func (c *Client) Treni(ctx context.Context, codice string, arrivi bool, quando t
 	url := fmt.Sprintf("%s/%s/%s/%s", c.base, verso, codice,
 		urlQuote(quando.Format("Mon Jan 02 2006 15:04:05 GMT-0700")))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", UserAgent)
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	body, err := get(ctx, c.hc, url)
 	if err != nil {
 		return nil, err
 	}
@@ -192,16 +184,35 @@ func rilevato(t treno) bool {
 // urlQuote codifica gli spazi e i due punti della data. Non si usa
 // url.PathEscape perché lascerebbe i due punti come sono e ViaggiaTreno, su
 // quelli, risponde 404.
+//
+// url.QueryEscape i due punti li codifica, e anche il "+" del fuso; gli spazi
+// li scrive "+", che qui si rimettono come %20.
 func urlQuote(s string) string {
-	const esadecimale = "0123456789ABCDEF"
-	out := make([]byte, 0, len(s)*3)
-	for i := 0; i < len(s); i++ {
-		b := s[i]
-		if b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '-' || b == '_' || b == '.' || b == '~' {
-			out = append(out, b)
-			continue
-		}
-		out = append(out, '%', esadecimale[b>>4], esadecimale[b&0x0f])
+	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+}
+
+// get fa la richiesta con lo User-Agent di un browser e ne restituisce il
+// corpo. Un corpo vuoto non è un errore, e cosa voglia dire lo decide chi
+// chiama.
+//
+// Il 204 vale come un corpo vuoto: è la risposta per il treno di ieri, cioè
+// "non lo traccio", come il 200 vuoto.
+func get(ctx context.Context, hc *http.Client, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
 	}
-	return string(out)
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 }

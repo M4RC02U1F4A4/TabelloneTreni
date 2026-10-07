@@ -11,17 +11,17 @@ import (
 
 const baseURL = "https://iechub.rfi.it/ArriviPartenze/ArrivalsDepartures/Monitor"
 
-// UserAgent identifica l'applicazione verso RFI. Il sito non lo richiede — la
+// userAgent identifica l'applicazione verso RFI. Il sito non lo richiede — la
 // pagina risponde anche senza — ma dichiararsi è il minimo per un client che
 // interroga un servizio altrui a intervalli regolari.
-var UserAgent = "TabelloneTreni (+https://github.com/M4RC02U1F4A4/TabelloneTreni)"
+const userAgent = "TabelloneTreni (+https://github.com/M4RC02U1F4A4/TabelloneTreni)"
 
 type Client struct {
-	HTTP *http.Client
+	hc *http.Client
 }
 
 func NewClient() *Client {
-	return &Client{HTTP: &http.Client{Timeout: 20 * time.Second}}
+	return &Client{hc: &http.Client{Timeout: 20 * time.Second}}
 }
 
 // Fetch scarica e interpreta un tabellone. La pagina pesa circa 280 KB e RFI
@@ -36,10 +36,10 @@ func (c *Client) Fetch(ctx context.Context, placeID int, arrivals bool) (*Board,
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "text/html")
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("richiesta a RFI: %w", err)
 	}
