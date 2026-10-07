@@ -52,8 +52,8 @@ func TestFiltroPerDestinazione(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tutti.Total != 40 || tutti.Filtered {
-		t.Fatalf("tabellone intero: total=%d filtered=%v", tutti.Total, tutti.Filtered)
+	if len(tutti.Trains) != 40 || tutti.Filtered {
+		t.Fatalf("tabellone intero: %d treni, filtered=%v", len(tutti.Trains), tutti.Filtered)
 	}
 
 	casi := []struct {

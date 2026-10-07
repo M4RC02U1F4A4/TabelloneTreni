@@ -117,8 +117,6 @@ type Result struct {
 	// StopsUnavailable segnala che su questo tabellone il filtro non è
 	// applicabile perché RFI non pubblica le fermate — succede sugli arrivi.
 	StopsUnavailable bool `json:"stopsUnavailable,omitempty"`
-	// Total è quanti treni c'erano prima del filtro.
-	Total int `json:"total"`
 }
 
 // Get restituisce il tabellone di from. Se to è diverso da zero, tiene solo i
@@ -132,7 +130,7 @@ func (s *Service) Get(ctx context.Context, from int, arrivals bool, to int) (*Re
 		return nil, err
 	}
 
-	res := &Result{Board: b, Total: len(b.Trains)}
+	res := &Result{Board: b}
 	if st := s.catalogo.ByID(from); st != nil {
 		res.From = st.Name
 	}

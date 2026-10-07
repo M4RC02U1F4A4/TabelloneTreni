@@ -54,9 +54,9 @@ type Andamento struct {
 	// `hasProvvedimenti: false`: qualunque altra cosa vuol dire che qualcosa
 	// c'è. *Che cosa* non lo si dichiara — il numero non è documentato, e
 	// stampare "soppresso" per un valore mai visto sarebbe inventarlo. Il
-	// codice grezzo resta qui accanto perché la produzione ce lo insegni.
+	// codice grezzo finisce nel log (annotaProvvedimento) perché la produzione
+	// ce lo insegni.
 	ConProvvedimento bool
-	Provvedimento    int
 	// FermateSoppresse è quante ne dichiara ViaggiaTreno. Una lista di fermate
 	// si descrive da sé e non ha codici da interpretare: se non è vuota, quelle
 	// fermate il treno non le fa.
@@ -247,7 +247,6 @@ func (c *Client) Andamento(ctx context.Context, codOrigine, numero string, data 
 
 		ConProvvedimento: a.Provvedimento != 0 || a.HasProvvedimenti ||
 			len(a.Provvedimenti) > 0 || len(a.FermateSoppresse) > 0,
-		Provvedimento:    a.Provvedimento,
 		FermateSoppresse: len(a.FermateSoppresse),
 
 		Fermate: make([]Fermata, 0, len(a.Fermate)),

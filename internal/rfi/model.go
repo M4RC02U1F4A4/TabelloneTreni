@@ -66,7 +66,6 @@ type Board struct {
 	PlaceID  int     `json:"placeId"`
 	Station  string  `json:"station"`
 	Arrivals bool    `json:"arrivals"`
-	Updated  string  `json:"updated,omitempty"`
 	Trains   []Train `json:"trains"`
 	// Notices sono gli avvisi di stazione. RFI non li pubblica da nessun'altra
 	// parte: sono il testo che scorre in fondo alla pagina del monitor, e sono

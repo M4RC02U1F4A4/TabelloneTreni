@@ -274,13 +274,6 @@ func nuoviAvvisi(avvisi []trenord.Avviso, note []string) []trenord.Avviso {
 	return freschi
 }
 
-func (v Novita) codiceNome() (string, string) {
-	if v.Cambio != nil {
-		return v.Cambio.Linea.Codice, v.Cambio.Linea.Nome
-	}
-	return v.codice, v.nome
-}
-
 // destinazione porta dritto sulla linea invece che sull'elenco: chi tocca la
 // notifica sta cercando quella riga, non le altre sessantaquattro.
 func destinazione(codice string) string {

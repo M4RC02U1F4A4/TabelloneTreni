@@ -1,10 +1,13 @@
 package vt
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -279,9 +282,8 @@ func TestUnTrenoSanoNonHaProvvedimenti(t *testing.T) {
 	if a.ConProvvedimento {
 		t.Error("un treno sano risulta con provvedimento")
 	}
-	if a.Provvedimento != 0 || a.FermateSoppresse != 0 {
-		t.Errorf("provvedimento = %d, fermate soppresse = %d, attesi zero",
-			a.Provvedimento, a.FermateSoppresse)
+	if a.FermateSoppresse != 0 {
+		t.Errorf("fermate soppresse = %d, atteso zero", a.FermateSoppresse)
 	}
 }
 
@@ -310,12 +312,16 @@ func TestOgniFormaDiProvvedimentoVieneVista(t *testing.T) {
 	}
 }
 
-// Il codice grezzo passa intatto: è l'unica cosa che permetterà di dargli un
-// nome quando la produzione ce ne mostrerà uno.
+// Il codice grezzo arriva intatto nel log: è l'unica cosa che permetterà di
+// dargli un nome quando la produzione ce ne mostrerà uno.
 func TestIlCodiceDelProvvedimentoArrivaIntatto(t *testing.T) {
-	a := andamentoCon(t, map[string]any{"provvedimento": 2})
-	if a.Provvedimento != 2 {
-		t.Errorf("provvedimento = %d, atteso 2", a.Provvedimento)
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	andamentoCon(t, map[string]any{"provvedimento": 2})
+	if !strings.Contains(buf.String(), "provvedimento=2 ") {
+		t.Errorf("il log non riporta il codice grezzo: %q", buf.String())
 	}
 }
 

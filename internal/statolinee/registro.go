@@ -90,9 +90,6 @@ func (r *Registro) Linee() ([]trenord.Linea, time.Time) {
 type Novita struct {
 	Cambio *Cambio          // nil se il bollino non si è mosso
 	Avvisi []trenord.Avviso // le comunicazioni che prima non c'erano
-
-	codice string
-	nome   string
 }
 
 // MettiDettaglio registra quello che dice la pagina di una linea e restituisce
@@ -116,7 +113,7 @@ func (r *Registro) MettiDettaglio(codice string, nome string, d *trenord.Dettagl
 		return Novita{}
 	}
 
-	n := Novita{codice: codice, nome: nome}
+	var n Novita
 	if noto != nil && noto.stato != d.Stato {
 		n.Cambio = &Cambio{
 			Linea: trenord.Linea{Codice: codice, Nome: nome, Stato: d.Stato},

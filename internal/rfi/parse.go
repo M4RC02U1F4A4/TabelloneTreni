@@ -28,10 +28,6 @@ const (
 
 var reFermata = regexp.MustCompile(`([^()]+?)\s*\((\d{1,2}:\d{2})\)`)
 
-// L'etichetta di aggiornamento è una frase ("MONITOR ARRIVI & PARTENZE LIVE
-// aggiornato il 01/09/2026 alle ore 22:07:56"): al client serve solo l'istante.
-var reAggiornamento = regexp.MustCompile(`(\d{2}/\d{2}/\d{4}).*?(\d{2}:\d{2}:\d{2})`)
-
 // Parse interpreta la pagina del monitor.
 func Parse(r io.Reader, placeID int, arrivals bool) (*Board, error) {
 	doc, err := html.Parse(r)
@@ -46,10 +42,6 @@ func Parse(r io.Reader, placeID int, arrivals bool) (*Board, error) {
 			switch {
 			case n.Data == "h1" && attr(n, "id") == "nomeStazioneId":
 				b.Station = pulisci(testo(n))
-			case n.Data == "label" && attr(n, "id") == "UltimoaggiData":
-				if m := reAggiornamento.FindStringSubmatch(pulisci(testo(n))); m != nil {
-					b.Updated = m[1] + " " + m[2]
-				}
 			case n.Data == "div" && haClasse(n, "marqueeinfosupp"):
 				// Gli avvisi di stazione: un <div> figlio per avviso, dentro
 				// il contenitore che la pagina fa scorrere in fondo. Sono

@@ -570,7 +570,7 @@ func TestSoloLaFermataSceltaSiAccende(t *testing.T) {
 		t.Fatal("le fermate non sono nella forma attesa")
 	}
 	for _, f := range fermate {
-		if atteso := f.Code == "S01645"; f.Chosen != atteso {
+		if atteso := f.Name == "DUE"; f.Chosen != atteso {
 			t.Errorf("%s: chosen = %v, atteso %v", f.Name, f.Chosen, atteso)
 		}
 	}

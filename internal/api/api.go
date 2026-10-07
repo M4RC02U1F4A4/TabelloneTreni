@@ -98,8 +98,7 @@ func (s *Server) stazioni(w http.ResponseWriter, r *http.Request) {
 			coppie = append(coppie, [2]any{st.ID, st.Name})
 		}
 		s.elencoBody, _ = json.Marshal(map[string]any{
-			"generated": s.catalogo.Generated,
-			"stations":  coppie,
+			"stations": coppie,
 		})
 		s.elencoETag = etag(s.elencoBody)
 	})
@@ -279,7 +278,6 @@ func orario(t time.Time) string {
 
 // fermataJSON è una tappa del viaggio come la vede il client.
 type fermataJSON struct {
-	Code string `json:"code"`
 	Name string `json:"name"`
 	// Scheduled e Actual sono orari già formattati: il fuso è una cosa dei
 	// treni italiani, non del telefono di chi guarda, che potrebbe essere
@@ -326,7 +324,7 @@ func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string, dove func
 	fermate := make([]fermataJSON, 0, len(a.Fermate))
 	for _, f := range a.Fermate {
 		voce := fermataJSON{
-			Code: f.Codice, Name: f.Nome,
+			Name:      f.Nome,
 			Scheduled: orario(f.Programmata), Passed: f.Passata,
 			Platform: f.Binario(),
 		}
