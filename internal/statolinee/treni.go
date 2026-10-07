@@ -2,7 +2,6 @@ package statolinee
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"slices"
@@ -185,7 +184,7 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 			preavvisato := false
 			if t.preavvisoDovuto(prima, adesso) {
 				if b := tabelloni[t.Da]; b != nil {
-					s.avvisa(ctx, ab, k, messaggioPreavviso(t, b))
+					s.notificatore.avvisa(ctx, ab, k, messaggioPreavviso(t, b))
 					preavvisato = true
 				}
 			}
@@ -241,7 +240,7 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 				continue
 			}
 
-			s.avvisa(ctx, ab, k, messaggioTreno(a, t.TrenoSeguito, salita))
+			s.notificatore.avvisa(ctx, ab, k, messaggioTreno(a, t.TrenoSeguito, salita))
 			visto[k], cambiato = adessoVisto, true
 			if finito {
 				finiti = append(finiti, k)
@@ -251,18 +250,6 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 			s.abbonati.SegnaVistoTreni(ab.Sottoscrizione.Endpoint, visto, finiti, adesso)
 		}
 	}
-}
-
-func (s *Servizio) avvisa(ctx context.Context, ab Abbonamento, k string, m messaggio) {
-	corpo, err := json.Marshal(m)
-	if err != nil {
-		return
-	}
-	// Una riga anche sull'invio riuscito, come per le linee: senza, "spedita"
-	// e "spedita e non consegnata" sono indistinguibili dai log, e ogni
-	// segnalazione ripartirebbe da zero.
-	log.Printf("%s notifica a %s: %s", k, breve(ab.Sottoscrizione.Endpoint), m.Corpo)
-	s.notificatore.manda(ctx, ab, corpo)
 }
 
 // rilevamento è l'ora dell'ultimo rilevamento in secondi, e zero finché il
@@ -382,11 +369,8 @@ func eArrivato(f *vt.Fermata, ritardo int) string {
 }
 
 func ritardoScritto(m int) string {
-	switch {
-	case m > 0:
-		return fmt.Sprintf("+%d min", m)
-	case m < 0:
-		return fmt.Sprintf("%d min", m)
+	if m == 0 {
+		return "in orario"
 	}
-	return "in orario"
+	return fmt.Sprintf("%+d min", m)
 }

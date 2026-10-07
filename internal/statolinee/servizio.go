@@ -18,16 +18,11 @@ import (
 // e basta.
 const Intervallo = 5 * time.Minute
 
-// Sorgente è da dove arrivano le linee. È un'interfaccia per un motivo solo:
-// poter provare il ciclo di lettura senza rete.
+// Sorgente è da dove arrivano le linee e il dettaglio di ciascuna. È
+// un'interfaccia per un motivo solo: poter provare il ciclo di lettura senza
+// rete.
 type Sorgente interface {
 	Fetch(ctx context.Context) ([]trenord.Linea, error)
-}
-
-// SorgenteAvvisi è la parte facoltativa: una sorgente che sa anche dire perché
-// una linea non è regolare. Sta a parte perché il servizio funziona lo stesso
-// senza, e i test del ciclo di lettura non hanno motivo di implementarla.
-type SorgenteAvvisi interface {
 	Dettaglio(ctx context.Context, codice string) (*trenord.Dettaglio, error)
 }
 
@@ -181,11 +176,6 @@ func (s *Servizio) ChiediDettaglio(ctx context.Context, codice string) ([]trenor
 // dettaglio è ChiediDettaglio con la scelta se fidarsi della cache. Il giro di
 // lettura non se ne fida — vedi leggiDettagli — chi apre una riga sì.
 func (s *Servizio) dettaglio(ctx context.Context, codice string, forza bool) ([]trenord.Avviso, error) {
-	fonte, ok := s.sorgente.(SorgenteAvvisi)
-	if !ok {
-		return nil, nil
-	}
-
 	s.muRichieste.Lock()
 	r := s.richieste[codice]
 	if r == nil {
@@ -208,7 +198,7 @@ func (s *Servizio) dettaglio(ctx context.Context, codice string, forza bool) ([]
 	// invece di ricominciare da capo.
 	c, annulla := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer annulla()
-	d, err := fonte.Dettaglio(c, codice)
+	d, err := s.sorgente.Dettaglio(c, codice)
 	if err != nil {
 		// Fallita la lettura si serve quello che c'è, se c'è: un avviso di
 		// mezz'ora fa è meglio di un errore in faccia a chi ha aperto la riga.
@@ -223,7 +213,10 @@ func (s *Servizio) dettaglio(ctx context.Context, codice string, forza bool) ([]
 	// telefono aprendo una riga, e con le fasce la domanda non è più "cos'è
 	// cambiato adesso" ma "chi, in questo momento, non lo sa ancora": si
 	// risponde una volta per giro, quando i dettagli sono tutti dentro.
-	novita := s.registro.MettiDettaglio(codice, s.nomeDi(codice), d)
+	//
+	// Il nome per esteso è quello che finisce nel titolo della notifica: il
+	// codice da solo non dice niente a nessuno.
+	novita := s.registro.MettiDettaglio(codice, s.registro.NomeDi(codice), d)
 	if novita.Cambio != nil {
 		c := novita.Cambio
 		log.Printf("%s %s: %s -> %s", codice, c.Linea.Nome, c.Prima, c.Linea.Stato)
@@ -232,12 +225,6 @@ func (s *Servizio) dettaglio(ctx context.Context, codice string, forza bool) ([]
 		log.Printf("%s avviso nuovo: %.80s", codice, a.Testo)
 	}
 	return d.Avvisi, nil
-}
-
-// nomeDi ritrova il nome per esteso di una linea, che è quello che finisce nel
-// titolo della notifica: il codice da solo non dice niente a nessuno.
-func (s *Servizio) nomeDi(codice string) string {
-	return s.registro.NomeDi(codice)
 }
 
 func (s *Servizio) Handler() http.Handler {

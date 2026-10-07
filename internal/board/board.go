@@ -122,7 +122,8 @@ type Result struct {
 // Get restituisce il tabellone di from. Se to è diverso da zero, tiene solo i
 // treni che fermano lì e annota per ciascuno l'orario di arrivo.
 func (s *Service) Get(ctx context.Context, from int, arrivals bool, to int) (*Result, error) {
-	if s.catalogo.ByID(from) == nil {
+	st := s.catalogo.ByID(from)
+	if st == nil {
 		return nil, fmt.Errorf("stazione %d sconosciuta", from)
 	}
 	b, err := s.tabellone(ctx, from, arrivals)
@@ -130,10 +131,7 @@ func (s *Service) Get(ctx context.Context, from int, arrivals bool, to int) (*Re
 		return nil, err
 	}
 
-	res := &Result{Board: b}
-	if st := s.catalogo.ByID(from); st != nil {
-		res.From = st.Name
-	}
+	res := &Result{Board: b, From: st.Name}
 	if to == 0 {
 		return res, nil
 	}

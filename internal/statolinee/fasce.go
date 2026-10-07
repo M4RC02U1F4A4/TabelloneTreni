@@ -3,8 +3,7 @@ package statolinee
 import (
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
+	"slices"
 	"time"
 	// Il database dei fusi dentro il binario. L'immagine è distroless static,
 	// dove /usr/share/zoneinfo non è garantito: senza questo, LoadLocation
@@ -94,10 +93,16 @@ func (f Fascia) valida() error {
 	if f.Da == f.A {
 		return errors.New("la fascia comincia e finisce alla stessa ora")
 	}
-	if len(f.Giorni) > 7 {
+	return validaGiorni(f.Giorni)
+}
+
+// validaGiorni controlla i giorni di una fascia o di un treno abituale, con la
+// convenzione di time.Weekday.
+func validaGiorni(giorni []int) error {
+	if len(giorni) > 7 {
 		return errors.New("troppi giorni")
 	}
-	for _, g := range f.Giorni {
+	for _, g := range giorni {
 		if g < 0 || g > 6 {
 			return fmt.Errorf("giorno %d fuori dalla settimana", g)
 		}
@@ -105,21 +110,14 @@ func (f Fascia) valida() error {
 	return nil
 }
 
-// minutiDi legge "07:00" e restituisce i minuti dalla mezzanotte.
+// minutiDi legge "07:00" e restituisce i minuti dalla mezzanotte. Le cifre
+// sono sempre due: time.Parse prenderebbe anche "7:00", che si rifiuta.
 func minutiDi(v string) (int, error) {
-	o, m, ok := strings.Cut(v, ":")
-	if !ok {
+	t, err := time.Parse("15:04", v)
+	if err != nil || len(v) != len("15:04") {
 		return 0, fmt.Errorf("%q non è un orario", v)
 	}
-	ore, err := strconv.Atoi(o)
-	if err != nil || len(o) != 2 || ore < 0 || ore > 23 {
-		return 0, fmt.Errorf("%q non è un orario", v)
-	}
-	min, err := strconv.Atoi(m)
-	if err != nil || len(m) != 2 || min < 0 || min > 59 {
-		return 0, fmt.Errorf("%q non è un orario", v)
-	}
-	return ore*60 + min, nil
+	return t.Hour()*60 + t.Minute(), nil
 }
 
 // dentro dice se adesso cade in almeno una delle fasce.
@@ -129,13 +127,5 @@ func minutiDi(v string) (int, error) {
 // fasce esistessero — e cambiarglielo sotto vorrebbe dire spegnere le
 // notifiche a qualcuno senza che l'abbia chiesto.
 func dentro(fasce []Fascia, adesso time.Time) bool {
-	if len(fasce) == 0 {
-		return true
-	}
-	for _, f := range fasce {
-		if f.contiene(adesso) {
-			return true
-		}
-	}
-	return false
+	return len(fasce) == 0 || slices.ContainsFunc(fasce, func(f Fascia) bool { return f.contiene(adesso) })
 }

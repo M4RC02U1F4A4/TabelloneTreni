@@ -74,7 +74,8 @@ func notificatoreDiProva(t *testing.T, ab *Abbonati, c *http.Client) *Notificato
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := NuovoNotificatore(ab, pubblica, privata, "mailto:prova@example.com")
+	n := NuovoNotificatore(ab, pubblica, privata)
+	n.soggetto = "mailto:prova@example.com"
 	n.HTTP = c
 	return n
 }
@@ -191,7 +192,7 @@ func TestAbbonamentoScadutoVieneTolto(t *testing.T) {
 // stesso: i bollini si vedono, sono le notifiche a mancare.
 func TestSenzaChiaviNonNotifica(t *testing.T) {
 	ab, _ := ApriAbbonati("")
-	n := NuovoNotificatore(ab, "", "", "")
+	n := NuovoNotificatore(ab, "", "")
 	if n != nil {
 		t.Fatal("atteso nil senza chiavi")
 	}
@@ -216,7 +217,7 @@ func TestTestoDelCambio(t *testing.T) {
 		{cambio("S2", trenord.Critico, trenord.Regolare), "Circolazione tornata regolare"},
 	}
 	for _, caso := range casi {
-		if got := testoCambio(caso.c); got != caso.atteso {
+		if got := testoCambio(caso.c.Linea.Stato, caso.c.Prima); got != caso.atteso {
 			t.Errorf("%s -> %s: %q, atteso %q", caso.c.Prima, caso.c.Linea.Stato, got, caso.atteso)
 		}
 	}

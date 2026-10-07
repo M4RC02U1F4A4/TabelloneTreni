@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -197,10 +198,13 @@ func (ab Abbonamento) fuso() *time.Location {
 	return roma
 }
 
+// roma non può mancare: il database dei fusi è dentro il binario, vedi
+// l'import di time/tzdata in fasce.go. Si carica qui e non in un init perché
+// le variabili dei test la usano, e vengono inizializzate prima degli init.
 var roma = func() *time.Location {
 	l, err := time.LoadLocation("Europe/Rome")
 	if err != nil {
-		return time.UTC
+		panic(err)
 	}
 	return l
 }()
@@ -274,25 +278,34 @@ func (a *Abbonati) Registra(ab Abbonamento) error {
 		// ogni riapertura riporterebbe ogni linea al "primo giro", che è quello
 		// che per regola non annuncia nulla: la notizia successiva si
 		// perderebbe in silenzio, che è il modo peggiore di perderla.
-		ab.Visto = potaVisto(precedente.Visto, ab.Linee)
-		ab.VistoTreni = potaVistoTreni(precedente.VistoTreni, ab.chiaviInAttesa(time.Now()))
+		ab.Visto = pota(precedente.Visto, ab.Linee)
+		ab.VistoTreni = pota(precedente.VistoTreni, ab.chiaviInAttesa(time.Now()))
 		a.m[ab.Sottoscrizione.Endpoint] = ab
 	}
 	return a.scrivi()
 }
 
-// potaVisto tiene la memoria delle sole linee ancora seguite. Chi spegne una
-// campanella e la riaccende un mese dopo ricomincia da capo, che è giusto: di
-// quel mese non gli è stato raccontato niente, e riprendere il filo da dove era
-// vorrebbe dire annunciargli un cambio vecchio di settimane.
-func potaVisto(visto map[string]Visto, linee []string) map[string]Visto {
+// pota tiene la memoria delle sole linee ancora seguite, o dei soli treni
+// ancora attesi.
+//
+// Per le linee: chi spegne una campanella e la riaccende un mese dopo
+// ricomincia da capo, che è giusto: di quel mese non gli è stato raccontato
+// niente, e riprendere il filo da dove era vorrebbe dire annunciargli un cambio
+// vecchio di settimane.
+//
+// Per i treni vale lo stesso ragionamento e in più uno suo: un treno che non è
+// più atteso è finito, e la sua memoria non tornerà mai utile. Tenerla vorrebbe
+// dire far crescere il file per sempre. Atteso vuol dire segnalibro o treno di
+// oggi di un abituale: quest'ultimo resta in memoria fino alla fine della sua
+// finestra anche da arrivato, che è quello che gli impedisce di rinascere.
+func pota[V any](visto map[string]V, chiavi []string) map[string]V {
 	if len(visto) == 0 {
 		return nil
 	}
-	out := make(map[string]Visto, len(linee))
-	for _, c := range linee {
-		if v, cera := visto[c]; cera {
-			out[c] = v
+	out := make(map[string]V, len(chiavi))
+	for _, k := range chiavi {
+		if v, cera := visto[k]; cera {
+			out[k] = v
 		}
 	}
 	if len(out) == 0 {
@@ -307,40 +320,19 @@ func (ab Abbonamento) vuoto() bool {
 	return len(ab.Linee) == 0 && len(ab.Treni) == 0 && len(ab.Abituali) == 0
 }
 
-// potaVistoTreni è potaVisto per i treni. Vale lo stesso ragionamento e in più
-// uno suo: un treno che non è più atteso è finito, e la sua memoria non
-// tornerà mai utile. Tenerla vorrebbe dire far crescere il file per sempre.
-//
-// Atteso vuol dire segnalibro o treno di oggi di un abituale: quest'ultimo
-// resta in memoria fino alla fine della sua finestra anche da arrivato, che è
-// quello che gli impedisce di rinascere.
-func potaVistoTreni(visto map[string]VistoTreno, chiavi []string) map[string]VistoTreno {
-	if len(visto) == 0 {
-		return nil
-	}
-	out := make(map[string]VistoTreno, len(chiavi))
-	for _, k := range chiavi {
-		if v, cera := visto[k]; cera {
-			out[k] = v
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
 // Tutti restituisce gli abbonamenti, in copia: chi li scorre per notificare fa
 // richieste di rete lente, e tenere il lock per tutto quel tempo bloccherebbe
 // anche chi si sta solo abbonando.
 func (a *Abbonati) Tutti() []Abbonamento {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	out := make([]Abbonamento, 0, len(a.m))
-	for _, ab := range a.m {
-		out = append(out, ab)
-	}
-	return out
+	return a.elenco()
+}
+
+// elenco va chiamata con il lock preso. Mai nil: su disco un elenco vuoto è
+// "[]", non "null".
+func (a *Abbonati) elenco() []Abbonamento {
+	return slices.AppendSeq(make([]Abbonamento, 0, len(a.m)), maps.Values(a.m))
 }
 
 // SegnaVisto sostituisce la memoria di un abbonamento e la scrive.
@@ -394,7 +386,7 @@ func (a *Abbonati) SegnaVistoTreni(endpoint string, visto map[string]VistoTreno,
 		}
 		return
 	}
-	ab.VistoTreni = potaVistoTreni(visto, ab.chiaviInAttesa(adesso))
+	ab.VistoTreni = pota(visto, ab.chiaviInAttesa(adesso))
 	a.m[endpoint] = ab
 	if err := a.scrivi(); err != nil {
 		log.Printf("abbonamenti: scrittura su %s: %v", a.percorso, err)
@@ -498,11 +490,7 @@ func (a *Abbonati) scrivi() error {
 	if a.percorso == "" {
 		return nil
 	}
-	elenco := make([]Abbonamento, 0, len(a.m))
-	for _, ab := range a.m {
-		elenco = append(elenco, ab)
-	}
-	b, err := json.Marshal(elenco)
+	b, err := json.Marshal(a.elenco())
 	if err != nil {
 		return err
 	}

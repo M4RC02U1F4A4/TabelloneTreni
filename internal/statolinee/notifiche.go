@@ -39,14 +39,12 @@ type Notificatore struct {
 // NuovoNotificatore restituisce nil se le chiavi VAPID non ci sono: senza non
 // si puo' spedire niente, e il servizio deve continuare a funzionare lo stesso
 // — i bollini si vedono comunque, sono le notifiche a mancare.
-func NuovoNotificatore(ab *Abbonati, pubblica, privata, soggetto string) *Notificatore {
+func NuovoNotificatore(ab *Abbonati, pubblica, privata string) *Notificatore {
 	if pubblica == "" || privata == "" {
 		return nil
 	}
-	if soggetto == "" {
-		soggetto = "https://github.com/M4RC02U1F4A4/TabelloneTreni"
-	}
-	return &Notificatore{abbonati: ab, pubblica: pubblica, privata: privata, soggetto: soggetto}
+	return &Notificatore{abbonati: ab, pubblica: pubblica, privata: privata,
+		soggetto: "https://github.com/M4RC02U1F4A4/TabelloneTreni"}
 }
 
 func (n *Notificatore) ChiavePubblica() string {
@@ -176,23 +174,13 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 				case stato != prima.Stato && len(freschi) > 0:
 					// Il cambio dice cosa è successo, l'avviso perché: insieme
 					// sono la notifica che serve davvero.
-					m.Corpo = testoCambio(Cambio{
-						Linea: trenord.Linea{Codice: codice, Stato: stato}, Prima: prima.Stato,
-					}) + " · " + taglia(freschi[0].Testo, 150)
+					m.Corpo = testoCambio(stato, prima.Stato) + " · " + taglia(freschi[0].Testo, 150)
 				case stato != prima.Stato:
-					m.Corpo = testoCambio(Cambio{
-						Linea: trenord.Linea{Codice: codice, Stato: stato}, Prima: prima.Stato,
-					})
+					m.Corpo = testoCambio(stato, prima.Stato)
 				default:
 					m.Corpo = taglia(freschi[0].Testo, 180)
 				}
-				if corpo, err := json.Marshal(m); err == nil {
-					// Una riga anche sull'invio riuscito. Senza, "spedita" e
-					// "spedita e non consegnata" sono indistinguibili dai log,
-					// e ogni segnalazione riparte da zero.
-					log.Printf("%s notifica a %s: %s", codice, breve(ab.Sottoscrizione.Endpoint), m.Corpo)
-					n.manda(ctx, ab, corpo)
-				}
+				n.avvisa(ctx, ab, codice, m)
 			}
 			// Lo sciopero va per conto suo, con un tag suo: non deve sostituire
 			// sulla schermata di blocco la notizia di un guasto in corso, né
@@ -204,10 +192,7 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 					Tag:    "sciopero-" + codice,
 					Corpo:  taglia(nuoviScioperi[0].Testo, 180),
 				}
-				if corpo, err := json.Marshal(sc); err == nil {
-					log.Printf("%s sciopero a %s: %.60s", codice, breve(ab.Sottoscrizione.Endpoint), sc.Corpo)
-					n.manda(ctx, ab, corpo)
-				}
+				n.avvisa(ctx, ab, codice+" sciopero", sc)
 			}
 			// Il visto avanza comunque, riuscito l'invio o no. Non avanzare
 			// vorrebbe dire riprovare la stessa notizia a ogni giro contro un
@@ -283,14 +268,14 @@ func destinazione(codice string) string {
 // testoCambio dice il verso, non solo lo stato di arrivo: "torna regolare" e
 // "in criticità" sono due notizie diverse, e chi legge la notifica sulla
 // schermata di blocco vede solo questa riga.
-func testoCambio(c Cambio) string {
+func testoCambio(ora, prima trenord.Stato) string {
 	switch {
-	case c.Linea.Stato == trenord.Regolare:
+	case ora == trenord.Regolare:
 		return "Circolazione tornata regolare"
-	case c.Linea.Stato > c.Prima:
-		return "Circolazione peggiorata: " + etichetta(c.Linea.Stato)
+	case ora > prima:
+		return "Circolazione peggiorata: " + etichetta(ora)
 	default:
-		return "Circolazione migliorata: " + etichetta(c.Linea.Stato)
+		return "Circolazione migliorata: " + etichetta(ora)
 	}
 }
 
@@ -302,6 +287,20 @@ func etichetta(s trenord.Stato) string {
 		return "gravi criticità"
 	}
 	return "regolare"
+}
+
+// avvisa spedisce un messaggio a un abbonato. k dice di cosa si parla nel log:
+// la linea, la linea dello sciopero, il treno.
+func (n *Notificatore) avvisa(ctx context.Context, ab Abbonamento, k string, m messaggio) {
+	corpo, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	// Una riga anche sull'invio riuscito. Senza, "spedita" e "spedita e non
+	// consegnata" sono indistinguibili dai log, e ogni segnalazione riparte da
+	// zero.
+	log.Printf("%s notifica a %s: %s", k, breve(ab.Sottoscrizione.Endpoint), m.Corpo)
+	n.manda(ctx, ab, corpo)
 }
 
 func (n *Notificatore) manda(ctx context.Context, ab Abbonamento, corpo []byte) {

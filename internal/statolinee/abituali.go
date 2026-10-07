@@ -93,15 +93,7 @@ func (t TrenoAbituale) valida() error {
 	if _, err := minutiDi(t.Ora); err != nil {
 		return err
 	}
-	if len(t.Giorni) > 7 {
-		return errors.New("troppi giorni")
-	}
-	for _, g := range t.Giorni {
-		if g < 0 || g > 6 {
-			return fmt.Errorf("giorno %d fuori dalla settimana", g)
-		}
-	}
-	return nil
+	return validaGiorni(t.Giorni)
 }
 
 // attesa è un treno che qualcuno aspetta in questo giro: un segnalibro, o il

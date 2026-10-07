@@ -50,7 +50,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	notificatore := statolinee.NuovoNotificatore(abbonati, pubblica, privata, "")
+	notificatore := statolinee.NuovoNotificatore(abbonati, pubblica, privata)
 	log.Printf("notifiche accese (%d abbonamenti)", abbonati.Quanti())
 	// Cosa il servizio crede delle fasce di ognuno, all'avvio. È l'unico modo
 	// di confrontarlo con quello che l'interfaccia mostra sul telefono: senza,
