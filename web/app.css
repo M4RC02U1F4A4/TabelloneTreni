@@ -357,12 +357,6 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 /* --- il treno seguito: la scheda grande --- */
 
 .schede { display: flex; flex-direction: column; gap: var(--gap); }
-/* Una rete, non una correzione misurata: con nessun dato finto la scheda è
-   mai uscita dalla pagina, su Chromium e su WebKit. Ma un elemento flex non si
-   stringe sotto il suo contenuto se non glielo si dice, e un nome di stazione
-   senza spazi nella riga "rilevato a …" allargherebbe la scheda invece di
-   andare a capo. */
-.schede > li { min-width: 0; }
 /* Un piano sopra le tessere, con il bordo verde del treno vivo: nello scuro è
    la cosa più chiara della pagina senza essere la più accesa. */
 .scheda {
@@ -423,6 +417,11 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   display: flex; align-items: center; gap: 10px;
   margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--bordo);
   font-size: 14px; color: var(--tenue);
+  /* Una rete, non una correzione misurata: con nessun dato finto la scheda è
+     mai uscita dalla pagina, su Chromium e su WebKit. Ma il testo qui è un
+     elemento flex, che non si stringe sotto la parola più lunga: un nome di
+     stazione senza spazi in "rilevato a …" allargherebbe la scheda invece di
+     andare a capo. */
   overflow-wrap: anywhere;
 }
 /* Il puntino c'è solo quando ViaggiaTreno il treno lo sta seguendo davvero:

@@ -44,9 +44,26 @@ const VISTE = {
   // Il punto 6: i due tasti sotto le fermate premuti tutti e due. Accesi le
   // scritte si allungano ("Lo stai seguendo", "Lo prendi ogni giorno"), e il
   // secondo usciva dalla scheda già a 390 px.
-  'tratta-seguito': { rotta: '#/p/1841/1715', dopo: async (p) => {
+  //
+  // Il tabellone è finto: con quello vero, di notte o con RFI giù, non c'era
+  // nessun treno da aprire e la vista falliva per l'ora del giorno. Due treni
+  // e non uno, perché il primo diventa la scheda grande del prossimo e solo
+  // dal secondo in giù le righe si aprono. Le ore sono fra mezz'ora e un'ora,
+  // così il tabellone li mostra come treni ancora da prendere.
+  'tratta-seguito': { rotta: '#/p/1841/1715', tabellone: () => {
+    const ora = (min) => new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .format(Date.now() + min * 60_000);
+    const treno = (number, min) => ({
+      number, category: 'S8', carrier: 'Trenord', terminus: 'MALPENSA AEROPORTO TERMINAL 2', time: ora(min), platform: '5', arrival: ora(min + 19),
+      stops: [{ name: 'SESTO S.GIOVANNI', time: ora(min + 4) }, { name: 'MILANO PORTA GARIBALDI', time: ora(min + 19) }],
+    });
+    return { placeId: 1841, station: 'MONZA', arrivals: false, from: 'MONZA', to: 'MILANO PORTA GARIBALDI', filtered: true, total: 2,
+      trains: [treno('24852', 30), treno('24854', 60)] };
+  }, dopo: async (p) => {
     await VISTE.tratta.dopo(p);
-    for (const i of [0, 1]) { await p.click(`.segui-riga button >> nth=${i}`).catch(() => {}); await p.waitForTimeout(800); }
+    // Si accende solo quello spento: il viaggio finto è già fra i seguiti, e
+    // toccare "Lo stai seguendo" lo spegnerebbe.
+    for (const _ of [0, 1]) { await p.click('.segui-riga button[aria-pressed="false"]', { timeout: 3000 }).catch(() => {}); await p.waitForTimeout(800); }
     const accesi = await p.$$eval('.segui-riga button[aria-pressed="true"]', (b) => b.length).catch(() => 0);
     return accesi === 2 ? [] : [`${accesi} tasti accesi su 2`];
   } },
@@ -71,6 +88,12 @@ const VISTE = {
 };
 
 async function apri(page, vista) {
+  // Col tabellone finto anche il viaggio del treno aperto lo è: `api/train`
+  // chiede a ViaggiaTreno, che di notte non ha il treno e il tasto non c'è.
+  if (VISTE[vista].tabellone) {
+    await page.route('**/api/board**', (r) => r.fulfill({ json: VISTE[vista].tabellone() }));
+    await page.route('**/api/train**', (r) => r.fulfill({ json: viaggio }));
+  }
   await page.route('**/api/journey**', (r) => r.fulfill({ json: VISTE[vista].viaggio || viaggio }));
   // Un avviso finto a Porta Garibaldi, come il viaggio: senza avvisi veri il
   // gettone non c'è, e home-avvisi misurerebbe la home normale senza dirlo.
