@@ -13,13 +13,12 @@ RUN go mod download
 COPY . .
 ARG TARGETOS TARGETARCH
 ARG VERSIONE=dev
+ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
 # I due binari stanno nella stessa immagine invece che in due: pesano pochi MB
 # l'uno, si rilasciano insieme perché vengono dallo stesso commit, e così la
 # pipeline resta una sola. A separarli sono i due servizi in compose, che la
 # avviano con entrypoint diversi.
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w -X main.versione=$VERSIONE" -o /tabellonetreni . && \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+RUN go build -trimpath -ldflags="-s -w -X main.versione=$VERSIONE" -o /tabellonetreni . && \
     go build -trimpath -ldflags="-s -w -X main.versione=$VERSIONE" -o /statolinee ./cmd/statolinee
 
 # distroless static: nessuna shell e nessun gestore di pacchetti, ma con i

@@ -5,4 +5,5 @@
 # Solo per il README.
 docs
 # Servono solo ai test, e sono la parte più pesante del sorgente.
-internal/rfi/testdata
+**/testdata
+**/*_test.go

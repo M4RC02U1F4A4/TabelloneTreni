@@ -112,9 +112,6 @@ func percorsoDati(nome string) string {
 }
 
 func indirizzo() string {
-	if a := os.Getenv("ADDR"); a != "" {
-		return a
-	}
 	if p := os.Getenv("PORT"); p != "" {
 		return ":" + p
 	}

@@ -732,7 +732,6 @@ Il tabellone:
 | variabile | difetto | |
 |---|---|---|
 | `PORT` | `8080` | porta di ascolto |
-| `ADDR` | `:8080` | indirizzo completo, ha la precedenza su `PORT` |
 | `STATO_LINEE_URL` | `http://statolinee:8081` | dove risponde il servizio delle linee |
 
 `statolinee`, che legge da Trenord ogni 5 minuti:
@@ -740,7 +739,6 @@ Il tabellone:
 | variabile | difetto | |
 |---|---|---|
 | `PORT` | `8081` | porta di ascolto |
-| `ADDR` | `:8081` | indirizzo completo, ha la precedenza su `PORT` |
 | `DATI` | *(vuoto)* | cartella dove tenere abbonamenti e chiavi; vuoto significa solo in memoria, e si perdono a ogni riavvio |
 
 | rotta | |

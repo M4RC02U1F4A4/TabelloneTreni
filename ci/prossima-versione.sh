@@ -8,15 +8,10 @@
 #   feat                                                     ->  minor
 #   fix, perf                                                ->  patch
 #   tutto il resto (chore, docs, refactor, e i commit che non
-#   seguono la convenzione)                                  ->  $BUMP_PREDEFINITO
-#
-# BUMP_PREDEFINITO=patch fa sì che ogni push sul branch principale produca
-# comunque un'immagine. Mettilo a 'none' per rilasciare solo su feat e fix.
+#   seguono la convenzione)                                  ->  patch
 #
 # I tag non hanno prefisso 'v', come negli altri progetti.
 set -eu
-
-BUMP_PREDEFINITO="${BUMP_PREDEFINITO:-patch}"
 
 SEMVER='^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$'
 
@@ -38,7 +33,7 @@ corpi=$(git log --format='%b' "$intervallo")
 # Nessun commit nuovo: non c'è proprio niente da rilasciare.
 [ -n "$soggetti" ] || exit 0
 
-bump="$BUMP_PREDEFINITO"
+bump=patch
 
 if echo "$soggetti" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:' \
 || echo "$corpi"    | grep -qE '^BREAKING[ -]CHANGE:'; then
@@ -49,12 +44,9 @@ elif echo "$soggetti" | grep -qE '^(fix|perf)(\([^)]*\))?:'; then
     bump=patch
 fi
 
-# Solo commit di servizio e nessun incremento predefinito: niente rilascio.
-[ "$bump" != "none" ] || exit 0
-
-maj=$(echo "$base" | cut -d. -f1)
-min=$(echo "$base" | cut -d. -f2)
-pat=$(echo "$base" | cut -d. -f3)
+IFS=. read -r maj min pat <<EOF
+$base
+EOF
 
 case "$bump" in
     major) maj=$((maj + 1)); min=0;             pat=0 ;;
