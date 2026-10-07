@@ -311,6 +311,20 @@ function scrivi(chiave, valore) {
   try { localStorage.setItem(chiave, JSON.stringify(valore)); } catch { /* modalità privata */ }
 }
 
+/* Le quattro liste salvate — preferiti, campanelle, treni seguiti, abituali —
+   si accendono e spengono allo stesso modo: via se c'è, dentro se non c'è.
+   `chiaveDi` dice cosa rende uguali due voci; `inCima` è per le liste in cui
+   l'ultima cosa aggiunta va davanti. */
+function alterna(chiave, voce, chiaveDi, inCima = false) {
+  const k = chiaveDi(voce);
+  const elenco = leggi(chiave, []);
+  const resto = elenco.filter((x) => chiaveDi(x) !== k);
+  if (resto.length === elenco.length) {
+    if (inCima) resto.unshift(voce); else resto.push(voce);
+  }
+  scrivi(chiave, resto);
+}
+
 /* Le due stazioni scritte nella ricerca. Stavano solo in memoria, e su un
    telefono che chiude le applicazioni quando gli pare sparivano di continuo:
    si riapriva l'app e il modulo era di nuovo vuoto, con la stazione di partenza
@@ -330,12 +344,7 @@ function idrataCampi() {
 const preferiti = () => leggi('tt.preferiti', []);
 const chiaveTratta = (p) => `${p.f}>${p.t || ''}${p.a ? '>a' : ''}`;
 
-function alternaPreferito(p) {
-  const k = chiaveTratta(p);
-  const elenco = preferiti().filter((x) => chiaveTratta(x) !== k);
-  if (elenco.length === preferiti().length) elenco.unshift(p);
-  scrivi('tt.preferiti', elenco);
-}
+function alternaPreferito(p) { alterna('tt.preferiti', p, chiaveTratta, true); }
 const ePreferito = (p) => preferiti().some((x) => chiaveTratta(x) === chiaveTratta(p));
 
 /* Le linee seguite. Si salva il codice ("S2", "R16") e non il nome, che cambia
@@ -355,12 +364,8 @@ const campanelle = () => leggi('tt.campanelle', []);
    due convenzioni e un punto in cui sbagliare. */
 const fasce = () => leggi('tt.notifiche', []);
 
-// Il nome IANA del fuso del telefono. Se il browser non lo dice — non capita
-// più da anni, ma costa una riga — resta vuoto e il server usa l'ora italiana.
-function fusoDelTelefono() {
-  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
-  catch { return ''; }
-}
+// Il nome IANA del fuso del telefono.
+const fusoDelTelefono = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 const scriviFasce = (f) => scrivi('tt.notifiche', f);
 
 // I giorni nell'ordine in cui si leggono in Italia: la settimana comincia il
@@ -384,11 +389,7 @@ const fasciaCompleta = (f) => !!f.da && !!f.a && f.da !== f.a;
 const fasceValide = () => fasce().every(fasciaCompleta);
 const seguita = (codice) => campanelle().includes(codice);
 
-function alternaCampanella(codice) {
-  const elenco = campanelle().filter((c) => c !== codice);
-  if (elenco.length === campanelle().length) elenco.unshift(codice);
-  scrivi('tt.campanelle', elenco);
-}
+const alternaCampanella = (codice) => alterna('tt.campanelle', codice, (c) => c, true);
 
 /* I treni seguiti.
 
@@ -404,12 +405,7 @@ const seguiti = () => leggi('tt.seguiti', []);
 const chiaveTreno = (t) => `${t.o}|${t.n}|${t.d}`;
 const eSeguito = (t) => seguiti().some((x) => chiaveTreno(x) === chiaveTreno(t));
 
-function alternaSeguito(t) {
-  const k = chiaveTreno(t);
-  const elenco = seguiti().filter((x) => chiaveTreno(x) !== k);
-  if (elenco.length === seguiti().length) elenco.push(t);
-  scrivi('tt.seguiti', elenco);
-}
+const alternaSeguito = (t) => alterna('tt.seguiti', t, chiaveTreno);
 
 /* Togliere il segnalibro non butta via il viaggio già scaricato: si può essere
    fermi sulla sua scheda, e vederla svuotarsi sotto le dita sarebbe la risposta
@@ -530,12 +526,7 @@ const abituali = () => leggi('tt.abituali', []);
 const chiaveAbituale = (x) => `${x.o}|${x.n}|${x.f}`;
 const eAbituale = (x) => abituali().some((y) => chiaveAbituale(y) === chiaveAbituale(x));
 
-function alternaAbituale(x) {
-  const k = chiaveAbituale(x);
-  const elenco = abituali().filter((y) => chiaveAbituale(y) !== k);
-  if (elenco.length === abituali().length) elenco.push(x);
-  scrivi('tt.abituali', elenco);
-}
+const alternaAbituale = (x) => alterna('tt.abituali', x, chiaveAbituale);
 
 /* Come un abituale si presenta al server: gli stessi nomi di TrenoAbituale. La
    fermata dove si scende resta qui, perché al server non serve. */
@@ -583,16 +574,22 @@ function istanteRoma(q) {
   return q - (quadranteRoma(prova) - prova);
 }
 
+// I minuti dalla mezzanotte di un orario "HH:MM". NaN se non si legge.
+function minutiDi(hhmm) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  return h * 60 + m;
+}
+
 function abitualiDiOggi(elenco, adesso) {
   const ms = adesso.getTime();
   const qui = new Date(quadranteRoma(ms));
   const oggi = Date.UTC(qui.getUTCFullYear(), qui.getUTCMonth(), qui.getUTCDate());
   const out = [];
   for (const x of elenco) {
-    const [h, m] = String(x.at || '').split(':').map(Number);
+    const minuti = minutiDi(x.at || '');
     for (const giorno of [oggi - 86_400_000, oggi, oggi + 86_400_000]) {
       if (!(x.days || []).includes(new Date(giorno).getUTCDay())) continue;
-      const parte = istanteRoma(giorno + (h * 60 + m) * 60_000);
+      const parte = istanteRoma(giorno + minuti * 60_000);
       if (ms < parte - 10 * 60_000 || ms >= parte + 3 * 60 * 60_000) continue;
       out.push({
         o: x.o, n: x.n, d: istanteRoma(giorno), f: x.f, cat: x.cat, capolinea: x.capolinea,
@@ -632,6 +629,21 @@ function ricorda(id) {
 
 /* ------------------------------------------------------------------- dati */
 
+/* Una lettura JSON dal server: la risposta, o null se la pagina si sta
+   ricaricando per una versione nuova. Un errore HTTP diventa un'eccezione con
+   il messaggio del server, quando c'è, e con lo status, per chi deve
+   distinguere un 4xx da un 5xx. */
+async function leggiJSON(url, opzioni) {
+  const r = await fetch(url, opzioni);
+  if (controllaVersione(r)) return null;
+  if (!r.ok) {
+    const e = new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
+    e.status = r.status;
+    throw e;
+  }
+  return r.json();
+}
+
 async function caricaStazioni() {
   if (stato.stazioni.length) return;
   const r = await fetch(API.stazioni);
@@ -661,11 +673,10 @@ async function caricaTabellone() {
     // scheletri e il gesto di aggiornare a girare finché il browser non si
     // arrende, cioè per minuti. Venticinque secondi e non i quindici delle
     // altre letture: il server aspetta RFI fino a venti.
-    const r = await fetch(API.tabellone(stato.da, stato.a, stato.arrivi), { signal: AbortSignal.timeout(25_000) });
-    if (controllaVersione(r)) return;              // la pagina si sta ricaricando
+    const d = await leggiJSON(API.tabellone(stato.da, stato.a, stato.arrivi), { signal: AbortSignal.timeout(25_000) });
+    if (!d) return;                                // la pagina si sta ricaricando
     if (mio !== richiestaInCorso) return;          // una richiesta più nuova ha già vinto
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
-    stato.dati = await r.json();
+    stato.dati = d;
     stato.scaricatoIl = Date.now();
     stato.errore = null;
     rileggiSchedeAperte();
@@ -696,10 +707,8 @@ function rileggiSchedeAperte() {
    non risponde si tiene da parte il motivo e si va avanti. */
 async function caricaLinee() {
   try {
-    const r = await fetch(API.linee, { signal: AbortSignal.timeout(15_000) });
-    if (controllaVersione(r)) return;
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
-    const d = await r.json();
+    const d = await leggiJSON(API.linee, { signal: AbortSignal.timeout(15_000) });
+    if (!d) return;
     stato.linee = d.lines || [];
     // Le linee seguite arrivano con le comunicazioni già dentro: sono quelle
     // che il servizio interroga da sé per poter mandare le notifiche, e
@@ -742,21 +751,8 @@ async function caricaViaggioSeguito(t, forza) {
     // Più del tabellone (25 s): il server aspetta ViaggiaTreno fino a venti
     // secondi e le righe di RFI fino a sei, e una scheda che aspetta un po' di
     // più vale più di una che resta vecchia.
-    const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(30_000) });
-    if (controllaVersione(r)) return false;
-    if (!r.ok) {
-      // Un 4xx su un treno di un giorno passato vuol dire che il server non lo
-      // accetta più (il 400 dei giorni ammessi): è finito, e il segnalibro se
-      // ne va come se fosse arrivato. Un 5xx no: il treno dimenticato da
-      // ViaggiaTreno torna come "non tracciato" più sotto, e un 5xx dice solo
-      // che ViaggiaTreno non risponde — un timeout, un deploy. Il treno delle
-      // 23:30 che arriva alle 00:40 non deve sparire al primo singhiozzo; se
-      // non risponde mai più lo toglie potaSeguiti, a 36 ore. Per lo stesso
-      // motivo non nel catch: la rete che cade non dice niente del treno.
-      if (r.status < 500 && diIeri(t)) smettiDiSeguire(k);
-      throw new Error(`errore ${r.status}`);
-    }
-    const d = await r.json();
+    const d = await leggiJSON(API.viaggio(chiesto), { signal: AbortSignal.timeout(30_000) });
+    if (!d) return false;
     // Il treno di oggi che era tracciato e adesso non lo è più: ViaggiaTreno
     // l'ha perso per un giro, non è tornato a "non ancora partito". Si tiene
     // l'ultima posizione, come per una lettura fallita, e si torna falso: il
@@ -778,7 +774,17 @@ async function caricaViaggioSeguito(t, forza) {
     // tracciato e resta anche lui.
     else if (!d.tracked && diIeri(t)) smettiDiSeguire(k);
     return true;
-  } catch {
+  } catch (e) {
+    // Un 4xx su un treno di un giorno passato vuol dire che il server non lo
+    // accetta più (il 400 dei giorni ammessi): è finito, e il segnalibro se
+    // ne va come se fosse arrivato. Un 5xx no: il treno dimenticato da
+    // ViaggiaTreno torna come "non tracciato" più sotto, e un 5xx dice solo
+    // che ViaggiaTreno non risponde — un timeout, un deploy. Il treno delle
+    // 23:30 che arriva alle 00:40 non deve sparire al primo singhiozzo; se
+    // non risponde mai più lo toglie potaSeguiti, a 36 ore. Per lo stesso
+    // motivo conta solo lo status di una risposta: la rete che cade non ne ha,
+    // e non dice niente del treno.
+    if (e.status < 500 && diIeri(t)) smettiDiSeguire(k);
     // L'ultima lettura buona resta, in memoria e su disco: su un treno la rete
     // cade a tratti, e la posizione di un minuto fa vale più di una riga vuota.
     // Vale anche per il treno di ieri appena tolto: senza lo stato di errore,
@@ -830,10 +836,9 @@ async function caricaAvvisiStazione() {
   const ids = [...new Set(preferiti().map((p) => p.f))].slice(0, 8);
   if (!ids.length) { stato.avvisiStazione = []; return; }
   try {
-    const r = await fetch(API.avvisiStazione(ids), { signal: AbortSignal.timeout(15_000) });
-    if (controllaVersione(r)) return;
-    if (!r.ok) throw new Error(`errore ${r.status}`);
-    stato.avvisiStazione = (await r.json()).stations || [];
+    const d = await leggiJSON(API.avvisiStazione(ids), { signal: AbortSignal.timeout(15_000) });
+    if (!d) return;
+    stato.avvisiStazione = d.stations || [];
   } catch {
     stato.avvisiStazione = [];
   }
@@ -855,10 +860,8 @@ async function caricaProssimi() {
       // venti secondi: una richiesta appesa terrebbe la tessera sui tre
       // puntini fino al giro dopo, e il gesto di aggiornare a girare a vuoto
       // aspettandola.
-      const r = await fetch(API.tabellone(p.f, p.t, p.a), { signal: AbortSignal.timeout(25_000) });
-      if (controllaVersione(r)) return;
-      if (!r.ok) throw new Error(`errore ${r.status}`);
-      const d = await r.json();
+      const d = await leggiJSON(API.tabellone(p.f, p.t, p.a), { signal: AbortSignal.timeout(25_000) });
+      if (!d) return;
       prossimi.set(k, { stato: 'ok', treno: (d.trains || [])[0] || null });
     } catch {
       if (!prossimi.has(k)) prossimi.set(k, { stato: 'errore' });
@@ -886,6 +889,10 @@ function statoNotifiche() {
   if (Notification.permission === 'default') return 'da-chiedere';
   return 'concesso';
 }
+
+// La richiesta del permesso, se il gesto la merita e non è ancora stata fatta:
+// la promessa da passare a sincronizzaNotifiche, o null.
+const permessoSe = (c) => (c && statoNotifiche() === 'da-chiedere' ? Notification.requestPermission() : null);
 
 let chiavePubblica = null;
 let notificheErrore = null;
@@ -1390,13 +1397,20 @@ const rilettura = (treno) => () => caricaViaggioSeguito(treno, true).then((letto
   disegna();
 });
 
+/* Quanto tempo fa, a parole: "un minuto fa", "7 minuti fa". Lo dicono il
+   tabellone, la lettura di un treno seguito e la posizione, ognuno con la sua
+   soglia sotto la quale tace — quella resta a chi chiama. */
+const fa = (ms) => {
+  const m = Math.round(ms / 60_000);
+  return m === 1 ? 'un minuto fa' : `${m} minuti fa`;
+};
+
 function eta() {
   if (!stato.scaricatoIl) return '';
   const s = Math.round((Date.now() - stato.scaricatoIl) / 1000);
   if (s < 10) return 'adesso';
   if (s < 60) return `${s} secondi fa`;
-  const m = Math.round(s / 60);
-  return m === 1 ? 'un minuto fa' : `${m} minuti fa`;
+  return fa(s * 1000);
 }
 
 function aggiornaEta() {
@@ -1669,6 +1683,10 @@ function fermataArrivo(d) {
   return con.find((f) => f.chosen) || con[con.length - 1] || null;
 }
 
+// Se almeno una fermata ha le coordinate: senza, non c'è niente da misurare
+// né da mettere su una mappa.
+const haCoordinate = (d) => (d.stops || []).some((f) => f.lat && f.lon);
+
 /* La distanza scritta come la si dice: in metri arrotondati a cinquanta finché
    ci stanno, poi in chilometri con un decimale. "1348 m" è una precisione che
    il GPS non ha e che a nessuno serve.
@@ -1703,8 +1721,7 @@ function doveAdesso(d, lettoIl) {
 
 function etaLettura(lettoIl) {
   if (!lettoIl || Date.now() - lettoIl < VECCHIA) return '';
-  const m = Math.round((Date.now() - lettoIl) / 60_000);
-  return ` · letto ${m === 1 ? 'un minuto' : `${m} minuti`} fa`;
+  return ` · letto ${fa(Date.now() - lettoIl)}`;
 }
 
 /* Il numero del binario, con la qualifica staccata quando ce n'è una.
@@ -1881,12 +1898,8 @@ function fraQuanto(t, d, riga) {
   if (riga.cancelled || d.arrived || !riga.time) return '';
   const salita = (d.stops || []).find((f) => f.boarding);
   if (salita && salita.passed) return '';
-  const [h, m] = riga.time.split(':').map(Number);
-  const parte = istanteRoma(quadranteRoma(t.d) + (h * 60 + m) * 60_000)
-    + Math.max(ritardoVero(riga) || 0, 0) * 60_000;
-  const minuti = Math.round((parte - Date.now()) / 60_000);
-  if (minuti < 1 || minuti > 60) return '';
-  return `<span class="fra">fra ${minuti} min</span>`;
+  const minuti = fraMinuti(riga.time, ritardoVero(riga), Date.now(), t.d);
+  return minuti ? `<span class="fra">fra ${minuti} min</span>` : '';
 }
 
 /* La scheda di un treno seguito, aperta a tutta pagina: sopra le stesse tre
@@ -1986,7 +1999,7 @@ function sommarioTreno(d, lettoIl) {
    una fermata con le coordinate resterebbe un riquadro vuoto da aprire. */
 function sezioneMappa(d) {
   if (!navigator.geolocation) return '';
-  if (!(d.stops || []).some((f) => f.lat && f.lon)) return '';
+  if (!haCoordinate(d)) return '';
   return `<button class="tab-mappa" type="button" data-mappa aria-expanded="${mappaAperta}">
       ${icona('mira')}<span>Mappa del viaggio</span>
       <span class="chevron">${icona('gallone')}</span>
@@ -1998,7 +2011,7 @@ function sezioneMappa(d) {
 // perché il viaggio si rilegge ogni minuto, e quello nuovo potrebbe non
 // averne.
 function conMappa(d) {
-  return mappaAperta && (d.stops || []).some((f) => f.lat && f.lon);
+  return mappaAperta && haCoordinate(d);
 }
 
 /* Quanto manca alla tua fermata, secondo il telefono.
@@ -2009,8 +2022,7 @@ function conMappa(d) {
    bottone, non una richiesta automatica all'apertura della scheda — che
    sarebbe anche un permesso chiesto senza spiegare a cosa serve. */
 function rigaPosizione(d) {
-  const conCoordinate = (d.stops || []).some((f) => f.lat && f.lon);
-  if (!conCoordinate) return '';
+  if (!haCoordinate(d)) return '';
 
   if (!navigator.geolocation) return '';
   // Il bottone c'è ogni volta che il GPS non è acceso, e non solo la prima
@@ -2063,8 +2075,7 @@ function etaPosizione() {
   if (!posizione || posizione.errore) return '';
   const s = Math.round((Date.now() - posizione.quando) / 1000);
   if (s < 90) return '';
-  const m = Math.round(s / 60);
-  return `<em> · letta ${m === 1 ? 'un minuto' : `${m} minuti`} fa</em>`;
+  return `<em> · letta ${fa(s * 1000)}</em>`;
 }
 
 /* ------------------------------------------------------------------ mappa */
@@ -2502,9 +2513,9 @@ async function scaricaAvvisi(codice) {
     // comunicazioni…" davanti a chi ha aperto la riga finché non ricarica. Il
     // tabellone rinuncia dopo dieci secondi, quindi quindici qui sono il caso
     // in cui non risponde nemmeno lui.
-    const r = await fetch(API.avvisiLinea(codice), { signal: AbortSignal.timeout(15_000) });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
-    avvisiLinea.set(codice, { stato: 'ok', dati: (await r.json()).notices || [] });
+    const d = await leggiJSON(API.avvisiLinea(codice), { signal: AbortSignal.timeout(15_000) });
+    if (!d) return;   // la pagina si sta ricaricando: non c'è niente da ridisegnare
+    avvisiLinea.set(codice, { stato: 'ok', dati: d.notices || [] });
   } catch (e) {
     avvisiLinea.set(codice, {
       stato: 'errore',
@@ -2534,13 +2545,12 @@ function vociAvviso(a) {
    sola ora — il giorno lo si sa — e dei giorni prima il giorno e l'ora, come
    fa Trenord. */
 function quandoScritto(a) {
-  const d = a.date ? new Date(a.date) : null;
-  if (!d || isNaN(d)) return '';
+  // La data si legge come per l'ordine: senza, o illeggibile, è -Infinity.
+  const ms = quandoAvviso(a);
+  if (ms === -Infinity) return '';
+  const d = new Date(ms);
   const ora = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  const oggi = new Date();
-  const stessoGiorno = d.getDate() === oggi.getDate()
-    && d.getMonth() === oggi.getMonth() && d.getFullYear() === oggi.getFullYear();
-  if (stessoGiorno) return ora;
+  if (d.toDateString() === new Date().toDateString()) return ora;
   return `${d.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })}, ${ora}`;
 }
 
@@ -2591,12 +2601,7 @@ function disegnaNotifiche() {
 const MAX_FASCE = 8;
 
 function rigaFascia(f, i) {
-  const giorni = GIORNI.map((g) => {
-    const acceso = (f.giorni || []).includes(g.v);
-    return `<button class="giorno${acceso ? ' acceso' : ''}" type="button"
-                    data-giorno="${i}:${g.v}" aria-pressed="${acceso}"
-                    aria-label="${nomeGiorno(g.v)}">${g.l}</button>`;
-  }).join('');
+  const giorni = bottoniGiorni(f.giorni, (v) => `data-giorno="${i}:${v}"`);
   return `<li class="fascia${fasciaCompleta(f) ? '' : ' incompleta'}">
     <div class="fascia-testa">
       <span class="fascia-quando">${esc(f.da || '--:--')} – ${esc(f.a || '--:--')}</span>
@@ -2613,6 +2618,21 @@ function rigaFascia(f, i) {
 
 const nomeGiorno = (v) =>
   ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'][v];
+
+/* I sette bottoni dei giorni, per una fascia e per un treno abituale: cambia
+   solo l'attributo che dice al gestore del tocco di chi è quel giorno. */
+const bottoniGiorni = (attivi, attr) => GIORNI.map((g) => {
+  const acceso = (attivi || []).includes(g.v);
+  return `<button class="giorno${acceso ? ' acceso' : ''}" type="button"
+                    ${attr(g.v)} aria-pressed="${acceso}"
+                    aria-label="${nomeGiorno(g.v)}">${g.l}</button>`;
+}).join('');
+
+// Un tocco su un giorno: spento se c'era, acceso se no, e i giorni in ordine.
+function alternaGiorno(giorni, g) {
+  const prima = giorni || [];
+  return prima.includes(g) ? prima.filter((x) => x !== g) : [...prima, g].sort();
+}
 
 /* Ogni tocco salva e riallinea il server. Non c'è un tasto "salva": una fascia
    scritta e non salvata è una notifica che non arriva senza che nessuno l'abbia
@@ -2866,12 +2886,7 @@ function rigaAbituale(x) {
     </button>`;
   if (!aperto) return `<li class="abituale">${testa}</li>`;
 
-  const giorni = GIORNI.map((g) => {
-    const acceso = (x.days || []).includes(g.v);
-    return `<button class="giorno${acceso ? ' acceso' : ''}" type="button"
-                    data-giorno-abituale="${esc(k)}:${g.v}" aria-pressed="${acceso}"
-                    aria-label="${nomeGiorno(g.v)}">${g.l}</button>`;
-  }).join('');
+  const giorni = bottoniGiorni(x.days, (v) => `data-giorno-abituale="${esc(k)}:${v}"`);
   return `<li class="abituale">${testa}
     <div class="giorni" role="group" aria-label="Giorni del treno">${giorni}</div>
     <p class="abituale-piede">
@@ -3131,27 +3146,28 @@ function servizioDi(t) {
    "HH:MM" senza giorno: un arrivo che sembra prima della partenza è dopo
    mezzanotte. */
 function durata(da, a) {
-  const minuti = (s) => {
-    const [h, m] = String(s).split(':').map(Number);
-    return h * 60 + m;
-  };
   if (!da || !a) return null;
-  const d = minuti(a) - minuti(da);
+  const d = minutiDi(a) - minutiDi(da);
   if (Number.isNaN(d)) return null;
   return d < 0 ? d + 24 * 60 : d;
 }
 
-/* Fra quanti minuti parte un treno del tabellone, con il ritardo dentro. L'ora
-   è un "HH:MM" di Roma senza giorno: oggi, o domani se oggi è passata da più
-   di sei ore — la stessa regola del server. Come sulla scheda in home tace
-   oltre l'ora, e a treno già partito. */
-function fraMinuti(hhmm, ritardo, adesso = Date.now()) {
-  const [h, m] = String(hhmm).split(':').map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  const q = new Date(quadranteRoma(adesso));
-  const oggi = Date.UTC(q.getUTCFullYear(), q.getUTCMonth(), q.getUTCDate());
-  let parte = istanteRoma(oggi + (h * 60 + m) * 60_000);
-  if (parte < adesso - 6 * 60 * 60_000) parte = istanteRoma(oggi + 24 * 60 * 60_000 + (h * 60 + m) * 60_000);
+/* Fra quanti minuti parte un treno, con il ritardo dentro. L'ora è un "HH:MM"
+   di Roma. Il giorno, quando lo si sa — la mezzanotte di Roma della partenza
+   di un treno seguito — è quello; sul tabellone, che non lo porta, è oggi, o
+   domani se oggi è passata da più di sei ore — la stessa regola del server.
+   Tace oltre l'ora, e a treno già partito: null. */
+function fraMinuti(hhmm, ritardo, adesso = Date.now(), giorno = null) {
+  const min = minutiDi(hhmm);
+  if (Number.isNaN(min)) return null;
+  let parte;
+  if (giorno !== null) parte = istanteRoma(quadranteRoma(giorno) + min * 60_000);
+  else {
+    const q = new Date(quadranteRoma(adesso));
+    const oggi = Date.UTC(q.getUTCFullYear(), q.getUTCMonth(), q.getUTCDate());
+    parte = istanteRoma(oggi + min * 60_000);
+    if (parte < adesso - 6 * 60 * 60_000) parte = istanteRoma(oggi + 24 * 60 * 60_000 + min * 60_000);
+  }
   const minuti = Math.round((parte + Math.max(ritardo || 0, 0) * 60_000 - adesso) / 60_000);
   return minuti >= 1 && minuti <= 60 ? minuti : null;
 }
@@ -3374,8 +3390,7 @@ function elencoFermate(d, classe, seguito = false) {
   const ultimaFermata = d.stops[d.stops.length - 1];
   const scesa = d.stops.find((f) => f.chosen)
     || (seguito && ultimaFermata && !ultimaFermata.boarding ? ultimaFermata : null);
-  let ultima = -1;
-  d.stops.forEach((f, i) => { if (f.passed) ultima = i; });
+  const ultima = d.stops.findLastIndex((f) => f.passed);
 
   const voce = (f) => {
     const classi = ['fermata'];
@@ -3383,7 +3398,7 @@ function elencoFermate(d, classe, seguito = false) {
     if (f.boarding) classi.push('mia');
     if (f === scesa) classi.push('mia', 'meta-scelta');
     const ora = esc(f.scheduled || f.actual || '') + (f.passed && f.delay
-      ? ` <small>${f.delay > 0 ? '+' : ''}${f.delay}</small>` : '');
+      ? ` <small>${segnoRitardo(f.delay)}</small>` : '');
     // "Sali qui" e "Scendi qui" per nome e non solo per colore: il colore
     // diceva che quella fermata era diversa, non perché.
     const cosa = f === scesa ? 'Scendi qui' : (f.boarding ? 'Sali qui' : '');
@@ -3430,7 +3445,7 @@ function trenoFra(d, ultima) {
   const da = d.stops[ultima];
   const a = d.stops[ultima + 1];
   if (!d.tracked || d.arrived || !da || !a) return '';
-  const quando = [da.actual ? `alle ${esc(da.actual)}` : '', da.delay ? `${da.delay > 0 ? '+' : ''}${da.delay}` : '']
+  const quando = [da.actual ? `alle ${esc(da.actual)}` : '', da.delay ? segnoRitardo(da.delay) : '']
     .filter(Boolean).join(', ');
   return `<li class="treno-qui"><span class="icona-treno">${icona('treno')}</span>
     <p><b>Fra ${esc(titolo(da.name))} e ${esc(titolo(a.name))}</b>
@@ -3493,9 +3508,8 @@ async function scaricaViaggio(numero) {
   // dentro il viaggio del tabellone di prima.
   const dove = chiaveTabellone();
   try {
-    const r = await fetch(API.treno(stato.da, numero, stato.a, stato.arrivi));
-    if (!r.ok) throw new Error(`errore ${r.status}`);
-    const d = await r.json();
+    const d = await leggiJSON(API.treno(stato.da, numero, stato.a, stato.arrivi));
+    if (!d) return;   // la pagina si sta ricaricando
     if (dove !== chiaveTabellone()) return;
     // Una risposta vuota non cancella un viaggio che si aveva già: vale la
     // stessa regola dell'errore qui sotto, ed è il caso del treno che
@@ -3604,8 +3618,7 @@ function alternaSeguitoDa(el) {
   // Seguire un treno è il gesto che dice "avvisami": chiederlo qui evita che
   // chi non ha mai acceso una campanella metta il segnalibro e non riceva mai
   // niente senza capire perché.
-  const permesso = seguo && statoNotifiche() === 'da-chiedere'
-    ? Notification.requestPermission() : null;
+  const permesso = permessoSe(seguo);
   // Appena seguito, il viaggio si scarica subito: tornando in home la scheda
   // dev'essere già piena, non ancora in attesa. Il server lo tiene in cache
   // trenta secondi, quindi è la stessa lettura appena fatta.
@@ -3620,8 +3633,7 @@ function alternaSeguitoDa(el) {
 function alternaAbitualeDa(el) {
   const x = JSON.parse(el.dataset.abituale);
   alternaAbituale(x);
-  const permesso = eAbituale(x) && statoNotifiche() === 'da-chiedere'
-    ? Notification.requestPermission() : null;
+  const permesso = permessoSe(eAbituale(x));
   disegna();
   sincronizzaNotifiche(permesso);
 }
@@ -3673,10 +3685,7 @@ app.addEventListener('click', (e) => {
   }
   else if (t.closest('[data-giorno]')) {
     const [i, g] = t.closest('[data-giorno]').dataset.giorno.split(':').map(Number);
-    cambiaFasce((f) => {
-      const giorni = f[i].giorni || [];
-      f[i].giorni = giorni.includes(g) ? giorni.filter((x) => x !== g) : [...giorni, g].sort();
-    });
+    cambiaFasce((f) => { f[i].giorni = alternaGiorno(f[i].giorni, g); });
   }
   else if (t.closest('[data-segui]')) alternaSeguitoDa(t.closest('[data-segui]'));
   else if (t.closest('[data-abituale]')) alternaAbitualeDa(t.closest('[data-abituale]'));
@@ -3693,10 +3702,7 @@ app.addEventListener('click', (e) => {
     const v = t.closest('[data-giorno-abituale]').dataset.giornoAbituale;
     const i = v.lastIndexOf(':');
     const g = Number(v.slice(i + 1));
-    cambiaAbituale(v.slice(0, i), (x) => {
-      const giorni = x.days || [];
-      return [{ ...x, days: giorni.includes(g) ? giorni.filter((y) => y !== g) : [...giorni, g].sort() }];
-    });
+    cambiaAbituale(v.slice(0, i), (x) => [{ ...x, days: alternaGiorno(x.days, g) }]);
   }
   else if (t.closest('[data-apri-abituale]')) {
     const k = t.closest('[data-apri-abituale]').dataset.apriAbituale;
@@ -3725,8 +3731,7 @@ app.addEventListener('click', (e) => {
     // Il permesso si chiede qui e non dentro sincronizzaNotifiche: su iOS
     // vale solo se la chiamata parte durante il tocco, e dopo un await il
     // tocco non c'è più. La promessa la si aspetta di là.
-    const permesso = accendo && statoNotifiche() === 'da-chiedere'
-      ? Notification.requestPermission() : null;
+    const permesso = permessoSe(accendo);
     aggiornaVista();
     sincronizzaNotifiche(permesso);
   }

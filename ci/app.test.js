@@ -102,6 +102,42 @@ assert.strictEqual(new Set(chiavi).size, chiavi.length, `chiavi in collisione: $
 
 console.log('tratte: ok — 4 giri completi + 1 controllo sulle chiavi');
 
+/* --------------------------------- le quattro liste salvate, e il loro ordine */
+
+/* Le quattro liste passano tutte da alterna(), ma non mettono la voce nuova
+   nello stesso posto: preferiti e campanelle in cima, treni seguiti e
+   abituali in coda. È l'ordine con cui la home le mostra, e un `inCima`
+   sbagliato lo rovescerebbe senza che niente si lamenti. */
+const memoria = new Map();
+const liste = new Function('localStorage', `
+  ${ritaglia('function leggi(', '/* Come un abituale si presenta al server')}
+  return { alternaPreferito, alternaCampanella, alternaSeguito, alternaAbituale };`)({
+  getItem: (k) => (memoria.has(k) ? memoria.get(k) : null),
+  setItem: (k, v) => memoria.set(k, v),
+});
+const salvata = (k) => JSON.parse(memoria.get(k));
+
+for (const [alterna, chiave, primo, secondo, inCima] of [
+  [liste.alternaPreferito, 'tt.preferiti', { f: 1, t: 2 }, { f: 3, t: null, a: true }, true],
+  [liste.alternaCampanella, 'tt.campanelle', 'S2', 'RE_13', true],
+  [liste.alternaSeguito, 'tt.seguiti', { o: 'S01700', n: '2247', d: 1 }, { o: 'S01322', n: '24854', d: 1 }, false],
+  [liste.alternaAbituale, 'tt.abituali', { o: 'S01700', n: '2247', f: 1715, at: '07:12' },
+    { o: 'S01700', n: '2247', f: 1393, at: '07:00' }, false],
+]) {
+  alterna(primo);
+  alterna(secondo);
+  assert.deepStrictEqual(salvata(chiave), inCima ? [secondo, primo] : [primo, secondo],
+    `${chiave}: la voce nuova va ${inCima ? 'in cima' : 'in coda'}`);
+  // Una copia uguale, non lo stesso oggetto: la voce si riconosce dalla chiave.
+  alterna(JSON.parse(JSON.stringify(primo)));
+  assert.deepStrictEqual(salvata(chiave), [secondo], `${chiave}: ritoccata se ne va`);
+  alterna(primo);
+  assert.deepStrictEqual(salvata(chiave), inCima ? [primo, secondo] : [secondo, primo],
+    `${chiave}: rimessa torna ${inCima ? 'in cima' : 'in coda'}`);
+}
+
+console.log('liste salvate: ok — 4 liste, l\'ordine di ognuna e il ritocco che toglie');
+
 /* ------------------------------------------- il numero del binario e il SOT */
 
 /* numeroBinario() è l'unico punto dell'app che compone HTML a pezzi invece di
@@ -244,7 +280,8 @@ assert.deepStrictEqual(senzaData.map((a) => a.text), ['con data', 'senza data'],
 /* --------------------------------------------- l'ora delle comunicazioni */
 
 const quando = new Function(
-  `${ritaglia('function quandoScritto', '/* Lo scheletro tiene')}; return quandoScritto;`)();
+  `${ritaglia('const quandoAvviso', '/* Le comunicazioni si chiedono')}
+   ${ritaglia('function quandoScritto', '/* Lo scheletro tiene')}; return quandoScritto;`)();
 
 // Di oggi la sola ora: il giorno lo si sa, e ripeterlo su tre righe di seguito
 // era proprio ciò che le rendeva indistinguibili.
@@ -406,6 +443,7 @@ const fermateDi = new Function(`
   const icona = () => '';
   const precedentiAperte = new Set();
   const binarioFermata = () => '';
+  ${ritaglia('const segnoRitardo', '/* Il verso del ritardo')}
   ${ritaglia('function elencoFermate', '/* Il binario di ogni fermata')}
   return elencoFermate;`)();
 
@@ -484,6 +522,7 @@ const gps = new Function(`
   ${ritaglia('/* Quanto dista una fermata', "/* Dov'è adesso")}
   ${ritaglia('function rigaPosizione', "/* L'età della posizione")}
   ${ritaglia('function etaPosizione', 'const MAPPA_Z')}
+  ${ritaglia('/* Quanto tempo fa, a parole', 'function eta()')}
   return (d, dove, acceso = 1) => {
     posizione = dove; guardiaGPS = acceso;
     return rigaPosizione(d);
@@ -544,6 +583,7 @@ const tab = new Function(`
   let mappaAperta = false;
   const navigator = { geolocation: {} };
   const icona = () => '';
+  ${ritaglia('const haCoordinate', '/* La distanza scritta come')}
   ${ritaglia('function sezioneMappa', '// La mappa è montata')}
   return (d, aperta) => { mappaAperta = aperta; return sezioneMappa(d); };`)();
 
@@ -593,6 +633,8 @@ const fabbricaViaggio = new Function('fetch', 'chiaveTabellone', `
   const viaggi = new Map();
   const disegna = () => {};
   const API = { treno: () => 'api/train' };
+  const controllaVersione = () => false;
+  ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
   ${ritaglia('/* Un viaggio che non ha niente da mostrare', '/* ------------------------------------------------------------------ eventi */')}
   return { viaggi, scaricaViaggio, viaggioVuoto };`);
 
@@ -830,6 +872,7 @@ const fraQuanto = (adesso) => new Function('Date', `
   ${ritaglia('const QUADRANTE_ROMA', 'function abitualiDiOggi')}
   ${ritaglia('const ritardoLive', 'const conMisure')}
   ${ritaglia('/* Fra quanto parte dalla stazione', '/* La scheda di un treno seguito, aperta')}
+  ${ritaglia('/* Fra quanti minuti parte un treno', '/* Il binario cambiato')}
   return fraQuanto;`)({ now: () => Date.parse(adesso), UTC: Date.UTC });
 
 // Lunedì 21 settembre 2026, il treno delle 7:12 di Roma, cioè le 5:12 UTC.
@@ -982,6 +1025,7 @@ const fabbricaSeguito = (fetch, adesso) => new Function('fetch', 'Date', 'AbortS
   const ricordaViaggio = () => {};
   const controllaVersione = () => false;
   const API = { viaggio: () => 'api/journey' };
+  ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
   ${ritaglia('const QUADRANTE_ROMA', 'function abitualiDiOggi')}
   ${ritaglia('const smettiDiSeguire', "/* L'ultima lettura di ogni treno seguito")}
   ${ritaglia('async function caricaViaggioSeguito', '/* Tutti i treni seguiti insieme')}
@@ -1132,6 +1176,7 @@ const tira = new Function('document', 'scrollY', `
    lo diceva solo a treno rilevato. */
 {
   const dove = new Function('esc', 'titolo', `const VECCHIA = 2 * 60_000;
+    ${ritaglia('/* Quanto tempo fa, a parole', 'function eta()')}
     ${ritaglia('function doveAdesso(', '/* Il numero del binario')}; return doveAdesso;`)(esc, titolo);
   const tre = Date.now() - 3 * 60_000;
   assert.match(dove({ tracked: false }, tre), /^non ancora partito · letto 3 minuti fa$/, 'non tracciato');
