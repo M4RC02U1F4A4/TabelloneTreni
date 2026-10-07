@@ -62,10 +62,28 @@ async function controllaOverflow(page) {
   return page.evaluate(() => {
     const colpevoli = [];
     if (document.documentElement.scrollWidth > innerWidth) colpevoli.push('html');
+    // Le file che scorrono di lato (.gettoni, .filtri) sporgono apposta: chi
+    // sta dentro non è un colpevole. Lo scroller invece resta misurato, perché
+    // se è lui a uscire dalla finestra allora la pagina è davvero più larga.
+    const dentroScroller = (el) => {
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        if (/auto|scroll/.test(getComputedStyle(p).overflowX)) return true;
+      }
+      return false;
+    };
     for (const el of document.querySelectorAll('body *')) {
       const r = el.getBoundingClientRect();
-      if (r.width && r.right > innerWidth + 1) {
-        const id = el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '');
+      if (r.width && r.right > innerWidth + 1 && !dentroScroller(el)) {
+        let id = el.tagName.toLowerCase();
+        const classi = typeof el.className === 'string' ? el.className.trim() : '';
+        if (classi) id += '.' + classi.split(/\s+/).join('.');
+        else {
+          // Senza classi il solo tag (`button`) non dice quale sia: servono
+          // gli attributi data-* e un pezzo di testo.
+          for (const [k, v] of Object.entries(el.dataset)) id += `[data-${k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}=${v}]`;
+          const testo = el.textContent.trim().replace(/\s+/g, ' ').slice(0, 30);
+          if (testo) id += `"${testo}"`;
+        }
         colpevoli.push(id);
       }
     }
