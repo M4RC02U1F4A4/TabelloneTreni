@@ -1963,7 +1963,7 @@ function disegnaTreno(t) {
     ${rigaPosizione(d)}
     ${sezioneMappa(d)}
     ${d.stops && d.stops.length
-      ? elencoFermate(d, 'aperta')
+      ? elencoFermate(d, 'aperta', true)
       : '<p class="nota">ViaggiaTreno non pubblica le fermate di questo treno.</p>'}
     ${segnalibro ? '' : `<p class="nota">Non stai seguendo questo treno: tocca il segnalibro
       in alto per tenerlo in cima alla home.</p>`}`;
@@ -3376,7 +3376,7 @@ function viaggioReale(d) {
   return fasciaProvvedimento(d) + nota + elencoFermate(d);
 }
 
-function elencoFermate(d, classe) {
+function elencoFermate(d, classe, seguito = false) {
   // Il binario sta in colonna, e una colonna vuole una cella su ogni riga
   // anche dove il binario non c'è: se la si salta, l'ora di quella riga slitta
   // nella colonna del binario e la lista torna disallineata proprio dove
@@ -3388,9 +3388,12 @@ function elencoFermate(d, classe) {
   // regola di fermataArrivo() per la riga del GPS: due parti della scheda
   // non devono dire due cose diverse sulla stessa fermata. Tranne se è anche
   // quella da cui si sale, che allora non è un posto dove si scende.
+  // Il ripiego vale solo sulla pagina del treno seguito (`seguito`), dove la
+  // riga del GPS fa già la stessa ipotesi: sulle schede del tabellone il treno
+  // lo si sta solo guardando, e dirgli dove scende sarebbe inventarlo.
   const ultimaFermata = d.stops[d.stops.length - 1];
   const scesa = d.stops.find((f) => f.chosen)
-    || (ultimaFermata && !ultimaFermata.boarding ? ultimaFermata : null);
+    || (seguito && ultimaFermata && !ultimaFermata.boarding ? ultimaFermata : null);
   let ultima = -1;
   d.stops.forEach((f, i) => { if (f.passed) ultima = i; });
 

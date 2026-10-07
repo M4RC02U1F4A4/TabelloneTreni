@@ -1134,21 +1134,26 @@ const tira = new Function('document', 'scrollY', `
 
 /* Seguito dal tabellone intero, senza destinazione, nessuna fermata è
    `chosen`: la riga del GPS già prende il capolinea come arrivo, e la linea
-   deve dire la stessa cosa. */
-const senzaScelta = fermateDi({ tracked: true, stops: [
+   della pagina del treno seguito deve dire la stessa cosa. */
+const senzaSceltaDati = { tracked: true, stops: [
   { name: 'MONZA', scheduled: '08:12', boarding: true },
   { name: 'SESTO S.GIOVANNI', scheduled: '08:16' },
   { name: 'MILANO PORTA GARIBALDI', scheduled: '08:31' },
-] });
+] };
+const senzaScelta = fermateDi(senzaSceltaDati, 'aperta', true);
 assert.match(senzaScelta, /Scendi qui<\/small>MILANO PORTA GARIBALDI/, 'senza scelta si scende al capolinea');
 assert.strictEqual((senzaScelta.match(/Scendi qui/g) || []).length, 1, 'una volta sola');
+
+// Sulle schede del tabellone il treno lo si sta solo guardando: senza una
+// destinazione non si dice dove scendi.
+assert.ok(!/Scendi qui/.test(fermateDi(senzaSceltaDati)), 'sul tabellone, senza destinazione, non si dice dove scendi');
 
 // Con una scelta, il capolinea resta una fermata qualunque.
 const conScelta = fermateDi({ tracked: true, stops: [
   { name: 'MONZA', scheduled: '08:12', boarding: true },
   { name: 'SESTO S.GIOVANNI', scheduled: '08:16', chosen: true },
   { name: 'MILANO PORTA GARIBALDI', scheduled: '08:31' },
-] });
+] }, 'aperta', true);
 assert.match(conScelta, /Scendi qui<\/small>SESTO S.GIOVANNI/, 'con la scelta, la scelta');
 assert.ok(!/Scendi qui<\/small>MILANO PORTA GARIBALDI/.test(conScelta), 'e non il capolinea');
 
@@ -1156,7 +1161,7 @@ assert.ok(!/Scendi qui<\/small>MILANO PORTA GARIBALDI/.test(conScelta), 'e non i
 const allUltima = fermateDi({ tracked: true, stops: [
   { name: 'SESTO S.GIOVANNI', scheduled: '08:16' },
   { name: 'MILANO PORTA GARIBALDI', scheduled: '08:31', boarding: true },
-] });
+] }, 'aperta', true);
 assert.ok(!/Scendi qui/.test(allUltima), 'dove si sale non si scende');
 
-console.log('scendi qui: ok — 5 casi');
+console.log('scendi qui: ok — 6 casi');
