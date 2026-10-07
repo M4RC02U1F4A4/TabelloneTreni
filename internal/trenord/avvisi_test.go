@@ -345,3 +345,19 @@ func TestNessunAvvisoEsceConLaCoda(t *testing.T) {
 		t.Errorf("avvisi sulla circolazione = %d, attesi 3", visti)
 	}
 }
+
+// Un item del carosello senza corpo non deve mandare giù il servizio, né far
+// perdere gli avvisi veri che gli stanno accanto.
+func TestDettaglioSenzaCorpoNonCade(t *testing.T) {
+	const c = `{"message":"<div class=\"carousel-line\">` +
+		`<div class=\"item 2 critical\"><span class=\"news-date\">2026-09-08T18:41:00.000Z</span></div>` +
+		`<div class=\"item 2 critical\"><span class=\"news-date\">2026-09-08T18:42:00.000Z</span>` +
+		`<div class=\"body-texts\"><p>testo vero</p></div></div></div>"}`
+	d, err := ParseDettaglio(strings.NewReader(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Avvisi) != 1 || !strings.Contains(d.Avvisi[0].Testo, "testo vero") {
+		t.Fatalf("avvisi = %+v", d.Avvisi)
+	}
+}

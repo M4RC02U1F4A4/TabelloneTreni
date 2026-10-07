@@ -1,8 +1,11 @@
 package statolinee
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -135,5 +138,28 @@ func TestScritturaNonLasciaResidui(t *testing.T) {
 			nomi = append(nomi, v.Name())
 		}
 		t.Fatalf("nella cartella c'e' %v, atteso il solo abbonamenti.json", nomi)
+	}
+}
+
+// Una scrittura su disco fallita non ha nessuno a cui tornare indietro, ma
+// deve almeno finire nel log: in silenzio, il volume pieno o sparito si scopre
+// solo al riavvio, quando gli abbonamenti non ci sono più.
+func TestScritturaFallitaFinisceNelLog(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	a, err := ApriAbbonati(filepath.Join(t.TempDir(), "no", "such", "dir", "abbonati.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const endpoint = "https://push.example/uno"
+	// Registra l'errore lo restituisce già: l'abbonamento resta in memoria.
+	_ = a.Registra(abbonamento(endpoint, "S2"))
+	buf.Reset()
+
+	a.SegnaVisto(endpoint, map[string]Visto{})
+	if !strings.Contains(buf.String(), "scrittura") {
+		t.Fatalf("log = %q, attesa la scrittura fallita", buf.String())
 	}
 }

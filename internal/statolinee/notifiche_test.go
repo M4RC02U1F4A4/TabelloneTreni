@@ -9,9 +9,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
@@ -339,5 +341,59 @@ func TestNienteDaDireNienteNotifica(t *testing.T) {
 	defer mu.Unlock()
 	if len(*viste) != 0 {
 		t.Fatalf("richieste = %d, attesa nessuna", len(*viste))
+	}
+}
+
+// Gli avvisi hanno accenti e apostrofi tipografici: tagliare in byte spezzava
+// un carattere a metà e la notifica partiva con UTF-8 non valido.
+func TestTagliaNonSpezzaLeRune(t *testing.T) {
+	s := strings.Repeat("à", 40)
+	got := taglia(s, 25)
+	if !utf8.ValidString(got) {
+		t.Fatalf("UTF-8 non valido: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") || utf8.RuneCountInString(got) > 26 {
+		t.Fatalf("taglia = %q (%d rune)", got, utf8.RuneCountInString(got))
+	}
+	if taglia("corto", 25) != "corto" {
+		t.Fatal("sotto il massimo non si tocca")
+	}
+}
+
+// Con un giro già in corso, quello nuovo lascia perdere: non manda niente e
+// non tocca il visto. Altrimenti due giri leggono lo stesso visto e la stessa
+// notizia arriva due volte.
+func TestRiconciliaNonSiSovrappone(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+	ab, _ := ApriAbbonati("")
+	if err := ab.Registra(Abbonamento{
+		Sottoscrizione: webpush.Subscription{Endpoint: srv.URL + "/segue-s2", Keys: chiaviFinte(t)},
+		Linee:          []string{"S2"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	n := notificatoreDiProva(t, ab, srv.Client())
+	reg := registroCon(t, "S2", trenord.Regolare)
+	primoGiro(n, reg)
+	metti(reg, "S2", trenord.Critico, 2)
+
+	n.inCorso.Store(true)
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+	mu.Lock()
+	if len(*viste) != 0 {
+		t.Errorf("un giro è partito sopra a uno in corso: %+v", *viste)
+	}
+	mu.Unlock()
+	if v := ab.Tutti()[0].Visto["S2"]; v.Stato != trenord.Regolare {
+		t.Errorf("visto toccato: %+v", v)
+	}
+	n.inCorso.Store(false)
+
+	// Finito il giro, il prossimo parte: la guardia non resta chiusa.
+	n.Riconcilia(context.Background(), reg, oreDi(8))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(*viste) != 1 {
+		t.Fatalf("richieste = %d, attesa 1", len(*viste))
 	}
 }

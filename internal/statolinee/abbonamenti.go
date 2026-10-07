@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -356,7 +357,9 @@ func (a *Abbonati) SegnaVisto(endpoint string, visto map[string]Visto) {
 	}
 	ab.Visto = visto
 	a.m[endpoint] = ab
-	a.scrivi()
+	if err := a.scrivi(); err != nil {
+		log.Printf("abbonamenti: scrittura su %s: %v", a.percorso, err)
+	}
 }
 
 // SegnaVistoTreni scrive la memoria dei treni e nello stesso giro toglie
@@ -386,12 +389,16 @@ func (a *Abbonati) SegnaVistoTreni(endpoint string, visto map[string]VistoTreno,
 	// svuotare l'elenco è il servizio invece della persona.
 	if ab.vuoto() {
 		delete(a.m, endpoint)
-		a.scrivi()
+		if err := a.scrivi(); err != nil {
+			log.Printf("abbonamenti: scrittura su %s: %v", a.percorso, err)
+		}
 		return
 	}
 	ab.VistoTreni = potaVistoTreni(visto, ab.chiaviInAttesa(adesso))
 	a.m[endpoint] = ab
-	a.scrivi()
+	if err := a.scrivi(); err != nil {
+		log.Printf("abbonamenti: scrittura su %s: %v", a.percorso, err)
+	}
 }
 
 // TreniSeguiti è l'unione dei treni che qualcuno sta aspettando adesso,
@@ -454,7 +461,9 @@ func (a *Abbonati) Dimentica(endpoint string) {
 		return
 	}
 	delete(a.m, endpoint)
-	a.scrivi()
+	if err := a.scrivi(); err != nil {
+		log.Printf("abbonamenti: scrittura su %s: %v", a.percorso, err)
+	}
 }
 
 // Riepilogo descrive ogni abbonamento in una riga, per il log d'avvio.

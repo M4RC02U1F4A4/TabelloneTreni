@@ -175,9 +175,13 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 		if c.Type != html.ElementNode || !haClasse(c, "item") {
 			continue
 		}
-		corpo := senzaCoda(pulisci(testo(trova(c, func(n *html.Node) bool {
-			return haClasse(n, "body-texts")
-		}))))
+		nodo := trova(c, func(n *html.Node) bool { return haClasse(n, "body-texts") })
+		if nodo == nil {
+			// Un item senza corpo non è un avviso: Trenord ne pubblica di
+			// vuoti, e testo(nil) mandava giù il servizio.
+			continue
+		}
+		corpo := senzaCoda(pulisci(testo(nodo)))
 		if corpo == "" {
 			continue
 		}

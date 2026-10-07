@@ -12,7 +12,9 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
@@ -30,6 +32,8 @@ type Notificatore struct {
 	// test, che mettono un servizio finto al posto di quello vero; a nil vale
 	// il client di default della libreria.
 	HTTP webpush.HTTPClient
+	// inCorso tiene fuori un giro di Riconcilia mentre ce n'è già uno: vedi lì.
+	inCorso atomic.Bool
 }
 
 // NuovoNotificatore restituisce nil se le chiavi VAPID non ci sono: senza non
@@ -87,6 +91,14 @@ func (n *Notificatore) Riconcilia(ctx context.Context, r *Registro, adesso time.
 	if n == nil {
 		return
 	}
+	// Un giro dura quanto Trenord e il push rispondono, e ogni cinque minuti
+	// ne parte un altro: due giri sullo stesso abbonato leggono lo stesso
+	// "visto" e mandano la stessa notifica due volte. Chi trova il giro
+	// occupato lascia perdere — il prossimo lo rifà fra cinque minuti.
+	if !n.inCorso.CompareAndSwap(false, true) {
+		return
+	}
+	defer n.inCorso.Store(false)
 	for _, ab := range n.abbonati.Tutti() {
 		inAscolto := ab.InAscolto(adesso)
 		visto, cambiato := maps.Clone(ab.Visto), false
@@ -385,12 +397,17 @@ func ApriChiavi(percorso string) (pubblica, privata string, err error) {
 // taglia accorcia il testo per la schermata di blocco, dove oltre un paio di
 // righe non si legge comunque e il resto lo nasconde il sistema. Si taglia su
 // uno spazio, per non mozzare una parola a metà.
+//
+// Il massimo conta rune e non byte: gli avvisi hanno accenti e apostrofi
+// tipografici, e un taglio a metà carattere mandava nella notifica UTF-8 non
+// valido.
 func taglia(s string, max int) string {
-	if len(s) <= max {
+	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
-	t := s[:max]
-	if i := strings.LastIndex(t, " "); i > max/2 {
+	r := []rune(s)
+	t := string(r[:max])
+	if i := strings.LastIndex(t, " "); i > len(t)/2 {
 		t = t[:i]
 	}
 	return t + "…"
