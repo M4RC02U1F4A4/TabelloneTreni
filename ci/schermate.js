@@ -44,10 +44,25 @@ const VISTE = {
   tabellone: { rotta: '#/p/1728', dopo: async (p) => { await p.waitForTimeout(3500); } },
   treno: { rotta: `#/t/S01322/24854/${MEZZANOTTE}`, dopo: async (p) => { await p.waitForTimeout(2000); await p.click('.precedenti summary').catch(() => {}); } },
   linee: { rotta: '#/linee', dopo: async (p) => { await p.waitForTimeout(2500); } },
+  // Il treno che ViaggiaTreno non traccia ancora: il server risponde solo
+  // `tracked: false`, senza `id`, e la scheda lanciava e restava ferma. Deve
+  // dire che le fermate non ci sono, e chiamare il treno col suo nome.
+  'treno-non-tracciato': {
+    rotta: `#/t/S01322/24854/${MEZZANOTTE}`,
+    viaggio: { tracked: false },
+    dopo: async (p) => {
+      await p.waitForTimeout(2000);
+      const problemi = [];
+      if (!(await p.$('#app .nota'))) problemi.push('manca la nota sulle fermate');
+      const titolo = await p.$eval('.titolo', (e) => e.textContent.trim()).catch(() => '');
+      if (!titolo.startsWith('S8 24854')) problemi.push(`titolo "${titolo}"`);
+      return problemi;
+    },
+  },
 };
 
 async function apri(page, vista) {
-  await page.route('**/api/journey**', (r) => r.fulfill({ json: viaggio }));
+  await page.route('**/api/journey**', (r) => r.fulfill({ json: VISTE[vista].viaggio || viaggio }));
   // Un avviso finto a Porta Garibaldi, come il viaggio: senza avvisi veri il
   // gettone non c'è, e home-avvisi misurerebbe la home normale senza dirlo.
   await page.route('**/api/notices**', (r) => r.fulfill({ json: { stations: [{ placeId: 1715, station: 'MILANO PORTA GARIBALDI', notices: ['ASCENSORE BINARIO 3 FUORI SERVIZIO FINO AL 14 OTTOBRE'] }] } }));
@@ -61,7 +76,8 @@ async function apri(page, vista) {
     localStorage.setItem('tt.abituali', JSON.stringify([{ o: 'S01645', n: '24868', f: 1715, at: '17:42', days: [1, 2, 3, 4, 5], cat: 'S8', capolinea: 'MONZA' }]));
   }, segnalibro);
   await page.goto('http://localhost:18080/' + VISTE[vista].rotta);
-  await VISTE[vista].dopo(page);
+  // Una vista può dire cosa non va oltre alle misure: quello che torna `dopo`.
+  return (await VISTE[vista].dopo(page)) || [];
 }
 
 /* Due misure: la pagina non è più larga della finestra, e nessun elemento
@@ -137,12 +153,13 @@ if (require.main === module) (async () => {
         const page = await ctx.newPage();
         const pageErrors = [];
         page.on('pageerror', (e) => pageErrors.push(e.message));
-        await apri(page, vista);
+        const problemi = await apri(page, vista);
         const colpevoli = await controllaOverflow(page);
         if (width === 390) await page.screenshot({ path: path.join(out, `${vista}-${tema}${suffisso}.png`), fullPage: true });
         if (colpevoli.length) console.log(`OVERFLOW ${vista} ${tema} ${width} ${motore} ${colpevoli.join(' ')}`);
         if (pageErrors.length) console.log(`ERRORE ${vista} ${tema} ${width} ${motore} ${pageErrors.join(' | ')}`);
-        if (colpevoli.length || pageErrors.length) errori++;
+        if (problemi.length) console.log(`PROBLEMA ${vista} ${tema} ${width} ${motore} ${problemi.join(' | ')}`);
+        if (colpevoli.length || pageErrors.length || problemi.length) errori++;
         else console.log(`OK ${vista} ${tema} ${width} ${motore}`);
         await ctx.close();
       }

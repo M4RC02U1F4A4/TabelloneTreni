@@ -1095,6 +1095,14 @@ const tira = new Function('document', 'scrollY', `
   ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(260)); ascoltatori.touchend({});
   assert.strictEqual(rinfrescate, 1, 'oltre la soglia si aggiorna');
 
+  // Con la pagina scorsa il dito scorre: nessun aggiornamento, neanche lungo.
+  const ascoltatori2 = {};
+  let rinfrescate2 = 0;
+  tira({ addEventListener: (t, f) => { ascoltatori2[t] = f; } }, 400)
+    .tiraPerAggiornare(el, 70, () => { rinfrescate2++; return Promise.resolve(); });
+  ascoltatori2.touchstart(tocco(100)); ascoltatori2.touchmove(tocco(260)); ascoltatori2.touchend({});
+  assert.strictEqual(rinfrescate2, 0, 'a pagina scorsa non si aggiorna');
+
   // Ogni vista rilegge la sua cosa.
   (async () => {
     for (const [v, atteso] of [['home', 'home'], ['risultati', 'tabellone'], ['linee', 'linee'], ['treno', 'treno 24854']]) {
@@ -1102,6 +1110,22 @@ const tira = new Function('document', 'scrollY', `
       await env.rinfrescaVista();
       assert.strictEqual(env.chiamate[env.chiamate.length - 1], atteso, `vista ${v}`);
     }
-    console.log('tira per aggiornare: ok — 3 casi sul gesto + 4 sulle viste');
+    console.log('tira per aggiornare: ok — 4 casi sul gesto + 4 sulle viste');
   })().catch((e) => { console.error(e); process.exit(1); });
+}
+
+/* ---------------------------------- l'età della lettura prima della partenza */
+
+/* In banchina la scheda si guarda per il ritardo e il binario, e una lettura
+   di tre minuti fa deve dirlo anche se il treno non è ancora partito: prima
+   lo diceva solo a treno rilevato. */
+{
+  const dove = new Function('esc', 'titolo', `const VECCHIA = 2 * 60_000;
+    ${ritaglia('function doveAdesso(', '/* Il numero del binario')}; return doveAdesso;`)(esc, titolo);
+  const tre = Date.now() - 3 * 60_000;
+  assert.match(dove({ tracked: false }, tre), /^non ancora partito · letto 3 minuti fa$/, 'non tracciato');
+  assert.match(dove({ tracked: true, lastSeen: {} }, tre), /^non ancora partito · letto 3 minuti fa$/, 'tracciato, senza stazione');
+  assert.strictEqual(dove({ tracked: false }, Date.now()), 'non ancora partito', 'fresca non si dice');
+  assert.match(dove({ tracked: true, lastSeen: { station: 'SESTO', time: '08:00' } }, tre), /letto 3 minuti fa$/, 'rilevato');
+  console.log('età prima della partenza: ok — 4 casi');
 }

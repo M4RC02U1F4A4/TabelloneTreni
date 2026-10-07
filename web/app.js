@@ -679,7 +679,10 @@ async function caricaTabellone() {
   stato.caricamento = true;
   disegna();
   try {
-    const r = await fetch(API.tabellone(stato.da, stato.a, stato.arrivi));
+    // Quindici secondi come ogni altra lettura: appesa, terrebbe il tabellone
+    // sugli scheletri e il gesto di aggiornare a girare finché il browser non
+    // si arrende, cioè per minuti.
+    const r = await fetch(API.tabellone(stato.da, stato.a, stato.arrivi), { signal: AbortSignal.timeout(15_000) });
     if (controllaVersione(r)) return;              // la pagina si sta ricaricando
     if (mio !== richiestaInCorso) return;          // una richiesta più nuova ha già vinto
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
@@ -689,7 +692,8 @@ async function caricaTabellone() {
     rileggiSchedeAperte();
   } catch (e) {
     if (mio !== richiestaInCorso) return;
-    stato.errore = e.message;
+    // Il messaggio del timeout è quello del browser, in inglese.
+    stato.errore = e.name === 'TimeoutError' ? 'Tabellone non raggiungibile.' : e.message;
   } finally {
     if (mio === richiestaInCorso) {
       stato.caricamento = false;
@@ -716,7 +720,7 @@ function rileggiSchedeAperte() {
    non risponde si tiene da parte il motivo e si va avanti. */
 async function caricaLinee() {
   try {
-    const r = await fetch(API.linee);
+    const r = await fetch(API.linee, { signal: AbortSignal.timeout(15_000) });
     if (controllaVersione(r)) return;
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
     const d = await r.json();
@@ -731,7 +735,7 @@ async function caricaLinee() {
     stato.lineeErrore = null;
   } catch (e) {
     stato.linee = stato.linee || [];
-    stato.lineeErrore = e.message;
+    stato.lineeErrore = e.name === 'TimeoutError' ? 'Stato delle linee non raggiungibile.' : e.message;
   }
 }
 
@@ -832,7 +836,7 @@ async function caricaAvvisiStazione() {
   const ids = [...new Set(preferiti().map((p) => p.f))].slice(0, 8);
   if (!ids.length) { stato.avvisiStazione = []; return; }
   try {
-    const r = await fetch(API.avvisiStazione(ids));
+    const r = await fetch(API.avvisiStazione(ids), { signal: AbortSignal.timeout(15_000) });
     if (controllaVersione(r)) return;
     if (!r.ok) throw new Error(`errore ${r.status}`);
     stato.avvisiStazione = (await r.json()).stations || [];
@@ -1927,14 +1931,17 @@ function disegnaTreno(t) {
   // server risponde `tracked: false` e basta — e vale come nessun viaggio: lì
   // daSeguire() lanciava, e la scheda restava ferma senza mai far partire il
   // timer.
-  const oggetto = d && d.id
-    ? daSeguire(d, (segnalibro || t).a, (segnalibro || t).f)
-    : (segnalibro || t);
+  const noto = segnalibro || t;
+  const oggetto = d && d.id ? daSeguire(d, noto.a, noto.f) : noto;
+  // Il nome, finché il viaggio non lo porta, è quello con cui lo si è salvato:
+  // la rotta da sola ha il numero e basta, e un treno non tracciato restava
+  // "24854" senza categoria né capolinea.
+  const nomeSalvato = { category: noto.cat, number: noto.n, terminus: noto.capolinea };
 
   testa.innerHTML = `
     <div class="testa-riga">
       <a class="tasto" href="#/" aria-label="Torna alla home">${icona('indietro')}</a>
-      <h1 class="titolo">${etichettaTreno(d || { category: t.cat, number: t.n, terminus: t.capolinea })}</h1>
+      <h1 class="titolo">${etichettaTreno(d && d.id ? d : nomeSalvato)}</h1>
       <button class="tasto" type="button" data-segui="${esc(JSON.stringify(oggetto))}"
               aria-pressed="${salvato}"
               aria-label="${salvato ? 'Smetti di seguire questo treno' : 'Segui questo treno'}"
@@ -3546,7 +3553,8 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
   document.addEventListener('touchstart', (e) => {
     const t = e.target;
     const dentro = t && typeof t.closest === 'function' && t.closest('.mappa, #scelta');
-    inizio = !occupato && scrollY === 0 && !dentro ? e.touches[0].clientY : null;
+    // Minore o uguale: durante il rimbalzo iOS dà scrollY negativo.
+    inizio = !occupato && scrollY <= 0 && !dentro ? e.touches[0].clientY : null;
     tirato = 0;
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
@@ -3558,10 +3566,18 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     el.classList.toggle('pronto', tirato >= soglia);
     el.classList.add('visibile');
   }, { passive: true });
+  const lascia = () => { el.classList.remove('visibile', 'pronto'); el.style.transform = ''; };
+  // Un tocco annullato dal sistema (una chiamata, un gesto di iOS) è un
+  // rilascio sotto soglia: il cerchio se ne va e non si rilegge niente.
+  document.addEventListener('touchcancel', () => {
+    if (inizio === null) return;
+    inizio = null;
+    lascia();
+  }, { passive: true });
   document.addEventListener('touchend', () => {
     if (inizio === null) return;
     inizio = null;
-    if (tirato < soglia) { el.classList.remove('visibile', 'pronto'); el.style.transform = ''; return; }
+    if (tirato < soglia) { lascia(); return; }
     occupato = true;
     el.classList.add('gira');
     el.style.transform = `translate(-50%, ${soglia}px)`;
@@ -3575,6 +3591,7 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
 
 /* ------------------------------------------------------------------ eventi */
 
+// Il 70 è anche in @keyframes gira, in app.css: cambiato qui, va cambiato là.
 tiraPerAggiornare($('#tira'), 70, rinfrescaVista);
 
 /* Il segnalibro si tocca da due posti — la scheda aperta di un tabellone e la
