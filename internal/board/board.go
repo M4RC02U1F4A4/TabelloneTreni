@@ -183,7 +183,7 @@ func (s *Service) Get(ctx context.Context, from int, arrivals bool, to int) (*Re
 		if i < 0 {
 			continue
 		}
-		t.Arrival = orario(fermate[i].Programmata)
+		t.Arrival = Orario(fermate[i].Programmata)
 		// Sul treno cancellato le fermate restano vuote: il frontend apre la
 		// scheda solo se ce ne sono, e di un treno cancellato non c'è nessun
 		// viaggio da seguire. Sugli altri si riempiono, così la riga si apre
@@ -376,20 +376,28 @@ func indiceFermata(fermate []vt.Fermata, codici []string) int {
 func fermateRFI(fermate []vt.Fermata) []rfi.Stop {
 	out := make([]rfi.Stop, 0, len(fermate))
 	for _, f := range fermate {
-		out = append(out, rfi.Stop{Name: f.Nome, Time: orario(f.Programmata)})
+		out = append(out, rfi.Stop{Name: f.Nome, Time: Orario(f.Programmata)})
 	}
 	return out
 }
 
 // roma è il fuso in cui vanno letti gli orari dei treni italiani: quelli che
 // arrivano da ViaggiaTreno sono istanti, e chi guarda il tabellone può stare
-// altrove. Il database dei fusi è dentro il binario (vedi l'import in main.go);
-// se anche così mancasse, un orario sbagliato di un'ora sarebbe peggio di
-// nessun orario, quindi non se ne mostra nessuno.
-var roma, erroreFuso = time.LoadLocation("Europe/Rome")
+// altrove. Il database dei fusi è dentro il binario (vedi l'import in main.go),
+// quindi caricarlo non può fallire.
+var roma *time.Location
 
-func orario(t time.Time) string {
-	if t.IsZero() || erroreFuso != nil {
+func init() {
+	var err error
+	if roma, err = time.LoadLocation("Europe/Rome"); err != nil {
+		panic(err)
+	}
+}
+
+// Orario è l'ora di un istante come la leggono i treni italiani, vuota se
+// l'istante manca.
+func Orario(t time.Time) string {
+	if t.IsZero() {
 		return ""
 	}
 	return t.In(roma).Format("15:04")
@@ -650,7 +658,7 @@ func (s *Service) oraInTabellone(placeID int, arrivals bool, numero string) stri
 // i treni in ritardo, che restano sul tabellone dopo la loro ora.
 func allOra(hhmm string, adesso time.Time) (time.Time, bool) {
 	h, err := time.Parse("15:04", hhmm)
-	if err != nil || erroreFuso != nil {
+	if err != nil {
 		return time.Time{}, false
 	}
 	a := adesso.In(roma)

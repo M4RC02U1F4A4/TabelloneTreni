@@ -130,16 +130,7 @@ func (s *Server) tabellone(w http.ResponseWriter, r *http.Request) {
 		errore(w, http.StatusBadGateway, "tabellone non disponibile")
 		return
 	}
-	body, err := json.Marshal(res)
-	if err != nil {
-		errore(w, http.StatusInternalServerError, "errore interno")
-		return
-	}
-	// I dati cambiano in continuazione: il client deve sempre richiedere, ma
-	// l'ETag gli risparmia il corpo quando il tabellone non è cambiato — cioè
-	// quasi sempre, visto che si aggiorna più spesso di quanto RFI cambi.
-	w.Header().Set("Cache-Control", "no-cache")
-	scriviJSON(w, r, body, etag(body))
+	rispondiJSON(w, r, res)
 }
 
 // avvisiTTL è quanto restano validi gli avvisi di una stazione, ed è la ragione
@@ -214,13 +205,7 @@ func (s *Server) avvisiStazioni(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	body, err := json.Marshal(map[string]any{"stations": elenco})
-	if err != nil {
-		errore(w, http.StatusInternalServerError, "errore interno")
-		return
-	}
-	w.Header().Set("Cache-Control", "no-cache")
-	scriviJSON(w, r, body, etag(body))
+	rispondiJSON(w, r, map[string]any{"stations": elenco})
 }
 
 // avvisiDi legge gli avvisi di una stazione, dalla cache o da RFI.
@@ -260,20 +245,6 @@ func (s *Server) avvisiDi(ctx context.Context, id int) *avvisiStazione {
 	s.avvisi[id] = voceAvvisi{dati: dati, scadeIl: adesso.Add(avvisiTTL)}
 	s.muAvvisi.Unlock()
 	return dati
-}
-
-// romaOrRomaLess è il fuso in cui vanno letti gli orari dei treni italiani. Il
-// database dei fusi è dentro il binario (vedi l'import in main.go), quindi non
-// dipende da cosa c'è nell'immagine; se anche così mancasse, gli orari
-// verrebbero mostrati in UTC, e allora è meglio non mostrarli affatto che
-// mostrarli sbagliati di un'ora.
-var roma, erroreFuso = time.LoadLocation("Europe/Rome")
-
-func orario(t time.Time) string {
-	if t.IsZero() || erroreFuso != nil {
-		return ""
-	}
-	return t.In(roma).Format("15:04")
 }
 
 // fermataJSON è una tappa del viaggio come la vede il client.
@@ -325,7 +296,7 @@ func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string, dove func
 	for _, f := range a.Fermate {
 		voce := fermataJSON{
 			Name:      f.Nome,
-			Scheduled: orario(f.Programmata), Passed: f.Passata,
+			Scheduled: board.Orario(f.Programmata), Passed: f.Passata,
 			Platform: f.Binario(),
 		}
 		if f.BinarioCambiato() {
@@ -335,7 +306,7 @@ func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string, dove func
 		// sulle fermate future ViaggiaTreno lascia zero, che non è una
 		// previsione ma un campo non compilato.
 		if f.Passata {
-			voce.Actual, voce.Delay = orario(f.Effettiva), f.Ritardo
+			voce.Actual, voce.Delay = board.Orario(f.Effettiva), f.Ritardo
 		}
 		if slices.Contains(codiciScelta, f.Codice) {
 			voce.Chosen = true
@@ -371,7 +342,7 @@ func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string, dove func
 		"disrupted": a.ConProvvedimento,
 		"lastSeen": map[string]any{
 			"station": a.Stazione,
-			"time":    orario(a.Ora),
+			"time":    board.Orario(a.Ora),
 		},
 		"stops": fermate,
 	}
@@ -394,9 +365,6 @@ func viaggioJSON(a *vt.Andamento, codiciScelta, codiciSalita []string, dove func
 // nessuna delle sue fermate — né quella da cui si sale né quella dove si
 // scende.
 func (s *Server) fermataScelta(v string) []string {
-	if v == "" {
-		return nil
-	}
 	to, err := strconv.Atoi(v)
 	if err != nil || to <= 0 {
 		return nil
@@ -435,7 +403,7 @@ func (s *Server) treno(w http.ResponseWriter, r *http.Request) {
 	}
 	// Qui la stazione da cui si sale è il tabellone stesso: è da lì che si è
 	// aperta la scheda.
-	rispondiViaggio(w, r, viaggioJSON(a,
+	rispondiJSON(w, r, viaggioJSON(a,
 		s.fermataScelta(q.Get("to")), s.fermataScelta(q.Get("from")), s.dovePassa))
 }
 
@@ -532,7 +500,7 @@ func (s *Server) viaggio(w http.ResponseWriter, r *http.Request) {
 		}
 	case <-time.After(AttesaRiga):
 	}
-	rispondiViaggio(w, r, viaggio)
+	rispondiJSON(w, r, viaggio)
 }
 
 // dovePassa dà le coordinate di una fermata dal suo codice ViaggiaTreno. Zero
@@ -625,8 +593,12 @@ func (s *Server) rigaSu(ctx context.Context, da int, arrivi bool, filtro int, nu
 	return nil, nil
 }
 
-func rispondiViaggio(w http.ResponseWriter, r *http.Request, risposta map[string]any) {
-	body, err := json.Marshal(risposta)
+// rispondiJSON manda una risposta che cambia in continuazione: il client deve
+// sempre richiedere, ma l'ETag gli risparmia il corpo quando non è cambiata —
+// cioè quasi sempre, visto che il client si aggiorna più spesso di quanto le
+// fonti cambino.
+func rispondiJSON(w http.ResponseWriter, r *http.Request, v any) {
+	body, err := json.Marshal(v)
 	if err != nil {
 		errore(w, http.StatusInternalServerError, "errore interno")
 		return
@@ -635,39 +607,11 @@ func rispondiViaggio(w http.ResponseWriter, r *http.Request, risposta map[string
 	scriviJSON(w, r, body, etag(body))
 }
 
-// linee inoltra lo stato delle linee dal servizio che lo segue.
-//
-// Il corpo si legge tutto in memoria invece di riversarlo: sono pochi KB, e
-// averlo intero permette di calcolarci l'ETag, che è quello che risparmia il
-// trasferimento quando i bollini non cambiano — cioè quasi sempre.
+// linee inoltra lo stato delle linee dal servizio che lo segue. I bollini li
+// muove una persona in sala operativa: cambiano di rado, ma quando cambiano
+// vanno visti subito, quindi si richiede sempre e si risparmia solo il corpo.
 func (s *Server) linee(w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.statoLinee+"/linee", nil)
-	if err != nil {
-		errore(w, http.StatusInternalServerError, "errore interno")
-		return
-	}
-	resp, err := s.clientHTTP.Do(req)
-	if err != nil {
-		log.Printf("stato linee: %v", err)
-		errore(w, http.StatusBadGateway, "stato linee non disponibile")
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("stato linee: risposta %s", resp.Status)
-		errore(w, http.StatusBadGateway, "stato linee non disponibile")
-		return
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		errore(w, http.StatusBadGateway, "stato linee non disponibile")
-		return
-	}
-	// I bollini li muove una persona in sala operativa: cambiano di rado, ma
-	// quando cambiano vanno visti subito, quindi si richiede sempre e si
-	// risparmia solo il corpo.
-	w.Header().Set("Cache-Control", "no-cache")
-	scriviJSON(w, r, body, etag(body))
+	s.inoltraJSON(w, r, "/linee", "stato linee non disponibile")
 }
 
 // codiceLinea limita quello che si accetta come nome di linea prima di
@@ -676,37 +620,46 @@ var codiceLinea = regexp.MustCompile(`^[A-Za-z0-9_]{1,10}$`)
 
 // avvisiLinea chiede al servizio le comunicazioni di una linea. Le si prende a
 // richiesta e non insieme all'elenco perché il dettaglio pesa, e chi apre una
-// riga ne apre una, non sessantacinque.
+// riga ne apre una, non sessantacinque. Cambiano di rado ma quando cambiano
+// contano: si chiede sempre, e l'ETag risparmia il corpo quando sono le stesse.
 func (s *Server) avvisiLinea(w http.ResponseWriter, r *http.Request) {
 	linea := r.URL.Query().Get("line")
 	if !codiceLinea.MatchString(linea) {
 		errore(w, http.StatusBadRequest, "parametro 'line' mancante o non valido")
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
-		s.statoLinee+"/avvisi?linea="+url.QueryEscape(linea), nil)
+	s.inoltraJSON(w, r, "/avvisi?linea="+url.QueryEscape(linea), "avvisi non disponibili")
+}
+
+// inoltraJSON rilancia una GET al servizio delle linee e ne restituisce il
+// corpo, oppure erroreUtente se il servizio non risponde come deve.
+//
+// Il corpo si legge tutto in memoria invece di riversarlo: sono pochi KB, e
+// averlo intero permette di calcolarci l'ETag, che è quello che risparmia il
+// trasferimento quando non cambia — cioè quasi sempre.
+func (s *Server) inoltraJSON(w http.ResponseWriter, r *http.Request, percorso, erroreUtente string) {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.statoLinee+percorso, nil)
 	if err != nil {
 		errore(w, http.StatusInternalServerError, "errore interno")
 		return
 	}
 	resp, err := s.clientHTTP.Do(req)
 	if err != nil {
-		log.Printf("avvisi linea %s: %v", linea, err)
-		errore(w, http.StatusBadGateway, "avvisi non disponibili")
+		log.Printf("linee %s: %v", percorso, err)
+		errore(w, http.StatusBadGateway, erroreUtente)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		errore(w, http.StatusBadGateway, "avvisi non disponibili")
+		log.Printf("linee %s: risposta %s", percorso, resp.Status)
+		errore(w, http.StatusBadGateway, erroreUtente)
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		errore(w, http.StatusBadGateway, "avvisi non disponibili")
+		errore(w, http.StatusBadGateway, erroreUtente)
 		return
 	}
-	// Le comunicazioni cambiano di rado ma quando cambiano contano: si chiede
-	// sempre, e l'ETag risparmia il corpo quando sono le stesse.
 	w.Header().Set("Cache-Control", "no-cache")
 	scriviJSON(w, r, body, etag(body))
 }
@@ -718,10 +671,7 @@ func (s *Server) inoltraPush(percorso string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Il corpo di chi si abbona contiene le sue chiavi push: si limita a
 		// una misura ragionevole prima di rilanciarlo, non dopo.
-		var corpo io.Reader
-		if r.Body != nil {
-			corpo = io.LimitReader(r.Body, 64<<10)
-		}
+		corpo := io.LimitReader(r.Body, 64<<10)
 		req, err := http.NewRequestWithContext(r.Context(), r.Method, s.statoLinee+percorso, corpo)
 		if err != nil {
 			errore(w, http.StatusInternalServerError, "errore interno")
