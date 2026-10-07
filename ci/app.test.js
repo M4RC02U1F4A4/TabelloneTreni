@@ -991,12 +991,13 @@ console.log('fermate ripiegate: ok — 2 casi');
 
 /* ------------------------------ il segnalibro del treno di ieri */
 
-/* ViaggiaTreno dimentica i treni di ieri, e il server risponde 502: prima la
-   lettura fallita teneva l'ultima lettura buona — giusto in galleria — e il
-   treno di ieri sera restava in home fino a mezzogiorno. Una risposta non ok
-   del server su un treno di un giorno passato ora toglie il segnalibro; la rete
-   caduta no, e nemmeno una lettura riuscita e non arrivata, anche se il treno
-   è di ieri (il notturno letto all'alba in galleria). */
+/* ViaggiaTreno dimentica i treni di ieri: prima la lettura fallita teneva
+   l'ultima lettura buona — giusto in galleria — e il treno di ieri sera
+   restava in home fino a mezzogiorno. Un 4xx del server o un "non tracciato"
+   su un treno di un giorno passato ora toglie il segnalibro; un 5xx no (è
+   ViaggiaTreno che non risponde), la rete caduta nemmeno, e neanche una
+   lettura riuscita e non arrivata, anche se il treno è di ieri (il notturno
+   letto all'alba in galleria). */
 const fabbricaSeguito = (fetch, adesso) => new Function('fetch', 'Date', 'AbortSignal', `
   const seguiti = () => JSON.parse(memoria.get('tt.seguiti') || '[]');
   const memoria = new Map();
@@ -1021,6 +1022,9 @@ const stanotte = Date.UTC(2026, 8, 21, 22);   // la mezzanotte di Roma del 22
 
 const risposte = {
   guasta: async () => ({ ok: false, status: 502, json: async () => ({ error: 'andamento non disponibile' }) }),
+  // Il 400 del server per una data fuori dai giorni ammessi: quel treno non
+  // lo conosce più nessuno.
+  rifiutata: async () => ({ ok: false, status: 400, json: async () => ({ error: 'data non ammessa' }) }),
   rete: async () => { throw new Error('rete'); },
   inViaggio: async () => ({ ok: true, json: async () => ({ tracked: true, arrived: false, stops: [{ scheduled: '22:00', passed: true }] }) }),
   // Il treno che ViaggiaTreno non traccia: per quello di ieri è il 204 che il
@@ -1041,14 +1045,28 @@ async function provaSeguito(nome, risposta, d, resta) {
 }
 
 (async () => {
-  await provaSeguito('il treno di ieri che il server non conosce più se ne va', risposte.guasta, ieri, false);
+  await provaSeguito('il treno di ieri che il server non conosce più se ne va', risposte.rifiutata, ieri, false);
+  // Un 5xx è ViaggiaTreno che non risponde, non un treno dimenticato: il
+  // treno delle 23:30 che arriva alle 00:40 non sparisce al primo singhiozzo.
+  await provaSeguito('un 502 su un treno di ieri lo tiene', risposte.guasta, ieri, true);
   await provaSeguito('la rete caduta non lo toglie, nemmeno a un treno di ieri', risposte.rete, ieri, true);
   await provaSeguito('il treno di oggi resta, la rete torna', risposte.rete, stanotte, true);
   await provaSeguito('il treno di oggi resta anche su un 502', risposte.guasta, stanotte, true);
   await provaSeguito('il treno notturno di ieri ancora in viaggio resta', risposte.inViaggio, ieri, true);
   await provaSeguito('il treno di ieri che ViaggiaTreno non traccia più se ne va', risposte.nonTracciato, ieri, false);
   await provaSeguito('il treno di oggi non tracciato resta: non è ancora partito', risposte.nonTracciato, stanotte, true);
-  console.log('segnalibro di ieri: ok — 7 casi');
+  {
+    // Il treno c'era e ViaggiaTreno l'ha perso per un giro: l'ultima
+    // posizione resta, non diventa un "non tracciato".
+    const env = fabbricaSeguito(risposte.nonTracciato, stamattina);
+    const t = { o: 'S01322', n: '24854', d: stanotte, f: 1841 };
+    const k = `${t.o}|${t.n}|${t.d}`;
+    env.memoria.set('tt.seguiti', JSON.stringify([t]));
+    env.viaggiSeguiti.set(k, { stato: 'ok', dati: { tracked: true, stops: [] } });
+    await env.caricaViaggioSeguito(t, true);
+    assert.strictEqual(env.viaggiSeguiti.get(k).dati.tracked, true, "un tracked:false di oggi non cancella l'ultima posizione");
+  }
+  console.log('segnalibro di ieri: ok — 9 casi');
 })().catch((e) => { console.error(e); process.exit(1); });
 
 const env = fabbricaSeguito(risposte.rete, stamattina);
@@ -1082,12 +1100,27 @@ const tira = new Function('document', 'scrollY', `
 {
   const ascoltatori = {};
   const doc = { addEventListener: (t, f) => { ascoltatori[t] = f; } };
-  const el = { style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+  const classi = new Set();
+  const el = { style: {}, classList: {
+    add: (...c) => c.forEach((x) => classi.add(x)),
+    remove: (...c) => c.forEach((x) => classi.delete(x)),
+    toggle: (c, si) => (si ? classi.add(c) : classi.delete(c)),
+  } };
   const env = tira(doc, 0);
   let rinfrescate = 0;
   env.tiraPerAggiornare(el, 70, () => { rinfrescate++; return Promise.resolve(); });
 
   const tocco = (y, target = {}) => ({ touches: [{ clientY: y }], target: { closest: () => target.dentroMappa ? {} : null } });
+  // Il dito che sale dalla cima è la pagina che scorre in giù: il cerchio,
+  // che sta sopra l'intestazione, non deve comparire a ogni scorrimento.
+  ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(60));
+  assert.ok(!classi.has('visibile'), 'scorrendo in giù il cerchio non compare');
+  ascoltatori.touchend({});
+  // Tirato davvero, anche poco (10 px di cerchio), compare.
+  ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(120));
+  assert.ok(classi.has('visibile'), 'tirando il cerchio compare');
+  ascoltatori.touchend({});
+  assert.ok(!classi.has('visibile'), 'rilasciato sotto soglia se ne va');
   // Un trascinamento corto non aggiorna.
   ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(140)); ascoltatori.touchend({});
   assert.strictEqual(rinfrescate, 0, 'sotto la soglia non si aggiorna');
@@ -1115,7 +1148,7 @@ const tira = new Function('document', 'scrollY', `
       await env.rinfrescaVista();
       assert.strictEqual(env.chiamate[env.chiamate.length - 1], atteso, `vista ${v}`);
     }
-    console.log('tira per aggiornare: ok — 4 casi sul gesto + 4 sulle viste');
+    console.log('tira per aggiornare: ok — 7 casi sul gesto + 4 sulle viste');
   })().catch((e) => { console.error(e); process.exit(1); });
 }
 

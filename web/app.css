@@ -183,8 +183,9 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   .ciclo i { animation: none; width: 100%; }
 }
 
-/* Il cerchio di "tira per aggiornare": nascosto sopra l'intestazione, scende
-   col dito e gira finché i dati non sono arrivati. */
+/* Il cerchio di "tira per aggiornare": sta sopra l'intestazione (z-index 6
+   contro 5) ed è trasparente finché il dito non tira davvero, poi scende col
+   dito e gira finché i dati non sono arrivati. */
 .tira {
   position: fixed; z-index: 6; top: calc(env(safe-area-inset-top) + 8px); left: 50%;
   width: 30px; height: 30px; border-radius: 50%;

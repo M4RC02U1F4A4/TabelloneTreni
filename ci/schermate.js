@@ -10,9 +10,19 @@
 const path = require('node:path');
 const fs = require('node:fs');
 
-// La mezzanotte di Roma di oggi, come la salva l'app nel segnalibro.
-const giornoRoma = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome' }).format(new Date());
-const MEZZANOTTE = new Date(`${giornoRoma}T00:00:00+02:00`).getTime();
+// La mezzanotte di Roma di oggi, come la salva l'app nel segnalibro. Non con
+// l'offset fisso +02:00: dall'ora solare (ultima domenica di ottobre) cadrebbe
+// alle 23 del giorno prima, il treno diventerebbe "di ieri" e la vista del
+// treno non tracciato sparirebbe fino a marzo. Si toglie da adesso l'ora che è
+// a Roma, che Intl sa già con il suo cambio d'ora.
+const MEZZANOTTE = (() => {
+  const adesso = Date.now();
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Rome', hourCycle: 'h23',
+    hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(adesso).map((x) => [x.type, Number(x.value)]));
+  return adesso - ((p.hour * 60 + p.minute) * 60 + p.second) * 1000 - (adesso % 1000);
+})();
 
 // Nomi lunghi apposta: sono quelli che allargano una pagina.
 const viaggio = {

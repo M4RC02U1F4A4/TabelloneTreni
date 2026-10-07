@@ -679,10 +679,11 @@ async function caricaTabellone() {
   stato.caricamento = true;
   disegna();
   try {
-    // Quindici secondi come ogni altra lettura: appesa, terrebbe il tabellone
-    // sugli scheletri e il gesto di aggiornare a girare finché il browser non
-    // si arrende, cioè per minuti.
-    const r = await fetch(API.tabellone(stato.da, stato.a, stato.arrivi), { signal: AbortSignal.timeout(15_000) });
+    // Un limite serve: appesa, la lettura terrebbe il tabellone sugli
+    // scheletri e il gesto di aggiornare a girare finché il browser non si
+    // arrende, cioè per minuti. Venticinque secondi e non i quindici delle
+    // altre letture: il server aspetta RFI fino a venti.
+    const r = await fetch(API.tabellone(stato.da, stato.a, stato.arrivi), { signal: AbortSignal.timeout(25_000) });
     if (controllaVersione(r)) return;              // la pagina si sta ricaricando
     if (mio !== richiestaInCorso) return;          // una richiesta più nuova ha già vinto
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
@@ -763,21 +764,30 @@ async function caricaViaggioSeguito(t, forza) {
     ? t
     : { ...t, a: t.a || (salvato && salvato.a), f: t.f || (salvato && salvato.f) };
   try {
-    // Più del tabellone (15 s): il server aspetta ViaggiaTreno fino a venti
+    // Più del tabellone (25 s): il server aspetta ViaggiaTreno fino a venti
     // secondi e le righe di RFI fino a sei, e una scheda che aspetta un po' di
     // più vale più di una che resta vecchia.
     const r = await fetch(API.viaggio(chiesto), { signal: AbortSignal.timeout(30_000) });
     if (controllaVersione(r)) return false;
     if (!r.ok) {
-      // Il server che risponde male su un treno di un giorno passato vuol dire
-      // che ViaggiaTreno lo ha dimenticato: è finito, e il segnalibro se ne va
-      // come se fosse arrivato. Solo qui e non nel catch: la rete che cade o il
-      // timeout non dicono niente del treno, e l'Intercity Notte partito ieri
-      // sera, letto alle sei in galleria, deve restare.
-      if (diIeri(t)) smettiDiSeguire(k);
+      // Un 4xx su un treno di un giorno passato vuol dire che il server non lo
+      // accetta più (il 400 dei giorni ammessi): è finito, e il segnalibro se
+      // ne va come se fosse arrivato. Un 5xx no: il treno dimenticato da
+      // ViaggiaTreno torna come "non tracciato" più sotto, e un 5xx dice solo
+      // che ViaggiaTreno non risponde — un timeout, un deploy. Il treno delle
+      // 23:30 che arriva alle 00:40 non deve sparire al primo singhiozzo; se
+      // non risponde mai più lo toglie potaSeguiti, a 36 ore. Per lo stesso
+      // motivo non nel catch: la rete che cade non dice niente del treno.
+      if (r.status < 500 && diIeri(t)) smettiDiSeguire(k);
       throw new Error(`errore ${r.status}`);
     }
     const d = await r.json();
+    // Il treno di oggi che era tracciato e adesso non lo è più: ViaggiaTreno
+    // l'ha perso per un giro, non è tornato a "non ancora partito". Si tiene
+    // l'ultima posizione, come per una lettura fallita, e si torna falso: il
+    // dato in mano è quello di prima, e l'orologio non deve ripartire. Il
+    // treno di ieri invece prosegue, e il "non tracciato" lo toglie qui sotto.
+    if (!d.tracked && !diIeri(t) && gia && gia.stato === 'ok' && gia.dati && gia.dati.tracked) return false;
     viaggiSeguiti.set(k, { stato: 'ok', dati: d, lettoIl: Date.now() });
     ricordaViaggio(k, d);
     // Arrivato, il segnalibro si toglie subito — ma il viaggio resta in mano
@@ -805,12 +815,12 @@ async function caricaViaggioSeguito(t, forza) {
 
 /* Se il giorno di partenza è prima della mezzanotte di Roma di adesso.
 
-   Serve a una cosa sola: decidere cosa vuol dire una risposta non ok del
-   server, o un treno non tracciato. Per il treno di oggi è un guasto
-   passeggero o un treno non ancora partito, e si tiene; per il treno di ieri è
-   ViaggiaTreno che se l'è dimenticato — risponde 204, il server "non
-   tracciato" — e tenerlo voleva dire una scheda in home fino a mezzogiorno per
-   un treno arrivato la sera prima.
+   Serve a una cosa sola: decidere cosa vuol dire un 4xx del server, o un
+   treno non tracciato. Per il treno di oggi è un treno non ancora partito, e
+   si tiene; per il treno di ieri è ViaggiaTreno che se l'è dimenticato —
+   risponde 204, il server "non tracciato" — e tenerlo voleva dire una scheda
+   in home fino a mezzogiorno per un treno arrivato la sera prima. Un 5xx non
+   passa di qui: è ViaggiaTreno che non risponde, di ieri o di oggi.
 
    Un `d` fuori dall'intervallo delle date (una rotta scritta a mano) non è di
    ieri: 8.64e15 è il limite di Date, oltre il quale Intl lancia. */
@@ -866,10 +876,11 @@ async function caricaProssimi() {
   await Promise.all(preferiti().map(async (p) => {
     const k = chiaveTratta(p);
     try {
-      // Lo stesso limite della lettura dei treni seguiti: una richiesta appesa
-      // terrebbe la tessera sui tre puntini fino al giro dopo, e il gesto di
-      // aggiornare a girare a vuoto aspettandola.
-      const r = await fetch(API.tabellone(p.f, p.t, p.a), { signal: AbortSignal.timeout(15_000) });
+      // Lo stesso limite del tabellone, che il server legge da RFI fino a
+      // venti secondi: una richiesta appesa terrebbe la tessera sui tre
+      // puntini fino al giro dopo, e il gesto di aggiornare a girare a vuoto
+      // aspettandola.
+      const r = await fetch(API.tabellone(p.f, p.t, p.a), { signal: AbortSignal.timeout(25_000) });
       if (controllaVersione(r)) return;
       if (!r.ok) throw new Error(`errore ${r.status}`);
       const d = await r.json();
@@ -3579,12 +3590,18 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
     if (inizio === null) return;
+    const dy = e.touches[0].clientY - inizio;
+    // Il dito che sale è la pagina che scorre in giù dalla cima: il gesto non
+    // c'entra più. Il cerchio sta sopra l'intestazione (z-index 6 contro 5), e
+    // senza questo comparirebbe lì a ogni scorrimento partito da scrollY 0.
+    if (dy < 0) { inizio = null; lascia(); return; }
     // Il cerchio segue il dito con un freno: a metà strada si sente che manca
-    // poco, oltre la soglia che è fatta.
-    tirato = Math.max(0, e.touches[0].clientY - inizio) * 0.5;
+    // poco, oltre la soglia che è fatta. Sotto i 4 px resta nascosto, perché un
+    // tocco che trema non lo faccia lampeggiare.
+    tirato = dy * 0.5;
     el.style.transform = `translate(-50%, ${Math.min(tirato, soglia * 1.3)}px)`;
     el.classList.toggle('pronto', tirato >= soglia);
-    el.classList.add('visibile');
+    el.classList.toggle('visibile', tirato > 4);
   }, { passive: true });
   const lascia = () => { el.classList.remove('visibile', 'pronto'); el.style.transform = ''; };
   // Un tocco annullato dal sistema (una chiamata, un gesto di iOS) è un
