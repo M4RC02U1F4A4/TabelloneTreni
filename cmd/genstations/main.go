@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/dom"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
 	"golang.org/x/net/html"
 )
@@ -30,6 +32,12 @@ const (
 	urlVT  = baseVT + "elencoStazioni/"
 	baseVT = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/"
 )
+
+// catalogo è la forma di stations.json.
+type catalogo struct {
+	Generated string              `json:"generated"`
+	Stations  []*stations.Station `json:"stations"`
+}
 
 // aliasManuali copre le fermate che nessun incrocio automatico risolve, perché
 // la grafia del tabellone non somiglia abbastanza a nessuno dei nomi noti.
@@ -69,10 +77,7 @@ func main() {
 
 	elenco := unisci(rfi, vt)
 
-	body, err := json.Marshal(struct {
-		Generated string              `json:"generated"`
-		Stations  []*stations.Station `json:"stations"`
-	}{time.Now().UTC().Format(time.RFC3339), elenco})
+	body, err := json.Marshal(catalogo{time.Now().UTC().Format(time.RFC3339), elenco})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -111,10 +116,7 @@ func aggiungiCoordinate(percorso string) error {
 	if err != nil {
 		return err
 	}
-	var f struct {
-		Generated string              `json:"generated"`
-		Stations  []*stations.Station `json:"stations"`
-	}
+	var f catalogo
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return err
 	}
@@ -134,7 +136,6 @@ func aggiungiCoordinate(percorso string) error {
 	// chiedergli duemila volte di fila il più in fretta possibile è il modo di
 	// farsi chiudere la porta a metà lavoro.
 	const paralleli = 4
-	cli := &http.Client{Timeout: 20 * time.Second}
 	sem := make(chan struct{}, paralleli)
 	var mu sync.Mutex
 	var fatte, falliti int
@@ -148,7 +149,7 @@ func aggiungiCoordinate(percorso string) error {
 			defer func() { <-sem }()
 			time.Sleep(time.Duration(i%paralleli) * 120 * time.Millisecond)
 
-			lat, lon, err := coordinateDi(cli, st.VT)
+			lat, lon, err := coordinateDi(st.VT)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -189,16 +190,16 @@ func aggiungiCoordinate(percorso string) error {
 // dettaglio vuole il numero della regione, che si scopre solo chiedendolo — con
 // un numero sbagliato risponde vuoto invece di sbagliare, cioè nel modo più
 // scomodo possibile.
-func coordinateDi(cli *http.Client, codiceVT string) (float64, float64, error) {
-	reg, err := prendiTesto(cli, baseVT+"regione/"+codiceVT)
+func coordinateDi(codiceVT string) (float64, float64, error) {
+	b, err := get(baseVT + "regione/" + codiceVT)
 	if err != nil {
 		return 0, 0, fmt.Errorf("regione: %w", err)
 	}
-	reg = strings.TrimSpace(reg)
+	reg := strings.TrimSpace(string(b))
 	if reg == "" {
 		return 0, 0, fmt.Errorf("regione vuota")
 	}
-	corpo, err := prendiTesto(cli, baseVT+"dettaglioStazione/"+codiceVT+"/"+reg)
+	corpo, err := get(baseVT + "dettaglioStazione/" + codiceVT + "/" + reg)
 	if err != nil {
 		return 0, 0, fmt.Errorf("dettaglio: %w", err)
 	}
@@ -206,7 +207,7 @@ func coordinateDi(cli *http.Client, codiceVT string) (float64, float64, error) {
 		Lat float64 `json:"lat"`
 		Lon float64 `json:"lon"`
 	}
-	if err := json.Unmarshal([]byte(corpo), &d); err != nil {
+	if err := json.Unmarshal(corpo, &d); err != nil {
 		return 0, 0, fmt.Errorf("dettaglio illeggibile")
 	}
 	// Lo zero non è un posto: è il campo non compilato, e va trattato come un
@@ -217,54 +218,34 @@ func coordinateDi(cli *http.Client, codiceVT string) (float64, float64, error) {
 	return d.Lat, d.Lon, nil
 }
 
-func prendiTesto(cli *http.Client, u string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "TabelloneTreni/genstations")
-	resp, err := cli.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return string(b), err
-}
-
 // scaricaRFI estrae le coppie PlaceId/nome dalla <select> della home. È l'unica
 // fonte possibile: la ricerca stazione del sito RFI è interamente lato client,
 // quindi non esiste alcun endpoint da interrogare.
 func scaricaRFI() (map[int]string, error) {
-	doc, err := prendiHTML(urlRFI)
+	body, err := get(urlRFI)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	out := map[int]string{}
-	var visita func(*html.Node, bool)
-	visita = func(n *html.Node, dentroSelect bool) {
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "select":
-				dentroSelect = attr(n, "id") == "ElencoLocalita"
-			case "option":
-				if dentroSelect {
-					if id, err := strconv.Atoi(attr(n, "value")); err == nil && id > 0 {
-						if nome := strings.TrimSpace(testo(n)); nome != "" {
-							out[id] = nome
-						}
-					}
+	sel := dom.Trova(doc, func(n *html.Node) bool {
+		return n.Data == "select" && dom.Attr(n, "id") == "ElencoLocalita"
+	})
+	if sel != nil {
+		for n := range sel.Descendants() {
+			if n.Type != html.ElementNode || n.Data != "option" {
+				continue
+			}
+			if id, err := strconv.Atoi(dom.Attr(n, "value")); err == nil && id > 0 {
+				if nome := strings.TrimSpace(dom.Testo(n)); nome != "" {
+					out[id] = nome
 				}
 			}
 		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			visita(c, dentroSelect)
-		}
 	}
-	visita(doc, false)
 	if len(out) == 0 {
 		return nil, fmt.Errorf("nessuna <option> trovata: la home RFI è cambiata")
 	}
@@ -295,7 +276,7 @@ func scaricaViaggiaTreno() (map[string]datiVT, error) {
 	out := map[string]datiVT{}
 	var ultimoErr error
 	for reg := 0; reg <= 22; reg++ {
-		body, err := prendi(urlVT + strconv.Itoa(reg))
+		body, err := get(urlVT + strconv.Itoa(reg))
 		if err != nil {
 			ultimoErr = err
 			continue
@@ -388,47 +369,23 @@ func ripulisci(nome string, alias []string) []string {
 	return out
 }
 
-func prendi(url string) ([]byte, error) {
-	cli := &http.Client{Timeout: 30 * time.Second}
-	resp, err := cli.Get(url)
+// client è uno per tutto il comando. Lo User-Agent dice chi siamo, e non è
+// cortesia soltanto: allo User-Agent di Go ViaggiaTreno risponde 403.
+var client = &http.Client{Timeout: 30 * time.Second}
+
+func get(u string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "TabelloneTreni/genstations")
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("%s: HTTP %d", u, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-}
-
-func prendiHTML(url string) (*html.Node, error) {
-	body, err := prendi(url)
-	if err != nil {
-		return nil, err
-	}
-	return html.Parse(strings.NewReader(string(body)))
-}
-
-func attr(n *html.Node, nome string) string {
-	for _, a := range n.Attr {
-		if a.Key == nome {
-			return a.Val
-		}
-	}
-	return ""
-}
-
-func testo(n *html.Node) string {
-	var b strings.Builder
-	var visita func(*html.Node)
-	visita = func(n *html.Node) {
-		if n.Type == html.TextNode {
-			b.WriteString(n.Data)
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			visita(c)
-		}
-	}
-	visita(n)
-	return b.String()
 }

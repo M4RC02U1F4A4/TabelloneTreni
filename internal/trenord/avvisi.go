@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/dom"
 	"golang.org/x/net/html"
 )
 
@@ -146,13 +147,13 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 	// Lo stato e l'orario stanno nell'intestazione, non nel carosello: il
 	// carosello porta lo stato di ogni singola comunicazione, che è un'altra
 	// cosa e vale il giorno in cui è stata scritta.
-	if t := trova(doc, func(n *html.Node) bool { return haClasse(n, "title-icon") }); t != nil {
+	if t := dom.Trova(doc, func(n *html.Node) bool { return dom.HaClasse(n, "title-icon") }); t != nil {
 		if s, ok := statoDi(t); ok {
 			d.Stato = s
 		}
-		if u := trova(t, func(n *html.Node) bool { return haClasse(n, "update-line") }); u != nil {
+		if u := dom.Trova(t, func(n *html.Node) bool { return dom.HaClasse(n, "update-line") }); u != nil {
 			// "Ultimo aggiornamento 07/09/26 16:50"
-			campi := strings.Fields(pulisci(testo(u)))
+			campi := strings.Fields(pulisci(dom.Testo(u)))
 			if len(campi) >= 2 {
 				d.Aggiornato, _ = time.Parse("02/01/06 15:04",
 					campi[len(campi)-2]+" "+campi[len(campi)-1])
@@ -163,8 +164,8 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 	// Una pagina senza carosello non è una linea senza avvisi: è una risposta
 	// che non abbiamo capito, e le due cose non vanno confuse — la prima è
 	// normale, la seconda va vista.
-	carosello := trova(doc, func(n *html.Node) bool {
-		return n.Data == "div" && haClasse(n, "carousel-line")
+	carosello := dom.Trova(doc, func(n *html.Node) bool {
+		return n.Data == "div" && dom.HaClasse(n, "carousel-line")
 	})
 	if carosello == nil {
 		return nil, errors.New("nessun carosello nel dettaglio linea: markup cambiato")
@@ -172,16 +173,16 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 
 	var avvisi []Avviso
 	for c := carosello.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type != html.ElementNode || !haClasse(c, "item") {
+		if c.Type != html.ElementNode || !dom.HaClasse(c, "item") {
 			continue
 		}
-		nodo := trova(c, func(n *html.Node) bool { return haClasse(n, "body-texts") })
+		nodo := dom.Trova(c, func(n *html.Node) bool { return dom.HaClasse(n, "body-texts") })
 		if nodo == nil {
 			// Un item senza corpo non è un avviso: Trenord ne pubblica di
-			// vuoti, e testo(nil) mandava giù il servizio.
+			// vuoti, e Testo(nil) mandava giù il servizio.
 			continue
 		}
-		corpo := senzaCoda(pulisci(testo(nodo)))
+		corpo := senzaCoda(pulisci(dom.Testo(nodo)))
 		if corpo == "" {
 			continue
 		}
@@ -190,10 +191,10 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 			Sezione:  sezioneDi(c),
 			Sciopero: parlaDiSciopero.MatchString(corpo),
 		}
-		if d := trova(c, func(n *html.Node) bool { return haClasse(n, "news-date") }); d != nil {
+		if d := dom.Trova(c, func(n *html.Node) bool { return dom.HaClasse(n, "news-date") }); d != nil {
 			// Il formato è ISO con i millisecondi e la Z: se un giorno cambia,
 			// meglio un avviso senza data che nessun avviso.
-			a.Data, _ = time.Parse(time.RFC3339, pulisci(testo(d)))
+			a.Data, _ = time.Parse(time.RFC3339, pulisci(dom.Testo(d)))
 		}
 		avvisi = append(avvisi, a)
 	}
@@ -205,7 +206,7 @@ func ParseDettaglio(r io.Reader) (*Dettaglio, error) {
 // circolazione, "item 1 info" è un avviso. Il numero è l'unico token numerico
 // della classe; se non c'è, o non è uno di quelli noti, resta Ignota.
 func sezioneDi(n *html.Node) Sezione {
-	for _, f := range strings.Fields(attr(n, "class")) {
+	for _, f := range strings.Fields(dom.Attr(n, "class")) {
 		switch f {
 		case "1":
 			return SezioneAvvisi
@@ -214,20 +215,4 @@ func sezioneDi(n *html.Node) Sezione {
 		}
 	}
 	return SezioneIgnota
-}
-
-// trova restituisce il primo nodo che soddisfa la condizione.
-func trova(n *html.Node, ok func(*html.Node) bool) *html.Node {
-	if n == nil {
-		return nil
-	}
-	if n.Type == html.ElementNode && ok(n) {
-		return n
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if r := trova(c, ok); r != nil {
-			return r
-		}
-	}
-	return nil
 }

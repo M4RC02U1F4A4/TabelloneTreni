@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/dom"
 	"golang.org/x/net/html"
 )
 
@@ -42,11 +43,11 @@ func parseHTML(r io.Reader) ([]Linea, error) {
 	visita = func(n *html.Node, gruppo string) {
 		if n.Type == html.ElementNode {
 			switch {
-			case n.Data == "ul" && haClasse(n, "new_line"):
+			case n.Data == "ul" && dom.HaClasse(n, "new_line"):
 				// Il titolo del gruppo è dentro la <ul>, non prima: da qui in
 				// giù tutte le linee appartengono a questo gruppo.
 				gruppo = titoloGruppo(n)
-			case n.Data == "a" && attr(n, "data-code") != "":
+			case n.Data == "a" && dom.Attr(n, "data-code") != "":
 				if l, ok := leggiLinea(n, gruppo); ok {
 					linee = append(linee, l)
 				}
@@ -67,15 +68,15 @@ func parseHTML(r io.Reader) ([]Linea, error) {
 
 func leggiLinea(a *html.Node, gruppo string) (Linea, bool) {
 	l := Linea{
-		Codice: strings.TrimSpace(attr(a, "data-code")),
-		Nome:   pulisci(attr(a, "data-name")),
+		Codice: strings.TrimSpace(dom.Attr(a, "data-code")),
+		Nome:   pulisci(dom.Attr(a, "data-name")),
 		Gruppo: gruppo,
 	}
 	// Il nome sta nell'attributo e anche nel testo della voce: l'attributo è
 	// quello che Trenord usa per il proprio filtro di ricerca, il testo porta
 	// spazi di impaginazione. Se l'attributo manca si ripiega sul testo.
 	if l.Nome == "" {
-		l.Nome = pulisci(testo(a))
+		l.Nome = pulisci(dom.Testo(a))
 	}
 	stato, ok := statoDi(a)
 	if !ok {
@@ -87,68 +88,36 @@ func leggiLinea(a *html.Node, gruppo string) (Linea, bool) {
 	return l, l.Codice != "" && l.Nome != ""
 }
 
-// statoDi legge il semaforo dalle classi del div .status-line.
+// statoDi legge il semaforo dalle classi del primo div .status-line che ne
+// porta uno riconoscibile.
 func statoDi(n *html.Node) (Stato, bool) {
-	if n.Type == html.ElementNode && haClasse(n, "status-line") {
+	var s Stato
+	trovato := dom.Trova(n, func(n *html.Node) bool {
+		if !dom.HaClasse(n, "status-line") {
+			return false
+		}
 		switch {
-		case haClasse(n, "danger"):
-			return Grave, true
-		case haClasse(n, "critical"):
-			return Critico, true
-		case haClasse(n, "green-line"):
-			return Regolare, true
+		case dom.HaClasse(n, "danger"):
+			s = Grave
+		case dom.HaClasse(n, "critical"):
+			s = Critico
+		case dom.HaClasse(n, "green-line"):
+			s = Regolare
+		default:
+			return false
 		}
-		return 0, false
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if s, ok := statoDi(c); ok {
-			return s, true
-		}
-	}
-	return 0, false
+		return true
+	})
+	return s, trovato != nil
 }
 
 func titoloGruppo(ul *html.Node) string {
 	for c := ul.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && c.Data == "p" && haClasse(c, "title-line") {
-			return pulisci(testo(c))
+		if c.Type == html.ElementNode && c.Data == "p" && dom.HaClasse(c, "title-line") {
+			return pulisci(dom.Testo(c))
 		}
 	}
 	return ""
-}
-
-func attr(n *html.Node, nome string) string {
-	for _, a := range n.Attr {
-		if a.Key == nome {
-			return a.Val
-		}
-	}
-	return ""
-}
-
-func haClasse(n *html.Node, c string) bool {
-	for _, f := range strings.Fields(attr(n, "class")) {
-		if f == c {
-			return true
-		}
-	}
-	return false
-}
-
-func testo(n *html.Node) string {
-	var b strings.Builder
-	var visita func(*html.Node)
-	visita = func(n *html.Node) {
-		if n.Type == html.TextNode {
-			b.WriteString(n.Data)
-			b.WriteByte(' ')
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			visita(c)
-		}
-	}
-	visita(n)
-	return b.String()
 }
 
 /*
@@ -170,10 +139,9 @@ var cp1252 = [32]rune{
 	'\u02dc', '\u2122', '\u0161', '\u203a', '\u0153', 0, '\u017e', '\u0178',
 }
 
+// strings.Map restituisce s com'è, senza allocare, quando nessuna runa cambia:
+// il caso di quasi tutti i testi.
 func riparaCP1252(s string) string {
-	if !strings.ContainsFunc(s, func(r rune) bool { return r >= 0x80 && r <= 0x9f }) {
-		return s
-	}
 	return strings.Map(func(r rune) rune {
 		if r >= 0x80 && r <= 0x9f {
 			if c := cp1252[r-0x80]; c != 0 {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/dom"
 	"golang.org/x/net/html"
 )
 
@@ -40,9 +41,9 @@ func Parse(r io.Reader, placeID int, arrivals bool) (*Board, error) {
 	visita = func(n *html.Node) {
 		if n.Type == html.ElementNode {
 			switch {
-			case n.Data == "h1" && attr(n, "id") == "nomeStazioneId":
-				b.Station = pulisci(testo(n))
-			case n.Data == "div" && haClasse(n, "marqueeinfosupp"):
+			case n.Data == "h1" && dom.Attr(n, "id") == "nomeStazioneId":
+				b.Station = pulisci(dom.Testo(n))
+			case n.Data == "div" && dom.HaClasse(n, "marqueeinfosupp"):
 				// Gli avvisi di stazione: un <div> figlio per avviso, dentro
 				// il contenitore che la pagina fa scorrere in fondo. Sono
 				// l'unico posto dove RFI dice degli ascensori guasti o dei
@@ -53,12 +54,12 @@ func Parse(r io.Reader, placeID int, arrivals bool) (*Board, error) {
 					if c.Type != html.ElementNode || c.Data != "div" {
 						continue
 					}
-					if t := pulisci(testo(c)); t != "" {
+					if t := pulisci(dom.Testo(c)); t != "" {
 						b.Notices = append(b.Notices, t)
 					}
 				}
 				return // gli avvisi non si annidano
-			case n.Data == "tr" && attr(n, "name") == "treno":
+			case n.Data == "tr" && dom.Attr(n, "name") == "treno":
 				// Una riga senza né orario né destinazione non è mostrabile:
 				// diventerebbe una scheda vuota in mezzo all'elenco. Non se ne
 				// sono viste finora, ma il costo di escluderle è nullo e il
@@ -82,13 +83,13 @@ func Parse(r io.Reader, placeID int, arrivals bool) (*Board, error) {
 }
 
 func leggiRiga(tr *html.Node) Train {
-	t := Train{Number: strings.TrimSpace(attr(tr, "id"))}
+	t := Train{Number: strings.TrimSpace(dom.Attr(tr, "id"))}
 
 	for td := tr.FirstChild; td != nil; td = td.NextSibling {
 		if td.Type != html.ElementNode || td.Data != "td" {
 			continue
 		}
-		switch attr(td, "id") {
+		switch dom.Attr(td, "id") {
 		case idVettore:
 			t.Carrier = pulisci(altImmagine(td))
 		case idCategoria:
@@ -96,15 +97,15 @@ func leggiRiga(tr *html.Node) Train {
 			// esiste solo lì, perché il logo è una GIF inline.
 			t.Category = pulisci(strings.TrimPrefix(pulisci(altImmagine(td)), "Categoria "))
 		case idTreno:
-			if n := pulisci(testo(td)); n != "" {
+			if n := pulisci(dom.Testo(td)); n != "" {
 				t.Number = n
 			}
 		case idStazione:
-			t.Terminus = pulisci(testo(td))
+			t.Terminus = pulisci(dom.Testo(td))
 		case idOrario:
-			t.Time = pulisci(testo(td))
+			t.Time = pulisci(dom.Testo(td))
 		case idRitardo:
-			switch v := pulisci(testo(td)); {
+			switch v := pulisci(dom.Testo(td)); {
 			case v == "":
 			case strings.EqualFold(v, "Cancellato"):
 				t.Cancelled = true
@@ -116,7 +117,7 @@ func leggiRiga(tr *html.Node) Train {
 				}
 			}
 		case idBinario:
-			t.Platform = pulisci(testo(td))
+			t.Platform = pulisci(dom.Testo(td))
 		case idLampeggio:
 			// Il lampeggio è la presenza dell'immagine, non un testo: l'unico
 			// altro indizio è un aria-label che RFI emette con le virgolette
@@ -138,8 +139,8 @@ func leggiDettagli(td *html.Node) ([]Stop, string) {
 
 	var visita func(*html.Node)
 	visita = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "div" && haClasse(n, "testoinfoaggiuntive") {
-			txt := pulisci(testo(n))
+		if n.Type == html.ElementNode && n.Data == "div" && dom.HaClasse(n, "testoinfoaggiuntive") {
+			txt := pulisci(dom.Testo(n))
 			if i := strings.Index(txt, prefissoFerm); i >= 0 {
 				stops = append(stops, leggiFermate(txt[i+len(prefissoFerm):])...)
 			} else if txt != "" && !notaRidondante(txt) {
@@ -214,55 +215,13 @@ func pulisci(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-func attr(n *html.Node, nome string) string {
-	for _, a := range n.Attr {
-		if a.Key == nome {
-			return a.Val
-		}
+func altImmagine(n *html.Node) string {
+	if img := trovaImmagine(n); img != nil {
+		return dom.Attr(img, "alt")
 	}
 	return ""
-}
-
-func haClasse(n *html.Node, c string) bool {
-	for _, f := range strings.Fields(attr(n, "class")) {
-		if f == c {
-			return true
-		}
-	}
-	return false
 }
 
 func trovaImmagine(n *html.Node) *html.Node {
-	if n.Type == html.ElementNode && n.Data == "img" {
-		return n
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if r := trovaImmagine(c); r != nil {
-			return r
-		}
-	}
-	return nil
-}
-
-func altImmagine(n *html.Node) string {
-	if img := trovaImmagine(n); img != nil {
-		return attr(img, "alt")
-	}
-	return ""
-}
-
-func testo(n *html.Node) string {
-	var b strings.Builder
-	var visita func(*html.Node)
-	visita = func(n *html.Node) {
-		if n.Type == html.TextNode {
-			b.WriteString(n.Data)
-			b.WriteByte(' ')
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			visita(c)
-		}
-	}
-	visita(n)
-	return b.String()
+	return dom.Trova(n, func(n *html.Node) bool { return n.Data == "img" })
 }
