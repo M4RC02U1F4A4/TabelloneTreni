@@ -357,6 +357,12 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 /* --- il treno seguito: la scheda grande --- */
 
 .schede { display: flex; flex-direction: column; gap: var(--gap); }
+/* Una rete, non una correzione misurata: con nessun dato finto la scheda è
+   mai uscita dalla pagina, su Chromium e su WebKit. Ma un elemento flex non si
+   stringe sotto il suo contenuto se non glielo si dice, e un nome di stazione
+   senza spazi nella riga "rilevato a …" allargherebbe la scheda invece di
+   andare a capo. */
+.schede > li { min-width: 0; }
 /* Un piano sopra le tessere, con il bordo verde del treno vivo: nello scuro è
    la cosa più chiara della pagina senza essere la più accesa. */
 .scheda {
@@ -417,6 +423,7 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   display: flex; align-items: center; gap: 10px;
   margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--bordo);
   font-size: 14px; color: var(--tenue);
+  overflow-wrap: anywhere;
 }
 /* Il puntino c'è solo quando ViaggiaTreno il treno lo sta seguendo davvero:
    su "non ancora partito" un segno di vita sarebbe una bugia. */
@@ -891,7 +898,12 @@ summary.riga-treno::-webkit-details-marker { display: none; }
 
 /* Il segnalibro sotto le fermate. Sta in fondo alla scheda aperta e non sulla
    riga chiusa: è lì che si scopre se c'è qualcosa da seguire. */
-.segui-riga { margin: 4px 14px 14px; display: flex; gap: 8px; }
+/* I due tasti vanno a capo quando accesi non stanno affiancati: "Lo stai
+   seguendo" e "Lo prendi ogni giorno" sono più lunghi delle scritte da spenti,
+   e su un iPhone da 390 px il secondo usciva dalla scheda, tagliato dal bordo.
+   Ognuno resta su una riga sola: un tasto alto due righe si legge peggio di
+   due tasti uno sopra l'altro. */
+.segui-riga { margin: 4px 14px 14px; display: flex; flex-wrap: wrap; gap: 8px; }
 .btn-testo.segui {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
   height: 44px; padding: 0 10px; border-radius: 12px;

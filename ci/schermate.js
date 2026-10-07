@@ -41,6 +41,15 @@ const VISTE = {
   'home-abituale': { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); await p.click('[data-apri-abituale]').catch(() => {}); } },
   'home-modifica': { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); await p.click('[data-modifica]').catch(() => {}); } },
   tratta: { rotta: '#/p/1841/1715', dopo: async (p) => { await p.waitForTimeout(3500); await p.click('.tabella.tratta details[data-treno] summary').catch(() => {}); await p.waitForTimeout(2500); } },
+  // Il punto 6: i due tasti sotto le fermate premuti tutti e due. Accesi le
+  // scritte si allungano ("Lo stai seguendo", "Lo prendi ogni giorno"), e il
+  // secondo usciva dalla scheda già a 390 px.
+  'tratta-seguito': { rotta: '#/p/1841/1715', dopo: async (p) => {
+    await VISTE.tratta.dopo(p);
+    for (const i of [0, 1]) { await p.click(`.segui-riga button >> nth=${i}`).catch(() => {}); await p.waitForTimeout(800); }
+    const accesi = await p.$$eval('.segui-riga button[aria-pressed="true"]', (b) => b.length).catch(() => 0);
+    return accesi === 2 ? [] : [`${accesi} tasti accesi su 2`];
+  } },
   tabellone: { rotta: '#/p/1728', dopo: async (p) => { await p.waitForTimeout(3500); } },
   treno: { rotta: `#/t/S01322/24854/${MEZZANOTTE}`, dopo: async (p) => { await p.waitForTimeout(2000); await p.click('.precedenti summary').catch(() => {}); } },
   linee: { rotta: '#/linee', dopo: async (p) => { await p.waitForTimeout(2500); } },
@@ -109,6 +118,23 @@ async function controllaOverflow(page) {
           if (testo) id += `"${testo}"`;
         }
         colpevoli.push(id);
+      }
+    }
+    // Chi sporge dentro una scheda che taglia il suo contenuto non allarga la
+    // pagina, quindi la misura sopra non lo vede: si vede però a occhio, mezzo
+    // bottone mangiato dal bordo. Era "Lo prendi ogni giorno" accanto a "Lo
+    // stai seguendo", tagliato a 390 px. Il testo troncato con i puntini non
+    // conta: lì il taglio è voluto ("prosegue per …" in una riga di tratta).
+    for (const el of document.querySelectorAll('body *')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        const s = getComputedStyle(p);
+        if (!/hidden|clip/.test(s.overflowX)) continue;
+        if (s.textOverflow !== 'ellipsis' && r.right > p.getBoundingClientRect().right + 1) {
+          colpevoli.push('tagliato:' + el.tagName.toLowerCase() + '.' + String(el.className).trim().split(/\s+/).join('.'));
+        }
+        break;
       }
     }
     // Uno scroller verticale che non dovrebbe esserci: una riga di gettoni
