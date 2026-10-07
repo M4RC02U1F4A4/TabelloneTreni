@@ -538,11 +538,24 @@ const abitualePerIlServer = (x) => ({
 /* Il treno abituale di oggi: lo stesso segnalibro che si metterebbe a mano,
    con le tre coordinate di ViaggiaTreno, finché serve.
 
-   Esiste da dieci minuti prima dell'ora a tre ore dopo, e solo nei giorni
-   scelti: prima non c'è niente da guardare, dopo il treno è arrivato da un
-   pezzo. È la stessa finestra che usa il server per generarlo, e la stessa
-   chiave — quindi un segnalibro messo a mano sullo stesso treno è una scheda
-   sola, non due.
+   Esiste solo nei giorni scelti, e fino a tre ore dopo l'ora: dopo il treno è
+   arrivato da un pezzo. Prima dell'ora compare appena il tabellone delle
+   partenze della stazione di salita lo elenca — da lì RFI dice che il treno
+   c'è, e dieci minuti prima era tardi per uscire di casa sapendolo — e
+   comunque da mezz'ora prima, per il tabellone che non risponde o non lo
+   elenca ancora. Più di quattro ore prima no, nemmeno se il tabellone lo
+   mostra: è il treno di domattina visto la sera, una scheda in cima alla home
+   per tutta la serata.
+
+   Il tabellone arriva come predicato, `inTabellone(f, n)`, così la regola
+   resta un conto sull'orologio che si prova senza rete. Si chiama solo quando
+   decide qualcosa, cioè dentro le quattro ore e prima della mezz'ora: è da lì
+   che caricaTabelloniAbituali sa quali stazioni leggere.
+
+   Il server lo genera con la stessa chiave e lo stesso giorno — quindi un
+   segnalibro messo a mano sullo stesso treno è una scheda sola, non due — ma
+   ha una finestra sua, da dieci minuti prima: è lì che manda il preavviso, e
+   la scheda in home che c'è già da prima non lo sposta.
 
    Tutto in ora di Roma e non in quella del telefono: l'ora salvata è quella
    del tabellone RFI, e il giorno di partenza di ViaggiaTreno è la mezzanotte
@@ -581,7 +594,10 @@ function minutiDi(hhmm) {
   return h * 60 + m;
 }
 
-function abitualiDiOggi(elenco, adesso) {
+const ORIZZONTE_ABITUALI = 4 * 60 * 60_000;
+const SOGLIA_ABITUALI = 30 * 60_000;
+
+function abitualiDiOggi(elenco, adesso, inTabellone = () => false) {
   const ms = adesso.getTime();
   const qui = new Date(quadranteRoma(ms));
   const oggi = Date.UTC(qui.getUTCFullYear(), qui.getUTCMonth(), qui.getUTCDate());
@@ -591,7 +607,8 @@ function abitualiDiOggi(elenco, adesso) {
     for (const giorno of [oggi - 86_400_000, oggi, oggi + 86_400_000]) {
       if (!(x.days || []).includes(new Date(giorno).getUTCDay())) continue;
       const parte = istanteRoma(giorno + minuti * 60_000);
-      if (ms < parte - 10 * 60_000 || ms >= parte + 3 * 60 * 60_000) continue;
+      if (ms < parte - ORIZZONTE_ABITUALI || ms >= parte + 3 * 60 * 60_000) continue;
+      if (ms < parte - SOGLIA_ABITUALI && !inTabellone(x.f, x.n)) continue;
       out.push({
         o: x.o, n: x.n, d: istanteRoma(giorno), f: x.f, cat: x.cat, capolinea: x.capolinea,
         ...(x.a ? { a: x.a } : {}),
@@ -616,7 +633,7 @@ function abitualiDiOggi(elenco, adesso) {
 function seguitiInHome() {
   const salvati = seguiti();
   const chiavi = new Set(salvati.map(chiaveTreno));
-  return [...salvati, ...abitualiDiOggi(abituali(), new Date()).filter((t) => {
+  return [...salvati, ...abitualiDiOggi(abituali(), new Date(), inTabellone).filter((t) => {
     const v = viaggiSeguiti.get(chiaveTreno(t));
     return !chiavi.has(chiaveTreno(t)) && !(v && v.dati && v.dati.arrived);
   })];
@@ -866,6 +883,45 @@ async function caricaProssimi() {
       prossimi.set(k, { stato: 'ok', treno: (d.trains || [])[0] || null });
     } catch {
       if (!prossimi.has(k)) prossimi.set(k, { stato: 'errore' });
+    }
+  }));
+}
+
+/* I numeri sul tabellone delle partenze di ogni stazione da cui si sale su un
+   abituale, per farlo comparire in home appena RFI lo mette in lista (vedi
+   abitualiDiOggi). Indicizzati sull'id RFI in stringa, e in stringa anche i
+   numeri: il tabellone e l'abituale possono scriverli uno in testo e l'altro
+   in cifre.
+
+   Si legge solo per gli abituali su cui il tabellone decide — dentro le
+   quattro ore e prima della mezz'ora — e le stazioni le dice abitualiDiOggi
+   stessa, chiamando il predicato solo per quelli: la regola resta in un posto
+   solo, e un giorno senza abituali vicini non costa nessuna lettura. Una per
+   stazione distinta, senza destinazione, e il server tiene ogni tabellone
+   trenta secondi per stazione: la stazione di un preferito, appena letta da
+   caricaProssimi, non è una seconda lettura a RFI.
+
+   Sta fuori da caricaProssimi perché legge un'altra cosa — la lista intera
+   delle partenze, non il prossimo treno di una tratta. Una lettura fallita
+   tiene quella di prima, come lì. */
+const numeriInTabellone = new Map(); // id RFI -> Set dei numeri
+
+const inTabellone = (f, n) => {
+  const numeri = numeriInTabellone.get(String(f));
+  return Boolean(numeri && numeri.has(String(n)));
+};
+
+async function caricaTabelloniAbituali() {
+  const stazioni = new Set();
+  abitualiDiOggi(abituali(), new Date(), (f) => { stazioni.add(String(f)); return false; });
+  await Promise.all([...stazioni].map(async (f) => {
+    try {
+      const d = await leggiJSON(API.tabellone(f), { signal: AbortSignal.timeout(25_000) });
+      if (!d) return;
+      numeriInTabellone.set(f, new Set((d.trains || []).map((t) => String(t.number))));
+    } catch {
+      // Tiene la lettura di prima: un treno elencato un minuto fa non è
+      // sparito perché RFI non ha risposto, e la mezz'ora lo copre comunque.
     }
   }));
 }
@@ -1261,6 +1317,16 @@ function rinfrescaHome() {
   return Promise.all([
     aggiornaSeguiti(true).then(ridisegna),
     caricaProssimi().then(ridisegna),
+    // Un abituale che il tabellone ha appena messo in home non c'era quando è
+    // partito il giro dei seguiti, qui sopra: il suo viaggio si legge adesso,
+    // invece di lasciare la scheda vuota fino al minuto dopo. Quelli del giro
+    // hanno già la loro voce, messa prima della prima attesa, e non si
+    // rileggono due volte.
+    caricaTabelloniAbituali()
+      .then(() => Promise.all(seguitiInHome()
+        .filter((t) => !viaggiSeguiti.has(chiaveTreno(t)))
+        .map((t) => caricaViaggioSeguito(t))))
+      .then(ridisegna),
     // Il server tiene gli avvisi dieci minuti e le linee hanno l'ETag: un giro al
     // minuto costa due 304 e non due pagine di RFI.
     Promise.all([caricaLinee(), caricaAvvisiStazione()]).then(ridisegna),

@@ -793,10 +793,12 @@ console.log(`treni seguiti verso il server: ok — 3 casi + i ${tagGo.length} ca
 /* ------------------------------------------ il treno abituale di oggi, in home */
 
 /* Il treno di oggi lo calcola anche il server, con le stesse regole: giorni
-   scelti, finestra da dieci minuti prima a tre ore dopo, giorno di partenza
-   alla mezzanotte di Roma. Se le due metà smettessero di combaciare la home
-   mostrerebbe un treno di cui non arriva nessuna notifica — o due schede per
-   lo stesso treno, perché la chiave porta il giorno. */
+   scelti, giorno di partenza alla mezzanotte di Roma, tre ore dopo l'ora. Se
+   le due metà smettessero di combaciare la home mostrerebbe un treno di cui
+   non arriva nessuna notifica — o due schede per lo stesso treno, perché la
+   chiave porta il giorno. Il bordo prima dell'ora invece è della home: il
+   server preavvisa a dieci minuti, la home lo mostra da mezz'ora prima, o da
+   quando il tabellone della stazione lo elenca. */
 const abitualiDiOggi = new Function(
   `${ritaglia('/* Il treno abituale di oggi', '/* I treni che la home segue')}; return abitualiDiOggi;`)();
 
@@ -808,9 +810,9 @@ assert.deepStrictEqual(oggiDi('2026-09-21T05:12:00Z'), [{
   o: 'S01700', n: '2247', d: 1789941600000, f: 1715, cat: 'RE', capolinea: 'VARESE',
 }], 'il treno di oggi, con la mezzanotte di Roma come giorno');
 assert.strictEqual(new Date(1789941600000).toISOString(), '2026-09-20T22:00:00.000Z');
-// I bordi: dieci minuti prima dentro, tre ore dopo fuori.
-assert.strictEqual(oggiDi('2026-09-21T05:02:00Z').length, 1, 'dieci minuti prima c\'è');
-assert.strictEqual(oggiDi('2026-09-21T05:01:59Z').length, 0, 'un attimo prima no');
+// I bordi senza tabellone: mezz'ora prima dentro, tre ore dopo fuori.
+assert.strictEqual(oggiDi('2026-09-21T04:42:00Z').length, 1, 'mezz\'ora prima c\'è');
+assert.strictEqual(oggiDi('2026-09-21T04:41:59Z').length, 0, 'un attimo prima no');
 assert.strictEqual(oggiDi('2026-09-21T08:11:59Z').length, 1, 'tre ore dopo meno un attimo c\'è');
 assert.strictEqual(oggiDi('2026-09-21T08:12:00Z').length, 0, 'tre ore dopo no');
 // Sabato 26 non è fra i giorni; con il sabato acceso sì.
@@ -829,17 +831,17 @@ assert.deepStrictEqual(
 // diversi, e il treno delle 7:12 deve restare alle 7:12.
 // Domenica 29 marzo 2026: mezzanotte in ora solare, le 7:12 in ora legale.
 const marzo = { ...abitualeFinto, days: [0] };
-assert.deepStrictEqual(oggiDi('2026-03-29T05:02:00Z', marzo).map((t) => t.d),
-  [Date.UTC(2026, 2, 28, 23)], 'marzo: dentro dalle 7:02 di Roma, mezzanotte a +1');
-assert.strictEqual(oggiDi('2026-03-29T05:01:00Z', marzo).length, 0, 'marzo: alle 7:01 di Roma no');
+assert.deepStrictEqual(oggiDi('2026-03-29T04:42:00Z', marzo).map((t) => t.d),
+  [Date.UTC(2026, 2, 28, 23)], 'marzo: dentro dalle 6:42 di Roma, mezzanotte a +1');
+assert.strictEqual(oggiDi('2026-03-29T04:41:00Z', marzo).length, 0, 'marzo: alle 6:41 di Roma no');
 // Domenica 25 ottobre 2026: mezzanotte in ora legale, le 7:12 in ora solare.
-assert.deepStrictEqual(oggiDi('2026-10-25T06:02:00Z', marzo).map((t) => t.d),
-  [Date.UTC(2026, 9, 24, 22)], 'ottobre: dentro dalle 7:02 di Roma, mezzanotte a +2');
-assert.strictEqual(oggiDi('2026-10-25T05:02:00Z', marzo).length, 0, 'ottobre: alle 6:02 di Roma no');
+assert.deepStrictEqual(oggiDi('2026-10-25T05:42:00Z', marzo).map((t) => t.d),
+  [Date.UTC(2026, 9, 24, 22)], 'ottobre: dentro dalle 6:42 di Roma, mezzanotte a +2');
+assert.strictEqual(oggiDi('2026-10-25T05:41:00Z', marzo).length, 0, 'ottobre: alle 6:41 di Roma no');
 
 // La finestra che scavalca la mezzanotte, come sul server: il treno delle
 // 23:30 del lunedì si segue ancora martedì all'una, con il giorno del lunedì;
-// quello delle 00:05 del martedì si preavvisa lunedì alle 23:56.
+// quello delle 00:05 del martedì c'è già lunedì alle 23:56.
 assert.deepStrictEqual(
   oggiDi('2026-09-21T23:00:00Z', { ...abitualeFinto, at: '23:30', days: [1] }).map((t) => t.d),
   [1789941600000], 'martedì all\'una, il treno delle 23:30 di lunedì');
@@ -848,6 +850,32 @@ assert.deepStrictEqual(
   [1789941600000 + 86_400_000], 'lunedì alle 23:56, il treno delle 00:05 di martedì');
 // La fermata dove si scende passa al treno di oggi, se c'era.
 assert.strictEqual(oggiDi('2026-09-21T05:12:00Z', { ...abitualeFinto, a: 1700 })[0].a, 1700);
+
+// Il tabellone: dentro le quattro ore, l'abituale c'è appena la sua stazione
+// lo elenca. Il predicato riceve la stazione di salita e il numero, e si
+// chiama solo quando decide qualcosa: è da lì che la home sa quali tabelloni
+// leggere, e un treno lontano o già sicuro non deve costare una lettura.
+{
+  const lunedi = { o: 'S01322', n: '24854', f: 1841, at: '07:12', days: [1, 2, 3, 4, 5] };
+  const chiesti = [];
+  const con = (iso, inTabellone, x = lunedi) => abitualiDiOggi([x], new Date(iso), (f, n) => {
+    chiesti.push([f, n]);
+    return inTabellone;
+  }).length;
+  // Le 7:12 di Roma di lunedì 21 settembre sono le 5:12 UTC.
+  assert.strictEqual(con('2026-09-21T03:12:00Z', true), 1, 'in tabellone a due ore c\'è');
+  assert.deepStrictEqual(chiesti, [[1841, '24854']], 'il predicato riceve stazione e numero');
+  assert.strictEqual(con('2026-09-21T03:12:00Z', false), 0, 'fuori dal tabellone a due ore non c\'è');
+  chiesti.length = 0;
+  assert.strictEqual(con('2026-09-21T04:47:00Z', false), 1, 'a venticinque minuti c\'è anche senza tabellone');
+  assert.strictEqual(con('2026-09-21T01:12:01Z', true), 1, 'in tabellone a quattro ore meno un attimo c\'è');
+  chiesti.length = 0;
+  assert.strictEqual(con('2026-09-21T00:12:00Z', true), 0, 'a cinque ore non c\'è, nemmeno in tabellone');
+  assert.strictEqual(con('2026-09-21T01:11:59Z', true), 0, 'a quattro ore e un attimo nemmeno');
+  assert.strictEqual(con('2026-09-21T07:12:00Z', false), 1, 'due ore dopo l\'ora c\'è ancora');
+  assert.strictEqual(con('2026-09-26T03:12:00Z', true), 0, 'il sabato non c\'è, nemmeno in tabellone');
+  assert.deepStrictEqual(chiesti, [], 'fuori dall\'orizzonte, oltre la mezz\'ora o nel giorno sbagliato il tabellone non serve');
+}
 
 // Lo stesso contratto di perIlServer, contro i tag di TrenoAbituale.
 const abitualePerIlServer = new Function(
@@ -862,7 +890,63 @@ const tagAb = [...corpoAb.slice(0, corpoAb.indexOf('\n}')).matchAll(/json:"(\w+)
 assert.deepStrictEqual(Object.keys(abitualePerIlServer(abitualeFinto)).sort(), tagAb.sort(),
   'i campi di abitualePerIlServer e quelli di TrenoAbituale non coincidono più');
 
-console.log('treni abituali di oggi: ok — giorni, bordi della finestra, mezzanotte e cambi d\'ora a Roma');
+console.log('treni abituali di oggi: ok — giorni, bordi della finestra, tabellone, mezzanotte e cambi d\'ora a Roma');
+
+/* I tabelloni che la home legge per gli abituali: uno per stazione distinta,
+   solo per quelli che il tabellone può far comparire, e nessuno in un giorno
+   senza abituali vicini — la home gira una volta al minuto, e ogni lettura in
+   più è una pagina di RFI. Una lettura fallita tiene quella di prima. */
+const fabbricaTabelloni = (fetch, adesso, elenco) => new Function('fetch', 'Date', 'AbortSignal', 'elenco', `
+  const abituali = () => elenco;
+  const controllaVersione = () => false;
+  const API = { tabellone: (da, a) => 'api/board?from=' + da + (a ? '&to=' + a : '') };
+  ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
+  ${ritaglia('/* Il treno abituale di oggi', '/* I treni che la home segue')}
+  ${ritaglia('/* I numeri sul tabellone delle partenze', '/* --------------------------------------------------------------- notifiche */')}
+  return { caricaTabelloniAbituali, inTabellone };`)(
+  fetch, class extends Date { constructor(...a) { super(...(a.length ? a : [adesso])); } },
+  { timeout: () => undefined }, elenco);
+
+(async () => {
+  // Lunedì 21 settembre 2026 alle 5:12 di Roma (3:12 UTC).
+  const alle512 = Date.parse('2026-09-21T03:12:00Z');
+  const feriali = [1, 2, 3, 4, 5];
+  const chieste = [];
+  let risposta = async () => ({ ok: true, json: async () => ({ trains: [{ number: '24854' }, { number: 2433 }] }) });
+  const fetch = (url) => { chieste.push(url); return risposta(); };
+  const env = fabbricaTabelloni(fetch, alle512, [
+    { o: 'S01322', n: 24854, f: 1841, at: '07:12', days: feriali },   // a due ore: si chiede
+    { o: 'S01322', n: '24856', f: 1841, at: '08:12', days: feriali }, // stessa stazione: una lettura sola
+    { o: 'S00137', n: '2433', f: '2433', at: '06:30', days: feriali }, // un'altra stazione
+    { o: 'S00137', n: '2435', f: 2500, at: '05:30', days: feriali },  // a diciotto minuti: c'è già
+    { o: 'S00137', n: '2437', f: 2600, at: '12:00', days: feriali },  // a sette ore: troppo presto
+    { o: 'S00137', n: '2439', f: 2700, at: '07:00', days: [6] },      // non oggi
+  ]);
+  await env.caricaTabelloniAbituali();
+  assert.deepStrictEqual(chieste.sort(), ['api/board?from=1841', 'api/board?from=2433'],
+    'una lettura per stazione, solo dove il tabellone decide, e senza destinazione');
+  // I numeri si confrontano in stringa: il tabellone e l'abituale possono
+  // scriverli uno in testo e l'altro in cifre.
+  assert.strictEqual(env.inTabellone(1841, '24854'), true, 'il numero in cifre, sul tabellone in testo');
+  assert.strictEqual(env.inTabellone('2433', '2433'), true, 'il numero in testo, sul tabellone in cifre');
+  assert.strictEqual(env.inTabellone(1841, '24856'), false, 'un numero che il tabellone non elenca');
+  assert.strictEqual(env.inTabellone(2600, '2437'), false, 'una stazione mai letta');
+
+  // La rete che cade tiene la lettura di prima.
+  risposta = async () => { throw new Error('rete'); };
+  await env.caricaTabelloniAbituali();
+  assert.strictEqual(env.inTabellone(1841, '24854'), true, 'una lettura fallita tiene quella di prima');
+
+  // Nessun abituale vicino, nessuna lettura.
+  chieste.length = 0;
+  await fabbricaTabelloni(fetch, alle512, [
+    { o: 'S00137', n: '2437', f: 2600, at: '12:00', days: feriali },
+    { o: 'S00137', n: '2435', f: 2500, at: '05:30', days: feriali },
+  ]).caricaTabelloniAbituali();
+  assert.deepStrictEqual(chieste, [], 'senza abituali da decidere non si legge niente');
+
+  console.log('tabelloni degli abituali: ok — una lettura per stazione, solo se serve, la vecchia se cade');
+})().catch((e) => { console.error(e); process.exit(1); });
 
 /* ----------------------------------- la scheda in home: fra quanto, e i giorni */
 

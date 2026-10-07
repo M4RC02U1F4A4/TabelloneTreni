@@ -581,12 +581,19 @@ può calcolarsi da sé. Un treno abituale è quindi un segnalibro **senza data**
 con l'ora a cui passa dalla tua stazione e i giorni della settimana in cui lo
 prendi.
 
-Ogni giorno scelto ne nasce il **treno di oggi**, che vive da dieci minuti
-prima dell'orario fino a quando arriva dove sali — o tre ore dopo, la rete per
-il treno che non passa. Fuori da quella finestra non esiste, e non costa
-nessuna lettura: un regionale che parte dal capolinea due ore prima non
+Ogni giorno scelto ne nasce il **treno di oggi**, che sul servizio vive da
+dieci minuti prima dell'orario fino a quando arriva dove sali — o tre ore dopo,
+la rete per il treno che non passa. Fuori da quella finestra non esiste, e non
+costa nessuna lettura: un regionale che parte dal capolinea due ore prima non
 manda notifiche da là. Dentro, è un treno seguito come gli altri, letto una
 volta sola per quanti lo aspettano.
+
+In home compare prima: **appena il tabellone delle partenze della tua stazione
+lo elenca**, fino a quattro ore prima, e comunque da mezz'ora prima, per il
+tabellone che non risponde. È il telefono a leggere quei tabelloni, uno per
+stazione e solo quando c'è un abituale da decidere, dalla stessa cache da
+trenta secondi dei preferiti. La notifica non cambia: il preavviso resta a
+dieci minuti.
 
 Il treno di oggi **non si scrive da nessuna parte**: si ricalcola a ogni giro
 dall'orologio. Si ricorda solo cosa gli è già stato detto, e che è arrivato —
