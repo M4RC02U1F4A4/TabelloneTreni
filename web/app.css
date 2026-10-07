@@ -94,6 +94,13 @@ html, body { margin: 0; }
    su una lista di righe da toccare scattava da solo. La mappa non ne risente:
    ha già il suo touch-action e il dito lì muove lei. */
 html { touch-action: pan-x pan-y; }
+/* La barra verticale della pagina non si vede. Su un telefono è l'indicatore
+   di sistema, e con il pannello di ricerca fermo in fondo la home scorre
+   quasi sempre: l'indicatore compariva a ogni apertura sopra il pannello.
+   L'app è per telefono, e su un portatile si scorre lo stesso con la rotella.
+   ponytail: su desktop sparisce l'unica barra; se mai servisse, @media (pointer: fine). */
+html { scrollbar-width: none; }
+html::-webkit-scrollbar { display: none; }
 body {
   background: var(--sfondo);
   color: var(--testo);
@@ -405,8 +412,11 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 
 /* Due per riga, alte quanto un pollice è largo. La griglia le tiene alte
    uguali anche quando un nome va a capo, e il prossimo treno sta sempre in
-   fondo: l'occhio lo trova allo stesso posto su ogni tessera. */
-.tessere { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+   fondo: l'occhio lo trova allo stesso posto su ogni tessera.
+   Il minimo a zero perché una colonna "1fr" non scende sotto il suo
+   contenuto: "da Milano Porta Garibaldi", che sta su una riga sola, la
+   allargava, e con due tessere così affiancate la pagina scorreva di lato. */
+.tessere { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--gap); }
 .tessera {
   position: relative; height: 100%; min-height: 108px;
   display: flex; flex-direction: column;

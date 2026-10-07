@@ -759,6 +759,7 @@ lo fa `fsGroup`; con Docker serve un giro da un'altra immagine, visto che questa
 Le schermate si misurano in locale con `ci/schermate.js` (serve Playwright
 con Chromium e il server avviato su `:18080`): controlla che nessuna vista
 scorra in orizzontale e salva uno screenshot per tema in `.render/schermate/`.
+Con `MOTORE=webkit` misura col motore di Safari, come su un iPhone.
 
 ## Aggiornare il catalogo delle stazioni
 

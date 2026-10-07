@@ -4,6 +4,8 @@
  * browser — contro un server già avviato su :18080:
  *   go build -o /tmp/tt . && PORT=18080 STATO_LINEE_URL=http://localhost:1 /tmp/tt &
  *   PW=~/.npm/_npx/6bcb61ec6d5aea22/node_modules/playwright node ci/schermate.js
+ * Con MOTORE=webkit misura col motore di Safari, da telefono (tocco e
+ * viewport mobile): i difetti dell'iPhone su Chromium non si vedono.
  */
 const path = require('node:path');
 const fs = require('node:fs');
@@ -33,6 +35,10 @@ const segnalibro = { o: 'S01322', n: '24854', d: MEZZANOTTE, cat: 'S8', capoline
 
 const VISTE = {
   home: { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); } },
+  // Il "a volte" della home: il testo degli avvisi aperto sotto i gettoni, o un
+  // abituale aperto, allungano la pagina con righe che prima non c'erano.
+  'home-avvisi': { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); await p.click('.gettone.stazione').catch(() => {}); } },
+  'home-abituale': { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); await p.click('[data-apri-abituale]').catch(() => {}); } },
   'home-modifica': { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); await p.click('[data-modifica]').catch(() => {}); } },
   tratta: { rotta: '#/p/1841/1715', dopo: async (p) => { await p.waitForTimeout(3500); await p.click('.tabella.tratta details[data-treno] summary').catch(() => {}); await p.waitForTimeout(2500); } },
   tabellone: { rotta: '#/p/1728', dopo: async (p) => { await p.waitForTimeout(3500); } },
@@ -43,7 +49,10 @@ const VISTE = {
 async function apri(page, vista) {
   await page.route('**/api/journey**', (r) => r.fulfill({ json: viaggio }));
   await page.addInitScript((s) => {
-    localStorage.setItem('tt.preferiti', JSON.stringify([{ f: 1841, t: 1715 }, { f: 1728, t: 1715 }, { f: 2416, a: true }]));
+    // Due tessere affiancate con "da Milano Porta Garibaldi" sopra il nome, in
+    // una riga sola: a 360 px la riga non sta in mezza finestra, e allargava
+    // le colonne delle tessere e con loro la pagina.
+    localStorage.setItem('tt.preferiti', JSON.stringify([{ f: 1715, t: 1841 }, { f: 1715, t: 1728 }, { f: 2416, a: true }]));
     localStorage.setItem('tt.campi', JSON.stringify({ da: 1841, a: 1715 }));
     localStorage.setItem('tt.seguiti', JSON.stringify([s]));
     localStorage.setItem('tt.abituali', JSON.stringify([{ o: 'S01645', n: '24868', f: 1715, at: '17:42', days: [1, 2, 3, 4, 5], cat: 'S8', capolinea: 'MONZA' }]));
@@ -83,6 +92,14 @@ async function controllaOverflow(page) {
         colpevoli.push(id);
       }
     }
+    // Uno scroller verticale che non dovrebbe esserci: una riga di gettoni
+    // alta un pixel meno del suo contenuto mostra una barra dentro la riga.
+    for (const el of document.querySelectorAll('body *')) {
+      const o = getComputedStyle(el).overflowY;
+      if ((o === 'auto' || o === 'scroll') && el.scrollHeight > el.clientHeight + 1 && !el.closest('#scelta')) {
+        colpevoli.push('scrollY:' + el.tagName.toLowerCase() + '.' + String(el.className).trim().split(/\s+/).join('.'));
+      }
+    }
     return [...new Set(colpevoli)].slice(0, 8);
   });
 }
@@ -92,25 +109,31 @@ async function controllaOverflow(page) {
 // tutto e chiude il processo. Anche Playwright si carica solo qui: le due
 // funzioni ricevono la pagina da chi le chiama.
 if (require.main === module) (async () => {
-  const { chromium } = require(process.env.PW || 'playwright');
+  const motore = process.env.MOTORE || 'chromium';
+  const browser = require(process.env.PW || 'playwright')[motore];
   const out = process.argv[2] || path.join(__dirname, '..', '.render', 'schermate');
   fs.mkdirSync(out, { recursive: true });
-  const b = await chromium.launch();
+  const b = await browser.launch();
+  // Su WebKit si finge l'iPhone (tocco, viewport da telefono), dove l'utente
+  // vede i difetti; Chromium resta la finestra stretta di sempre.
+  const telefono = motore === 'webkit' ? { hasTouch: true, isMobile: true } : {};
+  // Gli screenshot di Chromium tengono il nome di sempre, gli altri lo dicono.
+  const suffisso = motore === 'chromium' ? '' : '-' + motore;
   let errori = 0;
   for (const vista of Object.keys(VISTE)) {
     for (const tema of ['dark', 'light']) {
-      for (const width of [360, 390]) {
-        const ctx = await b.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 2, colorScheme: tema });
+      for (const width of [360, 390, 430]) {
+        const ctx = await b.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 2, colorScheme: tema, ...telefono });
         const page = await ctx.newPage();
         const pageErrors = [];
         page.on('pageerror', (e) => pageErrors.push(e.message));
         await apri(page, vista);
         const colpevoli = await controllaOverflow(page);
-        if (width === 390) await page.screenshot({ path: path.join(out, `${vista}-${tema}.png`), fullPage: true });
-        if (colpevoli.length) console.log(`OVERFLOW ${vista} ${tema} ${width} ${colpevoli.join(' ')}`);
-        if (pageErrors.length) console.log(`ERRORE ${vista} ${tema} ${width} ${pageErrors.join(' | ')}`);
+        if (width === 390) await page.screenshot({ path: path.join(out, `${vista}-${tema}${suffisso}.png`), fullPage: true });
+        if (colpevoli.length) console.log(`OVERFLOW ${vista} ${tema} ${width} ${motore} ${colpevoli.join(' ')}`);
+        if (pageErrors.length) console.log(`ERRORE ${vista} ${tema} ${width} ${motore} ${pageErrors.join(' | ')}`);
         if (colpevoli.length || pageErrors.length) errori++;
-        else console.log(`OK ${vista} ${tema} ${width}`);
+        else console.log(`OK ${vista} ${tema} ${width} ${motore}`);
         await ctx.close();
       }
     }
