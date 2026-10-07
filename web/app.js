@@ -154,9 +154,10 @@ let avvisiStazioneAperti = false;
 // Gli scioperi si ricordano se li avevi aperti, come gli avvisi: la home si
 // ridisegna spesso e richiuderli sotto le dita sarebbe fastidioso.
 let scioperiAperti = false;
-// Il prossimo treno di ogni tratta salvata, che la sua tessera in home scrive
-// senza doverla aprire. Indicizzato su chiaveTratta.
-const prossimi = new Map(); // chiave -> { stato: 'ok'|'errore', treno }
+// Il tabellone di ogni preferito, da cui la sua tessera in home scrive il
+// prossimo treno — o, per una stazione sola, il ritardo medio — senza doverla
+// aprire. Indicizzato su chiaveTratta.
+const prossimi = new Map(); // chiave -> { stato: 'ok'|'errore', treni }
 // Cosa cerca il pannello in fondo alla home: una tratta, oppure il tabellone
 // intero di una stazione. Vive quanto la pagina: riaprendo l'app si cerca
 // quasi sempre una tratta.
@@ -864,12 +865,15 @@ async function caricaAvvisiStazione() {
 
 /* Il prossimo treno di ogni tratta salvata, per le tessere in home.
 
+   Si tiene il tabellone intero e non solo il primo treno: la tessera di una
+   stazione sola ci fa la media dei ritardi (vedi prossimoTreno).
+
    Una lettura per tratta, in parallelo: le tratte salvate sono poche, e il
    server tiene ogni tabellone trenta secondi sotto un lock per stazione —
    aprire la tratta subito dopo è la stessa lettura, e dieci persone con la
    stessa tratta sono comunque una richiesta sola a RFI. Una lettura andata
-   male tiene il treno di prima, come fanno i treni seguiti: un orario di un
-   minuto fa vale più di una tessera vuota. */
+   male tiene il tabellone di prima, come fanno i treni seguiti: un orario di
+   un minuto fa vale più di una tessera vuota. */
 async function caricaProssimi() {
   await Promise.all(preferiti().map(async (p) => {
     const k = chiaveTratta(p);
@@ -880,7 +884,7 @@ async function caricaProssimi() {
       // aspettandola.
       const d = await leggiJSON(API.tabellone(p.f, p.t, p.a), { signal: AbortSignal.timeout(25_000) });
       if (!d) return;
-      prossimi.set(k, { stato: 'ok', treno: (d.trains || [])[0] || null });
+      prossimi.set(k, { stato: 'ok', treni: d.trains || [] });
     } catch {
       if (!prossimi.has(k)) prossimi.set(k, { stato: 'errore' });
     }
@@ -1564,19 +1568,45 @@ function tesseraPreferito(p) {
 /* Il prossimo treno della tratta: l'ora, il ritardo se c'è, il binario se è
    già assegnato. Il ritardo è uno solo, quello che conta — la misura sul treno
    quando c'è — perché nella tessera due pastiglie non ci stanno; le due fonti
-   affiancate restano un tocco più in là, sul tabellone. */
+   affiancate restano un tocco più in là, sul tabellone.
+
+   Una stazione sola, senza destinazione, il prossimo treno non lo dice: il
+   primo del tabellone non è quasi mai quello che si vuole prendere. Dice
+   invece il ritardo medio, che è il colpo d'occhio su come va la stazione. */
 function prossimoTreno(p) {
   const v = prossimi.get(chiaveTratta(p));
   if (!v) return '<span class="poi attesa">…</span>';
   if (v.stato === 'errore') return '<span class="poi attesa">orario non disponibile</span>';
-  const t = v.treno;
+  const t = v.treni[0];
   if (!t) return '<span class="poi attesa">nessun treno in tabellone</span>';
+  if (!p.t) {
+    const { minuti, soppressi } = ritardoMedio(v.treni);
+    // Con tutti i treni soppressi una media non c'è: resta solo il conto.
+    const media = minuti === null ? '' : (minuti > 0 ? `<span class="rit">+${minuti} min</span>in media` : 'in orario');
+    return `<span class="poi">${media}${
+      soppressi ? `<span class="rit">${soppressi} ${soppressi === 1 ? 'soppresso' : 'soppressi'}</span>` : ''}</span>`;
+  }
   if (t.cancelled) {
     return `<span class="poi"><b class="barrato">${esc(t.time)}</b><span class="rit">soppresso</span></span>`;
   }
   const r = ritardoVero(t);
   return `<span class="poi"><b>${esc(t.time)}</b>${r > 0 ? `<span class="rit">+${r}</span>` : ''}${
     t.platform ? `<span${t.platformChanged ? ' class="cambiato"' : ''}>bin ${numeroBinario(t.platform)}</span>` : ''}</span>`;
+}
+
+/* Il ritardo medio dei treni di un tabellone, in minuti interi. Un treno in
+   anticipo conta zero: non compensa quello in ritardo, e chi aspetta il
+   secondo non se ne fa niente del primo. I soppressi stanno fuori dalla media
+   — un ritardo non ce l'hanno — e si contano a parte; senza treni da mediare
+   i minuti sono null, non uno zero che direbbe "in orario". */
+function ritardoMedio(treni) {
+  const vivi = treni.filter((t) => !t.cancelled);
+  const somma = vivi.reduce((s, t) => s + Math.max(0, ritardoVero(t)), 0);
+  return {
+    minuti: vivi.length ? Math.round(somma / vivi.length) : null,
+    soppressi: treni.length - vivi.length,
+    treni: vivi.length,
+  };
 }
 
 /* I treni seguiti stanno sopra a tutto il resto, ed è l'unica sezione che si

@@ -1306,3 +1306,101 @@ const allUltima = fermateDi({ tracked: true, stops: [
 assert.ok(!/Scendi qui/.test(allUltima), 'dove si sale non si scende');
 
 console.log('scendi qui: ok — 6 casi');
+
+/* ------------------------ le tessere dei preferiti: il prossimo treno o la media */
+
+/* Una tratta salvata mostra il suo prossimo treno; una stazione sola no, perché
+   il primo treno del tabellone non è quasi mai quello che si vuole prendere: lì
+   la tessera dice il ritardo medio, per farsi un'idea di come va la stazione.
+   Si passa da caricaProssimi, con un fetch finto, così la forma di quello che
+   conserva resta affar suo. */
+const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 'elenco', 'chiaveTratta', 'esc', `
+  const preferiti = () => elenco;
+  const controllaVersione = () => false;
+  const prossimi = new Map();
+  ${ritaglia('const API = {', '// Il viaggio di un treno seguito')} };
+  ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
+  ${ritaglia('const ritardoLive', 'const conMisure')}
+  ${ritaglia('function numeroBinario', '/* Il provvedimento')}
+  ${ritaglia('/* Il prossimo treno di ogni tratta salvata', '/* I numeri sul tabellone delle partenze')}
+  ${ritaglia('function prossimoTreno(p)', '/* I treni seguiti stanno sopra')}
+  return { caricaProssimi, prossimoTreno, ritardoMedio };`)(
+  fetch, { timeout: () => undefined }, elenco, chiaveTratta, esc);
+
+(async () => {
+  const tabelloni = {};
+  const fetch = async (url) => {
+    const d = tabelloni[url];
+    if (!d) throw new Error('rete');
+    return { ok: true, json: async () => d };
+  };
+  const tratta = { f: 1841, t: 1728 };
+  const partenze = { f: 1728 };
+  const arrivi = { f: 1650, a: true };
+  const tessere = fabbricaTessere(fetch, [tratta, partenze, arrivi]);
+
+  // La media: in anticipo conta zero, perché un treno in anticipo non
+  // compensa uno in ritardo; i soppressi si contano a parte e non pesano.
+  const { ritardoMedio } = tessere;
+  assert.deepStrictEqual(ritardoMedio([{ delay: 0 }, {}]), { minuti: 0, soppressi: 0, treni: 2 }, 'in orario');
+  assert.deepStrictEqual(ritardoMedio([{ delay: 5 }, { delay: 10, liveDelay: 12 }]),
+    { minuti: 9, soppressi: 0, treni: 2 }, 'in ritardo: la misura sul treno vince, e si arrotonda');
+  assert.deepStrictEqual(ritardoMedio([{ delay: 6 }, { delay: 0, liveDelay: -4 }]),
+    { minuti: 3, soppressi: 0, treni: 2 }, 'in anticipo conta zero');
+  assert.deepStrictEqual(ritardoMedio([{ delay: 10 }, { cancelled: true, delay: 60 }, { cancelled: true }]),
+    { minuti: 10, soppressi: 2, treni: 1 }, 'i soppressi non entrano nella media');
+  assert.deepStrictEqual(ritardoMedio([]), { minuti: null, soppressi: 0, treni: 0 }, 'lista vuota');
+  assert.deepStrictEqual(ritardoMedio([{ cancelled: true }]), { minuti: null, soppressi: 1, treni: 0 }, 'tutti soppressi');
+
+  // Prima della lettura: i tre puntini, per tutte.
+  for (const p of [tratta, partenze, arrivi]) {
+    assert.strictEqual(tessere.prossimoTreno(p), '<span class="poi attesa">…</span>', 'in attesa');
+  }
+
+  // La tratta resta com'era, al carattere.
+  tabelloni['api/board?from=1841&to=1728'] = { trains: [
+    { time: '08:12', delay: 3, liveDelay: 5, platform: '4 Ovest', platformChanged: true }, { time: '08:42', delay: 30 }] };
+  // La stazione: (12 + 0 + 0) / 3 = 4, e uno soppresso a parte.
+  tabelloni['api/board?from=1728'] = { trains: [
+    { time: '08:01', delay: 12 }, { time: '08:05', delay: 0, liveDelay: -2 }, { time: '08:09' }, { time: '08:20', cancelled: true }] };
+  tabelloni['api/board?from=1650&arrivals=true'] = { trains: [{ time: '08:03', delay: 0 }] };
+  await tessere.caricaProssimi();
+  assert.strictEqual(tessere.prossimoTreno(tratta),
+    '<span class="poi"><b>08:12</b><span class="rit">+5</span><span class="cambiato">bin 4<small>Ovest</small></span></span>',
+    'la tratta: ora, ritardo e binario del primo treno');
+  assert.strictEqual(tessere.prossimoTreno(partenze),
+    '<span class="poi"><span class="rit">+4 min</span>in media<span class="rit">1 soppresso</span></span>',
+    'la stazione: il ritardo medio, e un soppresso al singolare');
+  assert.strictEqual(tessere.prossimoTreno(arrivi), '<span class="poi">in orario</span>', 'gli arrivi in orario');
+
+  tabelloni['api/board?from=1841&to=1728'] = { trains: [{ time: '08:12', cancelled: true }] };
+  tabelloni['api/board?from=1728'] = { trains: [{ time: '08:01', delay: 2 }, { cancelled: true }, { cancelled: true }] };
+  tabelloni['api/board?from=1650&arrivals=true'] = { trains: [{ cancelled: true }, { cancelled: true }, { cancelled: true }] };
+  await tessere.caricaProssimi();
+  assert.strictEqual(tessere.prossimoTreno(tratta),
+    '<span class="poi"><b class="barrato">08:12</b><span class="rit">soppresso</span></span>', 'la tratta soppressa');
+  assert.strictEqual(tessere.prossimoTreno(partenze),
+    '<span class="poi"><span class="rit">+2 min</span>in media<span class="rit">2 soppressi</span></span>', 'soppressi al plurale');
+  assert.strictEqual(tessere.prossimoTreno(arrivi), '<span class="poi"><span class="rit">3 soppressi</span></span>',
+    'tutti soppressi: nessuna media da dire');
+
+  // Nessun treno: come oggi, per tutte.
+  for (const k of Object.keys(tabelloni)) tabelloni[k] = { trains: [] };
+  await tessere.caricaProssimi();
+  for (const p of [tratta, partenze, arrivi]) {
+    assert.strictEqual(tessere.prossimoTreno(p), '<span class="poi attesa">nessun treno in tabellone</span>', 'tabellone vuoto');
+  }
+
+  // La rete che cade tiene la lettura di prima; senza una lettura di prima, l'errore.
+  for (const k of Object.keys(tabelloni)) delete tabelloni[k];
+  await tessere.caricaProssimi();
+  assert.strictEqual(tessere.prossimoTreno(partenze), '<span class="poi attesa">nessun treno in tabellone</span>',
+    'una lettura fallita tiene quella di prima');
+  const nuove = fabbricaTessere(fetch, [tratta, partenze]);
+  await nuove.caricaProssimi();
+  for (const p of [tratta, partenze]) {
+    assert.strictEqual(nuove.prossimoTreno(p), '<span class="poi attesa">orario non disponibile</span>', 'errore');
+  }
+
+  console.log('tessere dei preferiti: ok — la tratta com\'era, la stazione col ritardo medio');
+})().catch((e) => { console.error(e); process.exit(1); });
