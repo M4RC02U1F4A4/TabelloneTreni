@@ -1,5 +1,6 @@
 // Package dom raccoglie le quattro letture dell'albero HTML che servono a chi
-// legge le pagine di RFI e di Trenord. Erano copiate identiche in tre posti.
+// legge le pagine di RFI e di Trenord. Erano copiate in quattro file, e in
+// genstations testo non lasciava lo spazio in fondo.
 package dom
 
 import (

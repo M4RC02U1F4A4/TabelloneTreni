@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
@@ -381,16 +382,15 @@ func fermateRFI(fermate []vt.Fermata) []rfi.Stop {
 
 // roma è il fuso in cui vanno letti gli orari dei treni italiani: quelli che
 // arrivano da ViaggiaTreno sono istanti, e chi guarda il tabellone può stare
-// altrove. Il database dei fusi è dentro il binario (vedi l'import in main.go),
-// quindi caricarlo non può fallire.
-var roma *time.Location
-
-func init() {
-	var err error
-	if roma, err = time.LoadLocation("Europe/Rome"); err != nil {
+// altrove. Il database dei fusi è dentro il binario grazie all'import di
+// time/tzdata in cima a questo file, quindi caricarlo non può fallire.
+var roma = func() *time.Location {
+	l, err := time.LoadLocation("Europe/Rome")
+	if err != nil {
 		panic(err)
 	}
-}
+	return l
+}()
 
 // Orario è l'ora di un istante come la leggono i treni italiani, vuota se
 // l'istante manca.

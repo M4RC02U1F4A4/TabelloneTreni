@@ -364,7 +364,8 @@ const campanelle = () => leggi('tt.campanelle', []);
    due convenzioni e un punto in cui sbagliare. */
 const fasce = () => leggi('tt.notifiche', []);
 
-// Il nome IANA del fuso del telefono.
+// Il nome IANA del fuso del telefono. Se il browser non lo dice il campo resta
+// fuori dal JSON, e il server usa l'ora italiana.
 const fusoDelTelefono = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 const scriviFasce = (f) => scrivi('tt.notifiche', f);
 
@@ -778,7 +779,7 @@ async function caricaViaggioSeguito(t, forza) {
     // Un 4xx su un treno di un giorno passato vuol dire che il server non lo
     // accetta più (il 400 dei giorni ammessi): è finito, e il segnalibro se
     // ne va come se fosse arrivato. Un 5xx no: il treno dimenticato da
-    // ViaggiaTreno torna come "non tracciato" più sotto, e un 5xx dice solo
+    // ViaggiaTreno torna come "non tracciato" più sopra, e un 5xx dice solo
     // che ViaggiaTreno non risponde — un timeout, un deploy. Il treno delle
     // 23:30 che arriva alle 00:40 non deve sparire al primo singhiozzo; se
     // non risponde mai più lo toglie potaSeguiti, a 36 ore. Per lo stesso

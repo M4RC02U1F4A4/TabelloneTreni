@@ -212,9 +212,10 @@ assert.ok(meta < -29_000 && meta > -31_000, `a metà minuto il ritardo è ${meta
 // di ripartire: un giro in più direbbe che il dato è appena arrivato.
 assert.strictEqual(ritardo(barra(5 * 60_000)), -RINFRESCO, 'oltre il minuto resta a fondo corsa');
 
-// Durante una rilettura la barretta resta: toglierla la farebbe lampeggiare
-// via e tornare a ogni minuto. Prima della prima lettura invece non c'è.
-assert.ok(/ciclo/.test(barra(60_000)), 'in rilettura la barretta resta');
+// A un minuto esatto, quando parte la rilettura, la barretta c'è ancora:
+// toglierla la farebbe lampeggiare via e tornare a ogni minuto. Prima della
+// prima lettura invece non c'è.
+assert.ok(/ciclo/.test(barra(60_000)), "a un minuto la barretta c'è ancora");
 assert.strictEqual(barra(null), '', 'prima della prima lettura niente barretta');
 
 // Fresco il testo tace: la barretta conta già quel minuto, e ripeterlo a
