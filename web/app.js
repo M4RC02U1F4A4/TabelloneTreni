@@ -62,7 +62,6 @@ const stato = {
   dati: null,
   scaricatoIl: 0,
   errore: null,
-  caricamento: false,
   // Le linee Trenord arrivano da un servizio a parte e sono facoltative in
   // ogni punto: null vuol dire "non ancora chieste", e se la richiesta va male
   // la home si disegna lo stesso — i tabelloni sono la ragione per cui l'app
@@ -263,7 +262,6 @@ const ICONE = {
   indietro: '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>',
   scambia: '<path d="M8 20V4"/><path d="M4 8l4-4 4 4"/><path d="M16 4v16"/><path d="M20 16l-4 4-4-4"/>',
   giu: '<path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>',
-  su: '<path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>',
   // Il gallone di apertura riga: 9..15 in orizzontale, 6..18 in verticale,
   // quindi centrato — e la rotazione di 90 gradi sulla scheda aperta gira
   // attorno al suo centro vero invece che attorno al centro di una riga di
@@ -283,9 +281,6 @@ const ICONE = {
   // triangoli fra l'arco e la sua corda, cioè una macchia.
   ripeti: '<path d="M17 1l4 4-4 4"/><path fill="none" d="M3 11V9a4 4 0 0 1 4-4h14"/>' +
     '<path d="M7 23l-4-4 4-4"/><path fill="none" d="M21 13v2a4 4 0 0 1-4 4H3"/>',
-  // La campana e il suo battaglio sono due tracciati separati: da piena, il
-  // riempimento deve prendere la campana e lasciare fuori il battaglio,
-  // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
   orologio: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   mira: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/>',
   // La "i" delle note di RFI e della legenda dei ritardi.
@@ -297,6 +292,9 @@ const ICONE = {
   // tutti e due, il colore dice quale.
   allerta: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' +
     '<path d="M12 9v4"/><path d="M12 17h.01"/>',
+  // La campana e il suo battaglio sono due tracciati separati: da piena, il
+  // riempimento deve prendere la campana e lasciare fuori il battaglio,
+  // altrimenti sotto il bordo compare una macchia che a 15px sembra sporco.
   campana: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>' +
     '<path fill="none" d="M13.73 21a2 2 0 0 1-3.46 0"/>',
 };
@@ -676,7 +674,6 @@ const chiaveTabellone = () => `${stato.da}|${stato.a}|${stato.arrivi}`;
 
 async function caricaTabellone() {
   const mio = ++richiestaInCorso;
-  stato.caricamento = true;
   disegna();
   try {
     // Un limite serve: appesa, la lettura terrebbe il tabellone sugli
@@ -696,10 +693,7 @@ async function caricaTabellone() {
     // Il messaggio del timeout è quello del browser, in inglese.
     stato.errore = e.name === 'TimeoutError' ? 'Tabellone non raggiungibile.' : e.message;
   } finally {
-    if (mio === richiestaInCorso) {
-      stato.caricamento = false;
-      disegna();
-    }
+    if (mio === richiestaInCorso) disegna();
   }
 }
 

@@ -180,12 +180,12 @@ const nuovaFreschezza = (n) => new Function('stato', 'eta', 'RINFRESCO', 'VECCHI
 
 const RINFRESCO = 60_000;
 const VECCHIA = 2 * 60_000;
-const contesto = (ms, caricamento = false) =>
-  [{ caricamento, scaricatoIl: ms === null ? 0 : Date.now() - ms },
+const contesto = (ms) =>
+  [{ scaricatoIl: ms === null ? 0 : Date.now() - ms },
    () => `${Math.round(ms / 60_000)} minuti fa`, RINFRESCO, VECCHIA];
 
-const barra = (ms, caricamento = false) => nuovaFreschezza('barraCiclo')(...contesto(ms, caricamento))();
-const testo = (ms, caricamento = false) => nuovaFreschezza('rigaFreschezza')(...contesto(ms, caricamento))();
+const barra = (ms) => nuovaFreschezza('barraCiclo')(...contesto(ms))();
+const testo = (ms) => nuovaFreschezza('rigaFreschezza')(...contesto(ms))();
 
 const ritardo = (html) => Number((html.match(/--trascorso:(-?\d+)ms/) || [])[1]);
 
@@ -202,7 +202,7 @@ assert.strictEqual(ritardo(barra(5 * 60_000)), -RINFRESCO, 'oltre il minuto rest
 
 // Durante una rilettura la barretta resta: toglierla la farebbe lampeggiare
 // via e tornare a ogni minuto. Prima della prima lettura invece non c'è.
-assert.ok(/ciclo/.test(barra(60_000, true)), 'in rilettura la barretta resta');
+assert.ok(/ciclo/.test(barra(60_000)), 'in rilettura la barretta resta');
 assert.strictEqual(barra(null), '', 'prima della prima lettura niente barretta');
 
 // Fresco il testo tace: la barretta conta già quel minuto, e ripeterlo a
@@ -212,12 +212,9 @@ assert.strictEqual(testo(60_000), '', 'nemmeno a un minuto, che è cadenza norma
 // Vecchio invece sì: è il caso in cui tacere farebbe passare il vecchio per nuovo.
 assert.strictEqual(testo(4 * 60_000), 'letto <span id="eta">4 minuti fa</span>',
   'vecchio si dice, e resta agganciato a #eta perché continui a scorrere');
-// "aggiornamento…" non si scrive più: comparendo e sparendo ogni minuto
-// portava via una riga e faceva ballare il contenuto sotto.
-assert.strictEqual(testo(1000, true), '', 'in rilettura il sottotitolo tace');
 assert.strictEqual(testo(null), '', 'prima della prima lettura pure');
 
-console.log('freschezza: ok — 10 casi su barretta e testo');
+console.log('freschezza: ok — 9 casi su barretta e testo');
 
 
 /* ------------------------------------- le due sezioni delle comunicazioni */

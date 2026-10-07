@@ -343,12 +343,7 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   display: flex; align-items: center; justify-content: center;
 }
 .riga-tocco .segno .icona { width: 15px; height: 15px; }
-.riga-tocco .segno.tenue { color: var(--tenue); }
 .riga-tocco .testo { flex: 1; min-width: 0; font-weight: 600; }
-.riga-tocco .testo .freccia { color: var(--accento); font-weight: 400; }
-/* Il qualificatore c'è ogni volta che la riga non è una tratta pura: così
-   l'assenza di etichetta non significa due cose diverse. */
-.riga-tocco .qualifica { color: var(--tenue); font-weight: 400; font-size: 13px; }
 .riga-tocco .chevron { flex: none; color: var(--bordo); display: flex; align-items: center; }
 .togli {
   flex: none; padding: 12px 4px 12px 14px;
@@ -365,6 +360,7 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   background: var(--piano-alto);
   border: 1px solid color-mix(in srgb, var(--verde) 45%, var(--bordo));
   border-radius: 18px;
+  color: var(--testo);
 }
 /* Nel chiaro la scheda è un pezzo di tema scuro: su una pagina chiara è il
    blocco scuro che si trova per primo, e dentro i colori restano quelli che il
@@ -379,7 +375,6 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
     background: #131820; border-color: transparent;
   }
 }
-.scheda { color: var(--testo); }
 .scheda.soppresso, .scheda.concluso { opacity: 0.65; }
 .scheda .provvedimento { margin: 0 0 10px; }
 
@@ -610,13 +605,12 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   display: block; font-size: 11.5px; font-weight: 650;
   color: var(--tenue); margin-bottom: 2px;
 }
-.avvisi .testo-avviso { color: var(--testo); }
 /* Le comunicazioni finiscono quasi sempre con l'indirizzo di un PDF, che e'
    una parola sola di ottanta caratteri: senza questo esce dal riquadro e si
    porta dietro la riga, che sul telefono vuol dire testo tagliato a destra.
    `anywhere` e non `break-word` perche' spezza anche quando la parola e' da
    sola sulla riga, che e' esattamente il caso di un URL. */
-.avvisi .testo-avviso { overflow-wrap: anywhere; }
+.avvisi .testo-avviso { color: var(--testo); overflow-wrap: anywhere; }
 
 /* Il campo che filtra le linee riusa l'aspetto di quello del selettore
    stazione, ma lì sta in una riga accanto ad "Annulla" e qui è da solo. */
@@ -937,16 +931,6 @@ summary.riga-treno::-webkit-details-marker { display: none; }
   font-size: 12.5px; color: var(--tenue);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* Nella vista per tratta è il dato che si è venuti a cercare, quindi risalta
-   dentro la riga di dettaglio invece di occupare una riga propria. */
-.dove .meta .arrivo { color: var(--testo); font-weight: 650; }
-
-/* "prossima MILANO PORTA GARIBALDI · 20:47" non ci sta in una riga, e tagliato
-   in fondo perdeva l'ora — cioè la metà del dato: sapere dove va senza sapere
-   quando è la stessa cosa che non saperlo. Il nome si accorcia, l'ora resta. */
-.dove .meta.prossima { display: flex; }
-.dove .meta.prossima .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dove .meta.prossima .quando { flex: none; padding-left: 4px; }
 
 .binario { text-align: center; min-width: 30px; }
 .binario .num {
@@ -1171,11 +1155,6 @@ summary.riga-treno::-webkit-details-marker { display: none; }
   border-color: var(--accento); color: var(--accento);
 }
 .nota-fascia { margin: -4px 0 8px; font-size: 12.5px; color: var(--tenue); }
-/* Un treno abituale è una fascia con il treno al posto dell'orario di
-   chiusura: stessa scheda, stessi giorni, e la ✕ al posto di "Rimuovi". */
-.fascia .qualifica { display: block; color: var(--tenue); font-size: 13px; }
-.fascia .freccia { color: var(--accento); }
-.fascia .togli { align-self: flex-start; padding: 0 0 8px 14px; }
 
 .ore { display: flex; gap: 10px; }
 .ore label {
