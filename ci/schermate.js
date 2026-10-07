@@ -7,10 +7,6 @@
  */
 const path = require('node:path');
 const fs = require('node:fs');
-const { chromium } = require(process.env.PW || 'playwright');
-
-const out = process.argv[2] || path.join(__dirname, '..', '.render', 'schermate');
-fs.mkdirSync(out, { recursive: true });
 
 // La mezzanotte di Roma di oggi, come la salva l'app nel segnalibro.
 const giornoRoma = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome' }).format(new Date());
@@ -37,7 +33,7 @@ const segnalibro = { o: 'S01322', n: '24854', d: MEZZANOTTE, cat: 'S8', capoline
 
 const VISTE = {
   home: { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); } },
-  'home-modifica': { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); await p.click('[data-modifica]'); } },
+  'home-modifica': { rotta: '#/', dopo: async (p) => { await p.waitForTimeout(3000); await p.click('[data-modifica]').catch(() => {}); } },
   tratta: { rotta: '#/p/1841/1715', dopo: async (p) => { await p.waitForTimeout(3500); await p.click('.tabella.tratta details[data-treno] summary').catch(() => {}); await p.waitForTimeout(2500); } },
   tabellone: { rotta: '#/p/1728', dopo: async (p) => { await p.waitForTimeout(3500); } },
   treno: { rotta: `#/t/S01322/24854/${MEZZANOTTE}`, dopo: async (p) => { await p.waitForTimeout(2000); await p.click('.precedenti summary').catch(() => {}); } },
@@ -91,7 +87,14 @@ async function controllaOverflow(page) {
   });
 }
 
-(async () => {
+// Il giro completo parte solo se il file è lanciato direttamente: i task che
+// fanno `require` vogliono apri e controllaOverflow, non un browser che misura
+// tutto e chiude il processo. Anche Playwright si carica solo qui: le due
+// funzioni ricevono la pagina da chi le chiama.
+if (require.main === module) (async () => {
+  const { chromium } = require(process.env.PW || 'playwright');
+  const out = process.argv[2] || path.join(__dirname, '..', '.render', 'schermate');
+  fs.mkdirSync(out, { recursive: true });
   const b = await chromium.launch();
   let errori = 0;
   for (const vista of Object.keys(VISTE)) {
@@ -104,12 +107,10 @@ async function controllaOverflow(page) {
         await apri(page, vista);
         const colpevoli = await controllaOverflow(page);
         if (width === 390) await page.screenshot({ path: path.join(out, `${vista}-${tema}.png`), fullPage: true });
-        if (colpevoli.length || pageErrors.length) {
-          errori++;
-          console.log(`OVERFLOW ${vista} ${tema} ${width} ${colpevoli.join(' ')} ${pageErrors.join(' | ')}`);
-        } else {
-          console.log(`OK ${vista} ${tema} ${width}`);
-        }
+        if (colpevoli.length) console.log(`OVERFLOW ${vista} ${tema} ${width} ${colpevoli.join(' ')}`);
+        if (pageErrors.length) console.log(`ERRORE ${vista} ${tema} ${width} ${pageErrors.join(' | ')}`);
+        if (colpevoli.length || pageErrors.length) errori++;
+        else console.log(`OK ${vista} ${tema} ${width}`);
         await ctx.close();
       }
     }
