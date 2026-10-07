@@ -276,6 +276,9 @@ type liveFinta struct {
 	viaggio      *vt.Andamento
 	viaggiPer    map[string]*vt.Andamento
 	errAndamento error
+	// Quanto restava, a ogni Andamento, prima che il contesto scadesse: zero
+	// se il contesto non scadeva affatto.
+	attese []time.Duration
 }
 
 func (r *liveFinta) Treni(ctx context.Context, codice string, arrivi bool, quando time.Time) (map[string]vt.Treno, error) {
@@ -300,6 +303,11 @@ func (r *liveFinta) Andamento(ctx context.Context, codOrigine, numero string, da
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.andamenti++
+	var attesa time.Duration
+	if scade, ok := ctx.Deadline(); ok {
+		attesa = time.Until(scade)
+	}
+	r.attese = append(r.attese, attesa)
 	r.chiestoPer = fmt.Sprintf("%s|%s|%d", codOrigine, numero, data)
 	if r.viaggiPer != nil {
 		return r.viaggiPer[numero], r.errAndamento
@@ -903,6 +911,38 @@ func ordineDelTabellone(t *testing.T, tutti, filtrati []rfi.Train) {
 			t.Fatalf("treno %s fuori dall'ordine del tabellone", tr.Number)
 		}
 		i++
+	}
+}
+
+// Le fermate supplenti sono una lettura in più del tabellone, non quella da
+// cui dipende: restano agli otto secondi anche ora che il client di
+// ViaggiaTreno ne concede venti al viaggio. Il viaggio chiesto dal telefono
+// invece non riceve da qui nessuna scadenza: decide il client.
+func TestLeFermateSupplentiAspettanoOttoSecondiIlViaggioNo(t *testing.T) {
+	live := liveConFermate()
+	s, _ := servizioConLive("partenze-1715.html", live)
+	if _, err := s.Get(context.Background(), garibaldi, false, varese); err != nil {
+		t.Fatal(err)
+	}
+	live.mu.Lock()
+	fermate := append([]time.Duration(nil), live.attese...)
+	live.mu.Unlock()
+	if len(fermate) == 0 {
+		t.Fatal("nessuna lettura delle fermate")
+	}
+	for _, a := range fermate {
+		if a <= 0 || a > 8*time.Second {
+			t.Errorf("fermate lette con %v davanti: attesi al più otto secondi", a)
+		}
+	}
+
+	viaggio := &liveFinta{viaggio: viaggioFinto()}
+	s, _ = servizioConLive("partenze-1715.html", viaggio)
+	if _, err := s.Viaggio(context.Background(), "S01700", "2247", 1788645600000); err != nil {
+		t.Fatal(err)
+	}
+	if len(viaggio.attese) != 1 || viaggio.attese[0] != 0 {
+		t.Errorf("viaggio letto con scadenze %v: il board non deve metterne", viaggio.attese)
 	}
 }
 

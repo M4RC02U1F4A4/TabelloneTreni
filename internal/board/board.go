@@ -228,8 +228,8 @@ const FermateMax = 500
 // AttesaFermate è quanto si aspetta ViaggiaTreno prima di rispondere comunque.
 //
 // A cache fredda, in un giorno di sciopero, sono una ventina di richieste a un
-// servizio che ha otto secondi di timeout: aspettarle tutte vorrebbe dire una
-// pagina che si apre in otto secondi. I treni non ancora risolti semplicemente
+// servizio a cui qui se ne concedono otto di secondi (vedi fermateSupplenti):
+// aspettarle tutte vorrebbe dire una pagina che si apre in otto secondi. I treni non ancora risolti semplicemente
 // non compaiono in questa passata e arrivano dalla cache al rinfresco dopo,
 // mezzo minuto più tardi — una tratta quasi completa subito è più utile di una
 // completa fra otto secondi, che nessuno resta a guardare.
@@ -282,7 +282,13 @@ func (s *Service) fermateSupplenti(ctx context.Context, placeID int, arrivals bo
 	// somma di una ventina di servizi lenti. Il contesto non è quello di chi ha
 	// chiesto la pagina — se se ne va, le goroutine finiscono comunque di
 	// riempire la cache, che è quello che rende utile il rinfresco dopo.
-	ctxFer, annulla := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+	//
+	// Otto secondi, non i venti che il client di ViaggiaTreno concede a un
+	// viaggio: quelli valgono per la scheda di un treno seguito, dove
+	// ViaggiaTreno è l'unica lettura. Qui le fermate sono un'aggiunta al
+	// tabellone, e partendo tutte insieme gli otto secondi sono anche quelli
+	// di ciascuna.
+	ctxFer, annulla := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
 	var wg sync.WaitGroup
 	// Due righe con lo stesso numero chiedono le stesse coordinate: la
 	// richiesta si fa una volta, il risultato lo leggono entrambe.

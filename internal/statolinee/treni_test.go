@@ -23,11 +23,19 @@ type treniFinti struct {
 	mu      sync.Mutex
 	viaggi  map[string]*vt.Andamento
 	letture map[string]int
+	// Quanto restava, a ogni lettura, prima che il contesto scadesse: zero se
+	// il contesto non scadeva affatto.
+	attese []time.Duration
 }
 
-func (f *treniFinti) Andamento(_ context.Context, o, n string, d int64) (*vt.Andamento, error) {
+func (f *treniFinti) Andamento(ctx context.Context, o, n string, d int64) (*vt.Andamento, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	var attesa time.Duration
+	if scade, ok := ctx.Deadline(); ok {
+		attesa = time.Until(scade)
+	}
+	f.attese = append(f.attese, attesa)
 	k := TrenoSeguito{Origine: o, Numero: n, Data: d}.Chiave()
 	f.letture[k]++
 	return f.viaggi[k], nil
@@ -124,6 +132,35 @@ func treniDi(ab *Abbonati, endpoint string) []TrenoSeguito {
 		}
 	}
 	return nil
+}
+
+// Il client di ViaggiaTreno aspetta il viaggio fino a venti secondi, perché per
+// la scheda sul telefono quella è l'unica lettura. Il giro delle notifiche
+// invece legge in fila dentro un minuto: ogni treno resta agli otto secondi,
+// altrimenti tre treni bloccati basterebbero a far saltare il giro a tutti gli
+// altri.
+func TestOgniViaggioDelGiroAspettaOttoSecondi(t *testing.T) {
+	srv, _, _ := servizioPushFinto(t, http.StatusCreated)
+	salita, _ := stazioniDiProva(t)
+	tr := trenoDi(salita)
+
+	ab, _ := ApriAbbonati("")
+	aspetta(t, ab, srv.URL+"/aspetta", tr)
+	f := sorgenteTreniFinta()
+	f.metti(tr, viaggio(oreDi(18), 7, fermata(salita, false)))
+
+	servizioTreni(t, ab, srv.Client(), f).leggiTreni(context.Background())
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.attese) == 0 {
+		t.Fatal("nessuna lettura")
+	}
+	for _, a := range f.attese {
+		if a <= 0 || a > 8*time.Second {
+			t.Errorf("lettura con %v davanti: attesi al più otto secondi", a)
+		}
+	}
 }
 
 // Il primo giro prende nota e tace: il segnalibro si mette guardando la scheda

@@ -105,8 +105,8 @@ func (s *Servizio) leggiTreni(ctx context.Context) {
 //
 // ponytail: letture in fila, una dopo l'altra. Con i treni che ci si aspetta —
 // una manciata — è un secondo scarso; al tetto di quaranta, e con ViaggiaTreno
-// al suo timeout di otto secondi, il budget scade e gli ultimi treni saltano il
-// giro. Se dovesse capitare davvero, la strada è un pugno di letture in
+// che arriva agli otto secondi di ogni lettura, il budget scade e gli ultimi
+// treni saltano il giro. Se dovesse capitare davvero, la strada è un pugno di letture in
 // parallelo, non un budget più lungo: il giro dopo parte comunque fra un
 // minuto.
 func (s *Servizio) leggiViaggi(ctx context.Context, seguiti []TrenoSeguito) map[string]*vt.Andamento {
@@ -115,7 +115,13 @@ func (s *Servizio) leggiViaggi(ctx context.Context, seguiti []TrenoSeguito) map[
 
 	letti := make(map[string]*vt.Andamento, len(seguiti))
 	for _, t := range seguiti {
-		a, err := s.treni.Andamento(ctx, t.Origine, t.Numero, t.Data)
+		// Gli otto secondi stanno qui e non nel client: il client ne concede
+		// venti al viaggio, perché per la scheda sul telefono ViaggiaTreno è
+		// l'unica lettura. In un giro in fila dentro un minuto, venti a treno
+		// vorrebbero dire tre treni bloccati e nessuna notifica per gli altri.
+		lettura, annullaLettura := context.WithTimeout(ctx, 8*time.Second)
+		a, err := s.treni.Andamento(lettura, t.Origine, t.Numero, t.Data)
+		annullaLettura()
 		if err != nil {
 			log.Printf("viaggio %s: %v", t.Chiave(), err)
 			continue
