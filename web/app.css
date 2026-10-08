@@ -194,6 +194,9 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   border: 3px solid var(--bordo); border-top-color: var(--accento);
   background: var(--piano); opacity: 0; pointer-events: none;
   translate: -50% 0; rotate: 0deg;
+  /* Su un suo strato: a ogni tocco cambia solo posizione e angolo, e la GPU li
+     compone senza ridipingere il resto. */
+  will-change: translate, rotate;
   /* I 0.15s dell'opacità li aspetta il setTimeout di fine aggiornamento in
      tiraPerAggiornare(), che dura 200 ms per tenere 50 ms di margine:
      allungati qui, va allungato anche quello. */

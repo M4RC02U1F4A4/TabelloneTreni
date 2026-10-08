@@ -3664,6 +3664,7 @@ function rinfrescaVista() {
    continua dall'angolo in cui il dito l'ha lasciato invece di ripartire da zero. */
 function tiraPerAggiornare(el, soglia, rinfresca) {
   let inizio = null;   // la Y del tocco, o null se il gesto non è partito
+  let inizioX = 0;
   let tirato = 0;
   let occupato = false;
   document.addEventListener('touchstart', (e) => {
@@ -3671,6 +3672,7 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     const dentro = t && typeof t.closest === 'function' && t.closest('.mappa, #scelta');
     // Minore o uguale: durante il rimbalzo iOS dà scrollY negativo.
     inizio = !occupato && scrollY <= 0 && !dentro ? e.touches[0].clientY : null;
+    inizioX = e.touches[0].clientX;
     tirato = 0;
     if (inizio !== null) el.classList.add('segue');
   }, { passive: true });
@@ -3681,6 +3683,13 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     // c'entra più. Il cerchio sta sopra l'intestazione (z-index 6 contro 5), e
     // senza questo comparirebbe lì a ogni scorrimento partito da scrollY 0.
     if (dy < 0) { inizio = null; lascia(); return; }
+    // Più di lato che in giù, finché il cerchio non si vede, è una delle
+    // strisce che scorrono di lato (filtri, giorni): il gesto è loro.
+    if (tirato <= 4 && Math.abs(e.touches[0].clientX - inizioX) > dy) { inizio = null; lascia(); return; }
+    // Il tirare lo fa il cerchio, non la pagina. Lasciato a iOS, il rimbalzo
+    // scorre la pagina per conto suo mentre il JS sposta il cerchio, e i due
+    // vanno a scatti: per questo l'ascoltatore non è passivo.
+    if (e.cancelable) e.preventDefault();
     // Il cerchio segue il dito con un freno: a metà strada si sente che manca
     // poco, oltre la soglia che è fatta. Sotto i 4 px resta nascosto, perché un
     // tocco che trema non lo faccia lampeggiare. Intanto gira col tirato, anche
@@ -3690,7 +3699,7 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     el.style.rotate = `${tirato * 3}deg`;
     el.classList.toggle('pronto', tirato >= soglia);
     el.classList.toggle('visibile', tirato > 4);
-  }, { passive: true });
+  }, { passive: false });
   // Tolto segue tornano le transizioni: il cerchio risale svanendo e si srotola.
   const lascia = () => {
     el.classList.remove('visibile', 'pronto', 'segue');
