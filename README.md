@@ -5,6 +5,10 @@ con in più la cosa che al sito originale manca: **il filtro per dove devi
 andare**. Scegli partenza e arrivo e vedi solo i treni che fermano davvero lì,
 con l'orario a cui ci arrivano.
 
+<p align="center">
+  <img src="docs/copertina.webp" width="640" alt="La home nei due temi, chiaro e scuro: un Frecciarossa seguito in grande con binario e minuti alla partenza, le tratte salvate col loro prossimo treno e la ricerca in fondo">
+</p>
+
 - **due ritardi per treno**: quello del tabellone RFI e quello misurato sul treno da ViaggiaTreno, che non dicono la stessa cosa
 - **il binario cambiato si vede**, e si vede da quale binario il treno si è spostato
 - **toccando un treno si vede dov'è adesso**, con il ritardo a cui è passato da ogni fermata già servita
@@ -20,12 +24,55 @@ con l'orario a cui ci arrivano.
 - installabile sulla schermata iniziale del telefono
 - immagine Docker da 16 MB con due servizi dentro, nessun database, nessuno stato su disco
 
-|  |  |
-|:--|:--|
-| <img width="330" src="docs/home.png" alt="La home con un treno seguito in grande, tre tratte salvate col loro prossimo treno e il pannello di ricerca in fondo"> | <img width="330" src="docs/tratta.png" alt="I treni da Roma Termini che fermano a Roma Tiburtina, con il viaggio di un treno aperto"> |
-| **Il treno che stai prendendo in grande**, con il binario e fra quanto parte; sotto, le tratte salvate col loro prossimo treno, e in fondo la ricerca. | **Solo i treni che fermano dove vai**. Toccando il treno si apre il suo viaggio: dov'è adesso, e con quanto ritardo è passato dalle fermate già servite. |
-| <img width="330" src="docs/tabellone.png" alt="Il tabellone completo delle partenze da Roma Termini, con i due ritardi affiancati su ogni treno"> | <img width="330" src="docs/ricerca.png" alt="La ricerca stazione con la corrispondenza evidenziata in mezzo al nome"> |
-| **Il tabellone completo**: binari, soppressioni, avvisi e i **due ritardi** affiancati, ambra il tabellone e ciano la misura sul treno. | **La ricerca** cerca dentro il nome, non solo all'inizio, e non tocca la rete. |
+Le schermate seguono il tema con cui stai leggendo questa pagina. Treni, ritardi
+e avvisi sono inventati: le genera `ci/vetrina.js`, vedi [Farlo girare](#farlo-girare).
+
+<table>
+<tr>
+<td width="33%" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/tratta-scuro.webp"><img src="docs/tratta-chiaro.webp" width="260" alt="I treni da Roma Termini che fermano a Roma Tiburtina, con il viaggio di un Intercity aperto"></picture></td>
+<td width="33%" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/tabellone-scuro.webp"><img src="docs/tabellone-chiaro.webp" width="260" alt="Il tabellone delle partenze da Roma Termini, con i due ritardi affiancati su ogni treno"></picture></td>
+<td width="33%" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/treno-scuro.webp"><img src="docs/treno-chiaro.webp" width="260" alt="Il viaggio di un Frecciarossa: le fermate già servite col loro ritardo e il punto in cui si trova adesso"></picture></td>
+</tr>
+<tr>
+<td valign="top">
+
+**Solo i treni che fermano dove vai**, con l'ora a cui ci arrivano. Toccandone uno si apre il suo viaggio.
+
+</td>
+<td valign="top">
+
+**Il tabellone completo**: i **due ritardi** affiancati, ambra il tabellone e ciano la misura sul treno, il binario cambiato e i soppressi.
+
+</td>
+<td valign="top">
+
+**Dov'è il treno adesso**, e con quanto ritardo è passato da ogni fermata già servita.
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/mappa-scuro.webp"><img src="docs/mappa-chiaro.webp" width="260" alt="La mappa del viaggio attorno a Roma Termini, con la distanza dalla prossima fermata e da quella dove si scende"></picture></td>
+<td width="33%" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/linee-scuro.webp"><img src="docs/linee-chiaro.webp" width="260" alt="Lo stato delle linee Trenord, con le linee seguite in cima e il testo degli avvisi"></picture></td>
+<td width="33%" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/ricerca-scuro.webp"><img src="docs/ricerca-chiaro.webp" width="260" alt="La ricerca stazione, con la corrispondenza evidenziata in mezzo al nome"></picture></td>
+</tr>
+<tr>
+<td valign="top">
+
+**La mappa del viaggio**: quanto manca alla prossima fermata e a quella dove scendi.
+
+</td>
+<td valign="top">
+
+**Lo stato delle linee Trenord**, con il testo degli avvisi e la campanella per le notifiche.
+
+</td>
+<td valign="top">
+
+**La ricerca** cerca dentro il nome, non solo all'inizio, e non tocca la rete.
+
+</td>
+</tr>
+</table>
 
 ## Come funziona
 
@@ -359,6 +406,8 @@ cambierebbe cose che nessuno ha chiesto di cambiare. Ne sono arrivate 2315 su
 loro fermate la mappa semplicemente non le segna.
 
 #### Quando avvisarti: le fasce
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/notifiche-scuro.webp"><img src="docs/notifiche-chiaro.webp" width="240" alt="Le fasce delle notifiche: dalle 7 alle 9 e dalle 17 alle 19:30, dal lunedì al venerdì" align="right"></picture>
 
 Un guasto sulla linea con cui vai al lavoro è una notizia alle 7 e un ronzio
 alle 15. Dall'orologio in cima all'elenco delle linee si scelgono le **fasce** in
@@ -765,6 +814,13 @@ Le schermate si misurano in locale con `ci/schermate.js` (serve Playwright
 con Chromium e il server avviato su `:18080`): controlla che nessuna vista
 scorra in orizzontale e salva uno screenshot per tema in `.render/schermate/`.
 Con `MOTORE=webkit` misura col motore di Safari, come su un iPhone.
+
+Le immagini di questo README le rifà `ci/vetrina.js`, contro lo stesso server:
+ogni vista nei due temi, dentro un iPhone disegnato in CSS, in WebP dentro
+`docs/`. Tabelloni, viaggi, avvisi e linee li inventa lo script, e l'orologio è
+fermo a un mercoledì alle 17:52; dal server arriva solo il catalogo delle
+stazioni. Con dei nomi dopo la cartella rifà solo quelle viste:
+`node ci/vetrina.js docs mappa linee`.
 
 ## Aggiornare il catalogo delle stazioni
 
