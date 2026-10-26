@@ -888,7 +888,7 @@ async function caricaAvvisiStazione() {
    male tiene il tabellone di prima, come fanno i treni seguiti: un orario di
    un minuto fa vale più di una tessera vuota. */
 async function caricaProssimi() {
-  await Promise.all(preferiti().map(async (p) => {
+  const esiti = await Promise.all(preferiti().map(async (p) => {
     const k = chiaveTratta(p);
     try {
       // Lo stesso limite del tabellone, che il server legge da RFI fino a
@@ -896,12 +896,17 @@ async function caricaProssimi() {
       // puntini fino al giro dopo, e la barra gialla a scorrere a vuoto
       // aspettandola.
       const d = await leggiJSON(API.tabellone(p.f, p.t, p.a), { signal: AbortSignal.timeout(25_000) });
-      if (!d) return;
+      if (!d) return false;
       prossimi.set(k, { stato: 'ok', treni: d.trains || [] });
+      return true;
     } catch {
       if (!prossimi.has(k)) prossimi.set(k, { stato: 'errore' });
+      return false;
     }
   }));
+  // Le tessere sono un dato datato come le schede seguite, e la barretta della
+  // home conta anche loro: stessa regola di aggiornaSeguiti().
+  if (esiti.some(Boolean)) stato.scaricatoIl = Date.now();
 }
 
 /* I numeri sul tabellone delle partenze di ogni stazione da cui si sale su un
@@ -1285,8 +1290,8 @@ async function cambiaRotta() {
     stato.arrivi = false;
     // L'orario dell'ultima lettura è lo stesso campo che usa il tabellone:
     // senza azzerarlo, la barretta della home partirebbe dal minuto del
-    // tabellone appena lasciato. Torna a esistere quando i treni seguiti sono
-    // stati letti davvero.
+    // tabellone appena lasciato. Torna a esistere quando i treni seguiti o le
+    // tessere dei preferiti sono stati letti davvero.
     stato.scaricatoIl = 0;
     try {
       await caricaStazioni();
@@ -1518,16 +1523,17 @@ function disegna() {
 }
 
 function disegnaHome() {
-  /* La barretta del minuto anche qui, e solo quando c'è un treno seguito.
-     Tutta la home si rilegge al minuto, bollini e avvisi compresi, ma la
-     barretta conta l'età di un dato e l'unico dato datato qui sono le schede
-     seguite: senza, conterebbe un giro di cui non si vede niente.
+  /* La barretta del minuto anche qui, quando c'è un treno seguito o una
+     tessera dei preferiti. Tutta la home si rilegge al minuto, bollini e
+     avvisi compresi, ma la barretta conta l'età di un dato, e i dati datati
+     qui sono le schede seguite e i tabelloni delle tessere: senza nessuno dei
+     due, conterebbe un giro di cui non si vede niente.
 
      Il sottotitolo non c'è più: diceva cosa fa l'app a chi la usa ogni
      mattina, e occupava la riga sopra il treno da prendere. */
   testa.innerHTML = `
     <div class="testa-riga"><h1 class="titolo">Tabellone Treni</h1></div>
-    ${seguitiInHome().length ? barraCiclo() : ''}`;
+    ${seguitiInHome().length || preferiti().length ? barraCiclo() : ''}`;
 
   if (!preferiti().length) modificaPreferiti = false;
 

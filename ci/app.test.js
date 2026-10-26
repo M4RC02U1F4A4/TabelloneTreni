@@ -1331,6 +1331,7 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   const preferiti = () => elenco;
   const controllaVersione = () => false;
   const prossimi = new Map();
+  const stato = { scaricatoIl: 0 };
   ${ritaglia('const API = {', '// Il viaggio di un treno seguito')} };
   const testa = { classList: { toggle() {} } };
   ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
@@ -1338,7 +1339,7 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   ${ritaglia('function numeroBinario', '/* Il provvedimento')}
   ${ritaglia('/* Il tabellone di ogni preferito, per le tessere in home', '/* I numeri sul tabellone delle partenze')}
   ${ritaglia('function prossimoTreno(p)', '/* I treni seguiti stanno sopra')}
-  return { caricaProssimi, prossimoTreno, ritardoMedio };`)(
+  return { caricaProssimi, prossimoTreno, ritardoMedio, stato };`)(
   fetch, { timeout: () => undefined }, elenco, chiaveTratta, esc);
 
 (async () => {
@@ -1386,6 +1387,7 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
     '<span class="poi"><span class="rit">+4 min</span>in media<span class="rit">1 soppresso</span></span>',
     'la stazione: il ritardo medio, e un soppresso al singolare');
   assert.strictEqual(tessere.prossimoTreno(arrivi), '<span class="poi">in orario</span>', 'gli arrivi in orario');
+  assert.ok(tessere.stato.scaricatoIl > 0, 'letti i tabelloni, la barretta della home riparte');
 
   tabelloni['api/board?from=1841&to=1728'] = { trains: [{ time: '08:12', cancelled: true }] };
   tabelloni['api/board?from=1728'] = { trains: [{ time: '08:01', delay: 2 }, { cancelled: true }, { cancelled: true }] };
@@ -1415,6 +1417,7 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   for (const p of [tratta, partenze]) {
     assert.strictEqual(nuove.prossimoTreno(p), '<span class="poi attesa">orario non disponibile</span>', 'errore');
   }
+  assert.strictEqual(nuove.stato.scaricatoIl, 0, 'senza nessuna lettura riuscita la barretta non riparte');
 
   console.log('tessere dei preferiti: ok — la tratta com\'era, la stazione col ritardo medio');
 })().catch((e) => { console.error(e); process.exit(1); });
