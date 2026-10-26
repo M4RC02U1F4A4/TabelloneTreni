@@ -24,7 +24,7 @@ const (
 	// comincia a esistere: è il momento del preavviso, ed è abbastanza presto
 	// da cambiare programma — prendere quello prima, restare a casa — ma non
 	// così presto che il tabellone non sappia ancora niente.
-	AnticipoPreavviso = 10 * time.Minute
+	AnticipoPreavviso = 15 * time.Minute
 
 	// DurataAbituale è la rete di sicurezza del treno di oggi, come
 	// DurataSeguito lo è del segnalibro: di solito esce prima, arrivando dove
@@ -202,7 +202,7 @@ func rigaDi(b *rfi.Board, numero, ora string) *rfi.Train {
 	return prima
 }
 
-// messaggioPreavviso è la notifica dieci minuti prima: quello che dice la
+// messaggioPreavviso è la notifica quindici minuti prima: quello che dice la
 // riga del tabellone, cioè quello che si leggerebbe aprendo l'app.
 func messaggioPreavviso(a attesa, b *rfi.Board) messaggio {
 	ora := a.parte.In(roma).Format("15:04")

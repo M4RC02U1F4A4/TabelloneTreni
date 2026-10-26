@@ -29,8 +29,8 @@ func TestIlTrenoDiOggi(t *testing.T) {
 		esiste bool
 		data   time.Time
 	}{
-		{"un minuto prima del preavviso", feriale, alle(21, 7, 1), false, time.Time{}},
-		{"al preavviso", feriale, alle(21, 7, 2), true, alle(21, 0, 0)},
+		{"un minuto prima del preavviso", feriale, alle(21, 6, 56), false, time.Time{}},
+		{"al preavviso", feriale, alle(21, 6, 57), true, alle(21, 0, 0)},
 		{"all'ultimo minuto", feriale, alle(21, 10, 11), true, alle(21, 0, 0)},
 		{"a rete scattata", feriale, alle(21, 10, 12), false, time.Time{}},
 		{"di sabato", feriale, alle(26, 7, 5), false, time.Time{}},
@@ -111,7 +111,7 @@ func contate(viste *[]richiesta, mu *sync.Mutex) int {
 	return len(*viste)
 }
 
-// Dieci minuti prima parte il preavviso, una volta sola. Da lì i rilevamenti
+// Quindici minuti prima parte il preavviso, una volta sola. Da lì i rilevamenti
 // si contano come per un segnalibro: uno nuovo è una notifica.
 func TestPreavvisoUnaVoltaSolaPoiIRilevamenti(t *testing.T) {
 	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
@@ -122,7 +122,7 @@ func TestPreavvisoUnaVoltaSolaPoiIRilevamenti(t *testing.T) {
 	tab := &tabelloniFinti{treni: []rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3"}}}
 	svc := servizioTreni(t, ab, srv.Client(), f).ConTabelloni(tab)
 
-	giri(svc, alle(21, 18, 40)) // prima della finestra: niente, nemmeno letture
+	giri(svc, alle(21, 18, 39)) // prima della finestra: niente, nemmeno letture
 	if n := f.lette(trenoDi(salita)); n != 0 || tab.letture != 0 {
 		t.Fatalf("letture fuori finestra: vt %d, tabellone %d", n, tab.letture)
 	}

@@ -542,7 +542,7 @@ const abitualePerIlServer = (x) => ({
    Esiste solo nei giorni scelti, e fino a tre ore dopo l'ora: dopo il treno è
    arrivato da un pezzo. Prima dell'ora compare appena il tabellone delle
    partenze della stazione di salita lo elenca — da lì RFI dice che il treno
-   c'è, e dieci minuti prima era tardi per uscire di casa sapendolo — e
+   c'è, e quindici minuti prima era tardi per uscire di casa sapendolo — e
    comunque da mezz'ora prima, per il tabellone che non risponde o non lo
    elenca ancora. Più di quattro ore prima no, nemmeno se il tabellone lo
    mostra: è il treno di domattina visto la sera, una scheda in cima alla home
@@ -555,7 +555,7 @@ const abitualePerIlServer = (x) => ({
 
    Il server lo genera con la stessa chiave e lo stesso giorno — quindi un
    segnalibro messo a mano sullo stesso treno è una scheda sola, non due — ma
-   ha una finestra sua, da dieci minuti prima: è lì che manda il preavviso, e
+   ha una finestra sua, da quindici minuti prima: è lì che manda il preavviso, e
    la scheda in home che c'è già da prima non lo sposta.
 
    Tutto in ora di Roma e non in quella del telefono: l'ora salvata è quella
