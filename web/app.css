@@ -183,11 +183,37 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   .ciclo i { animation: none; width: 100%; }
 }
 
+/* Una lettura in corso: un tratto giallo che scorre veloce sul filo sotto
+   l'intestazione, lo stesso della barretta verde e sopra di lei. La classe la
+   mette leggiJSON() su .testa, e la barra è un ::after di .testa perché i
+   figli si rifanno a ogni disegno e la classe no.
+
+   Scorre lo sfondo e non l'elemento: un tratto spostato oltre il bordo destro
+   allargherebbe la pagina, e .testa non può tagliarlo perché la barretta
+   verde sporge di un pixel. Compare dopo 200 ms, così una risposta in cache
+   del giro al minuto non fa lampeggiare niente; si spegne subito. */
+.testa::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, var(--ambra) 30%, var(--ambra) 70%, transparent) no-repeat;
+  background-size: 40% 100%;
+}
+.testa.carica::after {
+  opacity: 1; transition: opacity 0s 0.2s;
+  animation: scorre 0.9s ease-in-out infinite;
+}
+/* Con il tratto largo il 40%, -66.7% e 166.7% sono appena fuori dai due bordi. */
+@keyframes scorre { from { background-position-x: -66.7%; } to { background-position-x: 166.7%; } }
+@media (prefers-reduced-motion: reduce) {
+  .testa.carica::after { animation: none; background: var(--ambra); }
+}
+
 /* Il cerchio di "tira per aggiornare": sta sopra l'intestazione (z-index 6
    contro 5) ed è trasparente finché il dito non tira davvero, poi scende col
-   dito e gira finché i dati non sono arrivati. Dove il dito lo lascia ci
-   scivola invece di saltarci, e il colore di "pronto" cambia in dissolvenza;
-   finché il dito lo tiene, segue spegne le transizioni di posizione e giro. */
+   dito e, lasciato, risale: la lettura la racconta la barra gialla. Dove il
+   dito lo lascia ci scivola invece di saltarci, e il colore di "pronto" cambia
+   in dissolvenza; finché il dito lo tiene, segue spegne le transizioni di
+   posizione e giro. */
 .tira {
   position: fixed; z-index: 6; top: calc(env(safe-area-inset-top) + 8px); left: 50%;
   width: 30px; height: 30px; border-radius: 50%;
@@ -197,25 +223,15 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   /* Su un suo strato: a ogni tocco cambia solo posizione e angolo, e la GPU li
      compone senza ridipingere il resto. */
   will-change: translate, rotate;
-  /* I 0.15s dell'opacità li aspetta il setTimeout di fine aggiornamento in
-     tiraPerAggiornare(), che dura 200 ms per tenere 50 ms di margine:
-     allungati qui, va allungato anche quello. */
   transition: opacity 0.15s, border-color 0.15s, translate 0.2s ease-out, rotate 0.2s ease-out;
 }
 .tira.segue { transition: opacity 0.15s, border-color 0.15s; }
 .tira.visibile { opacity: 1; }
 .tira.pronto { border-color: var(--accento); border-top-color: var(--bordo); }
-/* Il giro sta nel transform, che il JS non tocca: posizione e angolo del dito
-   sono in translate e rotate, e il browser li compone col transform. Così
-   l'animazione non deve ripetere la soglia di tiraPerAggiornare() e parte
-   dall'angolo in cui il dito ha lasciato il cerchio. */
-.tira.gira { animation: gira 0.8s linear infinite; }
-@keyframes gira { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .tira, .tira.segue { transition: none; }
   /* Important perché il giro del dito è scritto dal JS nello stile in linea. */
   .tira { rotate: none !important; }
-  .tira.gira { animation: none; border-color: var(--accento); }
 }
 
 /* Le icone sono quadrate e centrate sulla loro griglia: il centraggio del

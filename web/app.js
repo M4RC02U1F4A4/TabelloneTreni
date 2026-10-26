@@ -651,17 +651,28 @@ function ricorda(id) {
 /* Una lettura JSON dal server: la risposta, o null se la pagina si sta
    ricaricando per una versione nuova. Un errore HTTP diventa un'eccezione con
    il messaggio del server, quando c'è, e con lo status, per chi deve
-   distinguere un 4xx da un 5xx. */
+   distinguere un 4xx da un 5xx.
+
+   Finché ce n'è almeno una in corso l'intestazione ha la classe carica, che
+   accende la barra gialla sul suo filo: passano tutte da qui, quindi la barra
+   dice la verità su ogni vista, anche quando un tabellone appena aperto non ha
+   ancora la barretta verde del minuto. */
 async function leggiJSON(url, opzioni) {
-  const r = await fetch(url, opzioni);
-  if (controllaVersione(r)) return null;
-  if (!r.ok) {
-    const e = new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
-    e.status = r.status;
-    throw e;
+  testa.classList.toggle('carica', ++inVolo > 0);
+  try {
+    const r = await fetch(url, opzioni);
+    if (controllaVersione(r)) return null;
+    if (!r.ok) {
+      const e = new Error((await r.json().catch(() => ({}))).error || `errore ${r.status}`);
+      e.status = r.status;
+      throw e;
+    }
+    return await r.json();
+  } finally {
+    testa.classList.toggle('carica', --inVolo > 0);
   }
-  return r.json();
 }
+let inVolo = 0;
 
 async function caricaStazioni() {
   if (stato.stazioni.length) return;
@@ -689,7 +700,7 @@ async function caricaTabellone() {
   disegna();
   try {
     // Un limite serve: appesa, la lettura terrebbe il tabellone sugli
-    // scheletri e il gesto di aggiornare a girare finché il browser non si
+    // scheletri e la barra gialla a scorrere finché il browser non si
     // arrende, cioè per minuti. Venticinque secondi e non i quindici delle
     // altre letture: il server aspetta RFI fino a venti.
     const d = await leggiJSON(API.tabellone(stato.da, stato.a, stato.arrivi), { signal: AbortSignal.timeout(25_000) });
@@ -882,7 +893,7 @@ async function caricaProssimi() {
     try {
       // Lo stesso limite del tabellone, che il server legge da RFI fino a
       // venti secondi: una richiesta appesa terrebbe la tessera sui tre
-      // puntini fino al giro dopo, e il gesto di aggiornare a girare a vuoto
+      // puntini fino al giro dopo, e la barra gialla a scorrere a vuoto
       // aspettandola.
       const d = await leggiJSON(API.tabellone(p.f, p.t, p.a), { signal: AbortSignal.timeout(25_000) });
       if (!d) return;
@@ -1429,9 +1440,8 @@ function rigaFreschezza() {
   // "aggiornamento…" non si scrive più. Su un tabellone di partenze fresco il
   // sottotitolo è vuoto, quindi quella parola comparirebbe e sparirebbe ogni
   // minuto portandosi dietro una riga: il contenuto sotto ballerebbe da solo a
-  // ogni giro. Che stia caricando lo dicono già gli scheletri la prima volta, e
-  // dalla seconda in poi non c'è niente da dire — i treni di prima restano lì
-  // finché non arrivano quelli nuovi.
+  // ogni giro. Che stia caricando lo dice la barra gialla sotto l'intestazione,
+  // che non occupa righe — vedi leggiJSON().
   if (!stato.scaricatoIl) return '';
   // Fresco non si dice. La barretta conta già quel minuto, e "aggiornato 30
   // secondi fa" scritto accanto è lo stesso minuto letto dall'altro verso: due
@@ -3636,7 +3646,7 @@ async function scaricaViaggio(numero) {
 
 /* Rilegge quello che la vista corrente rilegge già una volta al minuto: è lo
    stesso giro, chiesto con un gesto invece che dal timer. Torna una promessa
-   perché il cerchio deve girare finché i dati non sono arrivati. */
+   perché il gesto resta occupato finché i dati non sono arrivati. */
 function rinfrescaVista() {
   const r = leggiRotta();
   if (r.vista === 'home') return rinfrescaHome();
@@ -3659,9 +3669,10 @@ function rinfrescaVista() {
 
    Il cerchio non scatta mai: col dito sopra lo segue alla lettera (la classe
    segue spegne le transizioni, se no lo rincorrerebbe in ritardo), lasciato
-   scivola dove deve andare. La posizione sta in translate e il giro del dito in
-   rotate, non nel transform: il transform è dell'animazione gira, che così
-   continua dall'angolo in cui il dito l'ha lasciato invece di ripartire da zero. */
+   scivola dove deve andare. Oltre la soglia, lasciato, risale e sparisce
+   subito: che i dati stiano arrivando lo dice la barra gialla sotto
+   l'intestazione, la stessa di ogni altra lettura, e non un secondo segnale
+   solo per il gesto. */
 function tiraPerAggiornare(el, soglia, rinfresca) {
   let inizio = null;   // la Y del tocco, o null se il gesto non è partito
   let inizioX = 0;
@@ -3716,27 +3727,12 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
   document.addEventListener('touchend', () => {
     if (inizio === null) return;
     inizio = null;
-    if (tirato < soglia) { lascia(); return; }
+    lascia();
+    if (tirato < soglia) return;
+    // Occupato finché la lettura non torna: un secondo gesto a metà ne
+    // partirebbe un'altra uguale.
     occupato = true;
-    // Da dov'era scivola alla soglia e lì gira, partendo dall'angolo che ha.
-    el.classList.remove('segue');
-    el.classList.add('gira');
-    el.style.translate = `-50% ${soglia}px`;
-    Promise.resolve(rinfresca()).catch(() => {}).then(() => {
-      // Prima svanisce, poi torna su e smette di girare: tutto insieme, il
-      // cerchio salterebbe in cima mentre ancora si vede. I 200 ms coprono la
-      // dissolvenza di .tira in app.css, che è di 0.15s, con 50 ms di margine:
-      // un timer che scatta col fotogramma in ritardo non lo fa saltare a metà.
-      // Il gesto resta occupato fino ad allora, perché un tocco nuovo non si
-      // veda togliere il cerchio da sotto il dito.
-      el.classList.remove('visibile');
-      setTimeout(() => {
-        occupato = false;
-        el.classList.remove('pronto', 'gira');
-        el.style.translate = '';
-        el.style.rotate = '';
-      }, 200);
-    });
+    Promise.resolve(rinfresca()).catch(() => {}).then(() => { occupato = false; });
   }, { passive: true });
 }
 

@@ -635,6 +635,7 @@ const fabbricaViaggio = new Function('fetch', 'chiaveTabellone', `
   const disegna = () => {};
   const API = { treno: () => 'api/train' };
   const controllaVersione = () => false;
+  const testa = { classList: { toggle() {} } };
   ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
   ${ritaglia('/* Un viaggio che non ha niente da mostrare', '/* ------------------------------------------------------------------ eventi */')}
   return { viaggi, scaricaViaggio, viaggioVuoto };`);
@@ -900,6 +901,7 @@ const fabbricaTabelloni = (fetch, adesso, elenco) => new Function('fetch', 'Date
   const abituali = () => elenco;
   const controllaVersione = () => false;
   const API = { tabellone: (da, a) => 'api/board?from=' + da + (a ? '&to=' + a : '') };
+  const testa = { classList: { toggle() {} } };
   ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
   ${ritaglia('/* Il treno abituale di oggi', '/* I treni che la home segue')}
   ${ritaglia('/* I numeri sul tabellone delle partenze', '/* --------------------------------------------------------------- notifiche */')}
@@ -1119,6 +1121,7 @@ const fabbricaSeguito = (fetch, adesso) => new Function('fetch', 'Date', 'AbortS
   const ricordaViaggio = () => {};
   const controllaVersione = () => false;
   const API = { viaggio: () => 'api/journey' };
+  const testa = { classList: { toggle() {} } };
   ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
   ${ritaglia('const QUADRANTE_ROMA', 'function abitualiDiOggi')}
   ${ritaglia('const smettiDiSeguire', "/* L'ultima lettura di ogni treno seguito")}
@@ -1328,6 +1331,7 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   const controllaVersione = () => false;
   const prossimi = new Map();
   ${ritaglia('const API = {', '// Il viaggio di un treno seguito')} };
+  const testa = { classList: { toggle() {} } };
   ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
   ${ritaglia('const ritardoLive', 'const conMisure')}
   ${ritaglia('function numeroBinario', '/* Il provvedimento')}
@@ -1412,4 +1416,31 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   }
 
   console.log('tessere dei preferiti: ok — la tratta com\'era, la stazione col ritardo medio');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+/* La barra gialla: la classe carica resta accesa finché c'è una lettura in
+   corso, e si spegne anche quando la lettura finisce in un errore. */
+(async () => {
+  const classi = new Set();
+  const testa = { classList: { toggle: (c, si) => (si ? classi.add(c) : classi.delete(c)) } };
+  let sblocca;
+  const risposte = [
+    new Promise((r) => { sblocca = r; }),
+    Promise.reject(new Error('rete')),
+  ];
+  let i = 0;
+  const leggiJSON = new Function('fetch', 'testa', `
+    const controllaVersione = () => false;
+    ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
+    return leggiJSON;`)(() => risposte[i++], testa);
+  const lenta = leggiJSON('a');
+  assert.ok(classi.has('carica'), 'durante la lettura la barra c\'è');
+  await leggiJSON('b').catch(() => {});
+  assert.ok(classi.has('carica'), 'finita una, l\'altra la tiene accesa');
+  sblocca({ ok: true, json: async () => ({}) });
+  await lenta;
+  assert.ok(!classi.has('carica'), 'finite tutte, si spegne');
+  await leggiJSON('c').catch(() => {});
+  assert.ok(!classi.has('carica'), 'anche dopo un errore');
+  console.log('barra gialla: ok');
 })().catch((e) => { console.error(e); process.exit(1); });
