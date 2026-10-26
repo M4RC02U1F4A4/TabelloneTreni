@@ -50,6 +50,12 @@ const RINFRESCO = 60_000;
    aggiornamento andato male — e sono proprio quelli in cui tacere farebbe
    passare il vecchio per nuovo. */
 const VECCHIA = 2 * 60_000;
+/* Quanto, oltre il minuto, la barretta aspetta il dato nuovo prima di
+   diventare rossa. Il giro parte allo scadere del minuto, e mentre legge la
+   barretta non si vede — c'è la gialla —, quindi questo margine copre solo
+   lo scarto fra il timer e l'ora della lettura di prima: se allo scadere non
+   sta leggendo niente e il dato non è arrivato, il giro è fallito. */
+const SCADENZA = 5_000;
 const RISULTATI_MAX = 60;   // oltre, la lista diventa inutile da scorrere
 
 const stato = {
@@ -653,11 +659,25 @@ function ricorda(id) {
    il messaggio del server, quando c'è, e con lo status, per chi deve
    distinguere un 4xx da un 5xx.
 
-   Finché ce n'è almeno una in corso l'intestazione ha la classe carica, che
-   accende la barra gialla sul suo filo: passano tutte da qui, quindi la barra
-   dice la verità su ogni vista, anche quando un tabellone appena aperto non ha
-   ancora la barretta verde del minuto. */
-async function leggiJSON(url, opzioni) {
+   Due letture uguali in volo insieme sono una sola: la home chiede il
+   tabellone di una stazione per la tessera dei preferiti e, se è anche quella
+   di un treno abituale, di nuovo per sapere se lo elenca. Il secondo aspetta
+   la risposta del primo invece di scaricarla un'altra volta. Solo le GET: una
+   POST ripetuta è una cosa da fare due volte. */
+const lettureInCorso = new Map();
+function leggiJSON(url, opzioni) {
+  const condivisa = !opzioni?.method;
+  if (condivisa && lettureInCorso.has(url)) return lettureInCorso.get(url);
+  const lettura = scaricaJSON(url, opzioni).finally(() => lettureInCorso.delete(url));
+  if (condivisa) lettureInCorso.set(url, lettura);
+  return lettura;
+}
+
+/* Finché c'è almeno una lettura in corso l'intestazione ha la classe carica,
+   che accende la barra gialla sul suo filo: passano tutte da qui, quindi la
+   barra dice la verità su ogni vista, anche quando un tabellone appena aperto
+   non ha ancora la barretta verde del minuto. */
+async function scaricaJSON(url, opzioni) {
   testa.classList.toggle('carica', ++inVolo > 0);
   try {
     const r = await fetch(url, opzioni);
@@ -676,9 +696,11 @@ let inVolo = 0;
 
 async function caricaStazioni() {
   if (stato.stazioni.length) return;
-  const r = await fetch(API.stazioni);
-  if (!r.ok) throw new Error('elenco stazioni non disponibile');
-  const d = await r.json();
+  // Da leggiJSON come le altre, per la barra gialla: al primo avvio è la
+  // lettura più lunga di tutte. Il messaggio resta il nostro, non quello del
+  // browser.
+  const d = await leggiJSON(API.stazioni).catch(() => { throw new Error('elenco stazioni non disponibile'); });
+  if (!d) return;
   // In tondo qui e non a ogni disegno: da qui in poi l'elenco, la ricerca, i
   // preferiti e i campi leggono tutti la stessa forma.
   stato.stazioni = d.stations.map(([id, n]) => [id, titolo(n)]);
@@ -1479,8 +1501,13 @@ function barraCiclo() {
   // farebbe lampeggiare via e tornare a ogni minuto, che è esattamente il
   // movimento che una barra smorzata serve a non fare.
   if (!stato.scaricatoIl) return '';
-  const trascorso = Math.min(Date.now() - stato.scaricatoIl, RINFRESCO);
-  return `<div class="ciclo" style="--trascorso:-${trascorso}ms" aria-hidden="true"><i></i></div>`;
+  const passato = Date.now() - stato.scaricatoIl;
+  const trascorso = Math.min(passato, RINFRESCO);
+  // Quando diventa rossa: il giro dopo è partito e non ha portato niente. Il
+  // conto lo fa il CSS con un ritardo, come per lo svuotarsi, così si accende
+  // anche senza un disegno a quel punto; negativo, è già rossa.
+  const scade = RINFRESCO + SCADENZA - passato;
+  return `<div class="ciclo" style="--trascorso:-${trascorso}ms;--scade:${scade}ms" aria-hidden="true"><i></i></div>`;
 }
 
 /* La rilettura di un treno seguito, che il timer rifà una volta al minuto. */

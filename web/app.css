@@ -47,6 +47,10 @@
      tema chiaro diventa blu: qui il colore è il livello di gravità fra il verde
      e il rosso, e un blu in mezzo a quella scala non vuol dire niente. */
   --ambra: #ffb020;
+  /* Il giallo delle letture in corso e del gesto di aggiornare. Nello scuro è
+     l'ambra; nel chiaro l'ambra scurita per i bollini è quasi marrone, e la
+     barra si chiama gialla. */
+  --giallo: #ffb020;
   /* Le due fonti del ritardo. Non sono l'accento e il verde dell'interfaccia
      travestiti: qui il colore dice da quale lettura arriva il numero, e
      agganciarli ai colori di stato vorrebbe dire cambiare significato al
@@ -77,6 +81,7 @@
     --verde: #0d7a4f;
     --rosso: #c62828;
     --ambra: #b45309;
+    --giallo: #e0a400;
     --rfi-testo: #7a4a00;
     --rfi-fondo: #ffeecd;
     --vt-testo: #04635c;
@@ -182,6 +187,22 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 @media (prefers-reduced-motion: reduce) {
   .ciclo i { animation: none; width: 100%; }
 }
+/* Rossa e piena, sopra il verde, quando il dato nuovo non è arrivato: il giro
+   è fallito, o non c'è rete. Un'animazione di durata zero che scatta dopo
+   --scade, scritto dal JS; con il movimento ridotto vale lo stesso, perché
+   non è un movimento. Rossa vera e non smorzata come il verde: qui la
+   barretta ha una cosa da dire.
+
+   Mentre si legge qualcosa si nasconde: rossa durante una lettura lenta ma
+   buona direbbe un guasto che non c'è. Con visibility e non fermando
+   l'animazione, che ripartendo conterebbe --scade da capo. */
+.ciclo::after {
+  content: ""; position: absolute; inset: 0;
+  background: var(--rosso); opacity: 0;
+  animation: scaduta 0s var(--scade, 9999s) forwards;
+}
+@keyframes scaduta { to { opacity: 1; } }
+.testa.carica .ciclo::after { visibility: hidden; }
 
 /* Una lettura in corso: un tratto giallo che scorre veloce sul filo sotto
    l'intestazione, lo stesso della barretta verde e sopra di lei. La classe la
@@ -196,7 +217,7 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
   z-index: 1;
   height: 2px; pointer-events: none; opacity: 0;
-  background: linear-gradient(90deg, transparent, var(--ambra) 30%, var(--ambra) 70%, transparent) no-repeat;
+  background: linear-gradient(90deg, transparent, var(--giallo) 30%, var(--giallo) 70%, transparent) no-repeat;
   background-size: 40% 100%;
 }
 .testa.carica::after {
@@ -206,7 +227,7 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 /* Con il tratto largo il 40%, -66.7% e 166.7% sono appena fuori dai due bordi. */
 @keyframes scorre { from { background-position-x: -66.7%; } to { background-position-x: 166.7%; } }
 @media (prefers-reduced-motion: reduce) {
-  .testa.carica::after { animation: none; background: var(--ambra); }
+  .testa.carica::after { animation: none; background: var(--giallo); }
 }
 
 /* Il gesto di tirare per aggiornare, sullo stesso filo: una riga gialla che
@@ -221,7 +242,7 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
   z-index: 1;
   height: 2px; pointer-events: none; opacity: 0;
-  background: var(--ambra);
+  background: var(--giallo);
   transform: scaleX(var(--tirato, 0));
   will-change: transform;
   transition: transform 0.2s ease-out, opacity 0.2s;
@@ -229,8 +250,8 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 .testa.segue::before { transition: opacity 0.15s; }
 /* Prima della soglia è più spenta, ma mescolata col fondo e non trasparente:
    in trasparenza il verde della barretta sotto la sporcava fino all'oliva. */
-.testa.visibile::before { opacity: 1; background: color-mix(in srgb, var(--ambra) 55%, var(--sfondo)); }
-.testa.pronto::before { background: var(--ambra); }
+.testa.visibile::before { opacity: 1; background: color-mix(in srgb, var(--giallo) 55%, var(--sfondo)); }
+.testa.pronto::before { background: var(--giallo); }
 /* Lasciata oltre la soglia, il tratto che scorre compare subito invece che
    dopo i 200 ms delle letture del timer. */
 .testa.subito.carica::after { transition: none; }

@@ -187,14 +187,14 @@ console.log('binario: ok — 6 casi + 2 di escaping + 6 sulla cella');
  * il dato è stato letto: resta piena, e chi guarda crede che il tabellone si
  * sia appena riletto. Nessuno se ne accorgerebbe guardando lo schermo. */
 const pezzoFreschezza = ritaglia('function rigaFreschezza()', '/* La rilettura di un treno');
-const nuovaFreschezza = (n) => new Function('stato', 'eta', 'RINFRESCO', 'VECCHIA',
+const nuovaFreschezza = (n) => new Function('stato', 'eta', 'RINFRESCO', 'VECCHIA', 'SCADENZA',
   `${pezzoFreschezza}; return ${n};`);
 
 const RINFRESCO = 60_000;
 const VECCHIA = 2 * 60_000;
 const contesto = (ms) =>
   [{ scaricatoIl: ms === null ? 0 : Date.now() - ms },
-   () => `${Math.round(ms / 60_000)} minuti fa`, RINFRESCO, VECCHIA];
+   () => `${Math.round(ms / 60_000)} minuti fa`, RINFRESCO, VECCHIA, 5_000];
 
 const barra = (ms) => nuovaFreschezza('barraCiclo')(...contesto(ms))();
 const testo = (ms) => nuovaFreschezza('rigaFreschezza')(...contesto(ms))();
@@ -217,6 +217,13 @@ assert.strictEqual(ritardo(barra(5 * 60_000)), -RINFRESCO, 'oltre il minuto rest
 // prima lettura invece non c'è.
 assert.ok(/ciclo/.test(barra(60_000)), "a un minuto la barretta c'è ancora");
 assert.strictEqual(barra(null), '', 'prima della prima lettura niente barretta');
+
+// Il rosso: il CSS lo accende dopo --scade, che è quanto manca al minuto più
+// i cinque secondi di margine. Appena letto mancano 65 s; con un dato di
+// cinque minuti fa è negativo, cioè già rossa.
+const scade = (html) => Number((html.match(/--scade:(-?\d+)ms/) || [])[1]);
+assert.ok(Math.abs(scade(barra(0)) - 65_000) < 50, 'appena letto si fa rossa fra 65 s');
+assert.ok(scade(barra(5 * 60_000)) < 0, 'un dato di cinque minuti fa è già rosso');
 
 // Fresco il testo tace: la barretta conta già quel minuto, e ripeterlo a
 // parole sarebbe la stessa cosa detta due volte.
@@ -636,7 +643,7 @@ const fabbricaViaggio = new Function('fetch', 'chiaveTabellone', `
   const API = { treno: () => 'api/train' };
   const controllaVersione = () => false;
   const testa = { classList: { toggle() {} } };
-  ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
+  ${ritaglia('const lettureInCorso', 'async function caricaStazioni')}
   ${ritaglia('/* Un viaggio che non ha niente da mostrare', '/* ------------------------------------------------------------------ eventi */')}
   return { viaggi, scaricaViaggio, viaggioVuoto };`);
 
@@ -902,7 +909,7 @@ const fabbricaTabelloni = (fetch, adesso, elenco) => new Function('fetch', 'Date
   const controllaVersione = () => false;
   const API = { tabellone: (da, a) => 'api/board?from=' + da + (a ? '&to=' + a : '') };
   const testa = { classList: { toggle() {} } };
-  ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
+  ${ritaglia('const lettureInCorso', 'async function caricaStazioni')}
   ${ritaglia('/* Il treno abituale di oggi', '/* I treni che la home segue')}
   ${ritaglia('/* I numeri sul tabellone delle partenze', '/* --------------------------------------------------------------- notifiche */')}
   return { caricaTabelloniAbituali, inTabellone };`)(
@@ -1122,7 +1129,7 @@ const fabbricaSeguito = (fetch, adesso) => new Function('fetch', 'Date', 'AbortS
   const controllaVersione = () => false;
   const API = { viaggio: () => 'api/journey' };
   const testa = { classList: { toggle() {} } };
-  ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
+  ${ritaglia('const lettureInCorso', 'async function caricaStazioni')}
   ${ritaglia('const QUADRANTE_ROMA', 'function abitualiDiOggi')}
   ${ritaglia('const smettiDiSeguire', "/* L'ultima lettura di ogni treno seguito")}
   ${ritaglia('async function caricaViaggioSeguito', '/* Tutti i treni seguiti insieme')}
@@ -1334,7 +1341,7 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   const stato = { scaricatoIl: 0 };
   ${ritaglia('const API = {', '// Il viaggio di un treno seguito')} };
   const testa = { classList: { toggle() {} } };
-  ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
+  ${ritaglia('const lettureInCorso', 'async function caricaStazioni')}
   ${ritaglia('const ritardoLive', 'const conMisure')}
   ${ritaglia('function numeroBinario', '/* Il provvedimento')}
   ${ritaglia('/* Il tabellone di ogni preferito, per le tessere in home', '/* I numeri sul tabellone delle partenze')}
@@ -1435,7 +1442,7 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   let i = 0;
   const leggiJSON = new Function('fetch', 'testa', `
     const controllaVersione = () => false;
-    ${ritaglia('async function leggiJSON', 'async function caricaStazioni')}
+    ${ritaglia('const lettureInCorso', 'async function caricaStazioni')}
     return leggiJSON;`)(() => risposte[i++], testa);
   const lenta = leggiJSON('a');
   assert.ok(classi.has('carica'), 'durante la lettura la barra c\'è');
@@ -1447,4 +1454,23 @@ const fabbricaTessere = (fetch, elenco) => new Function('fetch', 'AbortSignal', 
   await leggiJSON('c').catch(() => {});
   assert.ok(!classi.has('carica'), 'anche dopo un errore');
   console.log('barra gialla: ok');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+/* Due letture uguali in volo sono una sola: la tessera di una stazione e
+   l'abituale che parte da lì chiedono lo stesso tabellone nello stesso giro. */
+(async () => {
+  let chieste = 0;
+  const leggiJSON = new Function('fetch', `
+    const testa = { classList: { toggle() {} } };
+    const controllaVersione = () => false;
+    ${ritaglia('const lettureInCorso', 'async function caricaStazioni')}
+    return leggiJSON;`)(async () => { chieste++; return { ok: true, json: async () => ({ trains: [] }) }; });
+  const [a, b] = await Promise.all([leggiJSON('api/board?from=1728'), leggiJSON('api/board?from=1728')]);
+  assert.strictEqual(chieste, 1, 'in volo insieme, una richiesta sola');
+  assert.strictEqual(a, b, 'e la stessa risposta a tutti e due');
+  await leggiJSON('api/board?from=1728');
+  assert.strictEqual(chieste, 2, 'finita la prima, la successiva si rifà');
+  await Promise.all([leggiJSON('x', { method: 'POST' }), leggiJSON('x', { method: 'POST' })]);
+  assert.strictEqual(chieste, 4, 'una POST non si condivide');
+  console.log('letture condivise: ok');
 })().catch((e) => { console.error(e); process.exit(1); });
