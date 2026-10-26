@@ -3660,19 +3660,19 @@ function rinfrescaVista() {
 
    Il browser non lo fa da sé: Safari no, e Chrome lo spegne perché il body ha
    overscroll-behavior-y: contain, messo per non far rimbalzare la pagina. Sono
-   tre ascoltatori sul documento e un cerchio che segue il dito; nessuna
-   libreria, perché il gesto è questo e basta.
+   tre ascoltatori sul documento; nessuna libreria, perché il gesto è questo e
+   basta.
 
    Parte solo con scrollY a zero: a metà di una lista lunga trascinare in giù è
    scorrere. E non dentro la mappa, che il dito lo usa per spostarla, né nel
    selettore stazione, che è una lista sua.
 
-   Il cerchio non scatta mai: col dito sopra lo segue alla lettera (la classe
-   segue spegne le transizioni, se no lo rincorrerebbe in ritardo), lasciato
-   scivola dove deve andare. Oltre la soglia, lasciato, risale e sparisce
-   subito: che i dati stiano arrivando lo dice la barra gialla sotto
-   l'intestazione, la stessa di ogni altra lettura, e non un secondo segnale
-   solo per il gesto. */
+   Il gesto lo racconta la stessa riga gialla che racconta le letture, sul filo
+   sotto l'intestazione: tirando si allunga dal centro verso i lati, a soglia
+   raggiunta è piena e più accesa, e lasciata lì diventa il tratto che scorre
+   finché i dati non arrivano. Un segnale solo dall'inizio alla fine, al posto
+   del cerchio che scendeva sopra la pagina. Quanto è tirata lo dice --tirato,
+   da 0 a 1, nello stile di .testa: come la classe, sopravvive ai disegni. */
 function tiraPerAggiornare(el, soglia, rinfresca) {
   let inizio = null;   // la Y del tocco, o null se il gesto non è partito
   let inizioX = 0;
@@ -3691,34 +3691,31 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
     if (inizio === null) return;
     const dy = e.touches[0].clientY - inizio;
     // Il dito che sale è la pagina che scorre in giù dalla cima: il gesto non
-    // c'entra più. Il cerchio sta sopra l'intestazione (z-index 6 contro 5), e
-    // senza questo comparirebbe lì a ogni scorrimento partito da scrollY 0.
+    // c'entra più, e la riga non deve accendersi a ogni scorrimento partito da
+    // scrollY 0.
     if (dy < 0) { inizio = null; lascia(); return; }
-    // Più di lato che in giù, finché il cerchio non si vede, è una delle
-    // strisce che scorrono di lato (filtri, giorni): il gesto è loro.
+    // Più di lato che in giù, finché la riga non si vede, è una delle strisce
+    // che scorrono di lato (filtri, giorni): il gesto è loro.
     if (tirato <= 4 && Math.abs(e.touches[0].clientX - inizioX) > dy) { inizio = null; lascia(); return; }
-    // Il tirare lo fa il cerchio, non la pagina. Lasciato a iOS, il rimbalzo
-    // scorre la pagina per conto suo mentre il JS sposta il cerchio, e i due
-    // vanno a scatti: per questo l'ascoltatore non è passivo.
+    // Lasciato a iOS, il rimbalzo scorrerebbe la pagina per conto suo mentre
+    // il JS allunga la riga, e i due andrebbero a scatti: per questo
+    // l'ascoltatore non è passivo.
     if (e.cancelable) e.preventDefault();
-    // Il cerchio segue il dito con un freno: a metà strada si sente che manca
-    // poco, oltre la soglia che è fatta. Sotto i 4 px resta nascosto, perché un
-    // tocco che trema non lo faccia lampeggiare. Intanto gira col tirato, anche
-    // oltre il tetto: il dito che va ancora avanti si vede.
+    // La riga segue il dito con un freno: a metà strada si sente che manca
+    // poco, alla soglia è piena. Sotto i 4 px resta spenta, perché un tocco
+    // che trema non la faccia lampeggiare.
     tirato = dy * 0.5;
-    el.style.translate = `-50% ${Math.min(tirato, soglia * 1.3)}px`;
-    el.style.rotate = `${tirato * 3}deg`;
+    el.style.setProperty('--tirato', Math.min(tirato / soglia, 1));
     el.classList.toggle('pronto', tirato >= soglia);
     el.classList.toggle('visibile', tirato > 4);
   }, { passive: false });
-  // Tolto segue tornano le transizioni: il cerchio risale svanendo e si srotola.
+  // Tolto segue tornano le transizioni: la riga si richiude verso il centro.
   const lascia = () => {
     el.classList.remove('visibile', 'pronto', 'segue');
-    el.style.translate = '';
-    el.style.rotate = '';
+    el.style.removeProperty('--tirato');
   };
   // Un tocco annullato dal sistema (una chiamata, un gesto di iOS) è un
-  // rilascio sotto soglia: il cerchio se ne va e non si rilegge niente.
+  // rilascio sotto soglia: la riga se ne va e non si rilegge niente.
   document.addEventListener('touchcancel', () => {
     if (inizio === null) return;
     inizio = null;
@@ -3727,18 +3724,26 @@ function tiraPerAggiornare(el, soglia, rinfresca) {
   document.addEventListener('touchend', () => {
     if (inizio === null) return;
     inizio = null;
+    if (tirato < soglia) { lascia(); return; }
+    // Subito toglie il ritardo con cui compare il tratto che scorre: chi ha
+    // appena tirato aspetta una risposta, e la riga piena deve diventare il
+    // tratto senza un buco in mezzo. Va messa prima di rinfresca(), che accende
+    // carica, e resta finché la lettura non è tornata.
+    el.classList.add('subito');
     lascia();
-    if (tirato < soglia) return;
     // Occupato finché la lettura non torna: un secondo gesto a metà ne
     // partirebbe un'altra uguale.
     occupato = true;
-    Promise.resolve(rinfresca()).catch(() => {}).then(() => { occupato = false; });
+    Promise.resolve(rinfresca()).catch(() => {}).then(() => {
+      occupato = false;
+      el.classList.remove('subito');
+    });
   }, { passive: true });
 }
 
 /* ------------------------------------------------------------------ eventi */
 
-tiraPerAggiornare($('#tira'), 70, rinfrescaVista);
+tiraPerAggiornare(testa, 70, rinfrescaVista);
 
 /* Il segnalibro si tocca da due posti — la scheda aperta di un tabellone e la
    scheda del treno stesso — e fa la stessa cosa da tutti e due. */

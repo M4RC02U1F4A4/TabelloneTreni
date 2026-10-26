@@ -1215,7 +1215,7 @@ const tira = new Function('document', 'scrollY', `
   const ascoltatori = {};
   const doc = { addEventListener: (t, f) => { ascoltatori[t] = f; } };
   const classi = new Set();
-  const el = { style: {}, classList: {
+  const el = { style: { setProperty() {}, removeProperty() {} }, classList: {
     add: (...c) => c.forEach((x) => classi.add(x)),
     remove: (...c) => c.forEach((x) => classi.delete(x)),
     toggle: (c, si) => (si ? classi.add(c) : classi.delete(c)),
@@ -1225,14 +1225,14 @@ const tira = new Function('document', 'scrollY', `
   env.tiraPerAggiornare(el, 70, () => { rinfrescate++; return Promise.resolve(); });
 
   const tocco = (y, target = {}) => ({ touches: [{ clientY: y }], target: { closest: () => target.dentroMappa ? {} : null } });
-  // Il dito che sale dalla cima è la pagina che scorre in giù: il cerchio,
-  // che sta sopra l'intestazione, non deve comparire a ogni scorrimento.
+  // Il dito che sale dalla cima è la pagina che scorre in giù: la riga del
+  // gesto non deve accendersi a ogni scorrimento.
   ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(60));
-  assert.ok(!classi.has('visibile'), 'scorrendo in giù il cerchio non compare');
+  assert.ok(!classi.has('visibile'), 'scorrendo in giù la riga non compare');
   ascoltatori.touchend({});
-  // Tirato davvero, anche poco (10 px di cerchio), compare.
+  // Tirato davvero, anche poco (10 px di riga), compare.
   ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(120));
-  assert.ok(classi.has('visibile'), 'tirando il cerchio compare');
+  assert.ok(classi.has('visibile'), 'tirando la riga compare');
   ascoltatori.touchend({});
   assert.ok(!classi.has('visibile'), 'rilasciato sotto soglia se ne va');
   // Un trascinamento corto non aggiorna.
@@ -1243,9 +1243,10 @@ const tira = new Function('document', 'scrollY', `
   // la rilettura, e il caso passerebbe per il motivo sbagliato.
   ascoltatori.touchstart(tocco(100, { dentroMappa: true })); ascoltatori.touchmove(tocco(260)); ascoltatori.touchend({});
   assert.strictEqual(rinfrescate, 0, 'dentro la mappa non si aggiorna');
-  // Uno lungo sì: il cerchio scende a metà del dito, 160 px sono 80 oltre i 70.
+  // Uno lungo sì: la riga va a metà del dito, 160 px sono 80 oltre i 70.
   ascoltatori.touchstart(tocco(100)); ascoltatori.touchmove(tocco(260)); ascoltatori.touchend({});
   assert.strictEqual(rinfrescate, 1, 'oltre la soglia si aggiorna');
+  assert.ok(classi.has('subito') && !classi.has('visibile'), 'lasciata, la riga diventa subito il tratto che scorre');
 
   // Con la pagina scorsa il dito scorre: nessun aggiornamento, neanche lungo.
   const ascoltatori2 = {};

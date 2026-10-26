@@ -194,6 +194,7 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
    del giro al minuto non fa lampeggiare niente; si spegne subito. */
 .testa::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  z-index: 1;
   height: 2px; pointer-events: none; opacity: 0;
   background: linear-gradient(90deg, transparent, var(--ambra) 30%, var(--ambra) 70%, transparent) no-repeat;
   background-size: 40% 100%;
@@ -208,30 +209,33 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   .testa.carica::after { animation: none; background: var(--ambra); }
 }
 
-/* Il cerchio di "tira per aggiornare": sta sopra l'intestazione (z-index 6
-   contro 5) ed è trasparente finché il dito non tira davvero, poi scende col
-   dito e, lasciato, risale: la lettura la racconta la barra gialla. Dove il
-   dito lo lascia ci scivola invece di saltarci, e il colore di "pronto" cambia
-   in dissolvenza; finché il dito lo tiene, segue spegne le transizioni di
-   posizione e giro. */
-.tira {
-  position: fixed; z-index: 6; top: calc(env(safe-area-inset-top) + 8px); left: 50%;
-  width: 30px; height: 30px; border-radius: 50%;
-  border: 3px solid var(--bordo); border-top-color: var(--accento);
-  background: var(--piano); opacity: 0; pointer-events: none;
-  translate: -50% 0; rotate: 0deg;
-  /* Su un suo strato: a ogni tocco cambia solo posizione e angolo, e la GPU li
-     compone senza ridipingere il resto. */
-  will-change: translate, rotate;
-  transition: opacity 0.15s, border-color 0.15s, translate 0.2s ease-out, rotate 0.2s ease-out;
+/* Il gesto di tirare per aggiornare, sullo stesso filo: una riga gialla che
+   si allunga dal centro col dito (--tirato da 0 a 1, scritto dal JS) e a
+   soglia raggiunta si accende. Lo z-index, anche sul tratto che scorre, le
+   mette sopra la barretta verde, che altrimenti, figlia di .testa, verrebbe
+   dipinta dopo il ::before; fra le due vince ::after, dipinto per ultimo. Con il dito sopra segue spegne la transizione, se no
+   la riga lo rincorrerebbe in ritardo; lasciata si richiude in 0.2 s. Scala
+   e non larghezza: a ogni tocco cambia solo il transform, che la GPU compone
+   senza ridisporre l'intestazione. */
+.testa::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  z-index: 1;
+  height: 2px; pointer-events: none; opacity: 0;
+  background: var(--ambra);
+  transform: scaleX(var(--tirato, 0));
+  will-change: transform;
+  transition: transform 0.2s ease-out, opacity 0.2s;
 }
-.tira.segue { transition: opacity 0.15s, border-color 0.15s; }
-.tira.visibile { opacity: 1; }
-.tira.pronto { border-color: var(--accento); border-top-color: var(--bordo); }
+.testa.segue::before { transition: opacity 0.15s; }
+/* Prima della soglia è più spenta, ma mescolata col fondo e non trasparente:
+   in trasparenza il verde della barretta sotto la sporcava fino all'oliva. */
+.testa.visibile::before { opacity: 1; background: color-mix(in srgb, var(--ambra) 55%, var(--sfondo)); }
+.testa.pronto::before { background: var(--ambra); }
+/* Lasciata oltre la soglia, il tratto che scorre compare subito invece che
+   dopo i 200 ms delle letture del timer. */
+.testa.subito.carica::after { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  .tira, .tira.segue { transition: none; }
-  /* Important perché il giro del dito è scritto dal JS nello stile in linea. */
-  .tira { rotate: none !important; }
+  .testa::before, .testa.segue::before { transition: none; }
 }
 
 /* Le icone sono quadrate e centrate sulla loro griglia: il centraggio del
