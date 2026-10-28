@@ -655,9 +655,18 @@ partenza ViaggiaTreno non dice niente, ed è proprio prima di uscire di casa che
 serve sapere se il treno c'è. Quindici minuti prima il servizio legge le partenze
 della tua stazione con lo stesso tabellone che vede il telefono — RFI con
 sopra le misure di ViaggiaTreno — e manda quello che c'è scritto sulla riga:
-binario e se è cambiato, i due ritardi, la soppressione. Una lettura per
+binario e se è cambiato, i due ritardi, la soppressione. Davanti c'è il
+ritardo misurato sul treno, preso dal viaggio che il servizio legge nello
+stesso giro, con quello di RFI fra parentesi quando dice altro — "Bin. 3,
++7 min (RFI in orario)": è il numero grande dell'app. Una lettura per
 stazione, qualunque sia il numero di persone, e nella cache da trenta secondi
 del tabellone.
+
+Dopo il preavviso quella riga **si continua a leggere ogni minuto**, finché
+ViaggiaTreno non vede il treno: prima di allora è l'unica cosa che cambia, ed
+è quella che l'app mostra. Se RFI mette un ritardo o assegna il binario, la
+riga nuova arriva al posto del preavviso; quando sparisce dal tabellone il
+treno è partito, e non è una notizia.
 
 Un treno che **non compare sul tabellone** è una notizia anch'essa — un
 festivo, un treno che oggi non circola — e arriva come tale. Un tabellone che

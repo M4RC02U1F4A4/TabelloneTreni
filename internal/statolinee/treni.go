@@ -90,7 +90,7 @@ func (s *Servizio) leggiTreni(ctx context.Context) {
 	// proprio timeout, dentro manda. È la stessa separazione che il giro delle
 	// linee fa con Riconcilia.
 	letti := s.leggiViaggi(ctx, seguiti)
-	tabelloni := s.leggiTabelloni(ctx, s.abbonati.PreavvisiDovuti(adesso))
+	tabelloni := s.leggiTabelloni(ctx, s.abbonati.TabelloniDovuti(adesso))
 	s.riconciliaTreni(context.WithoutCancel(ctx), letti, tabelloni, adesso)
 }
 
@@ -181,23 +181,29 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 			if prima.Finito {
 				continue // il treno di oggi di un abituale, già arrivato
 			}
+			// Il preavviso, e dopo di lui la stessa riga ogni volta che
+			// cambia, finché ViaggiaTreno non vede il treno. Una riga sparita
+			// è il treno partito, non una notizia: il "non compare" vale solo
+			// per il preavviso.
+			a := letti[k]
 			preavvisato := false
-			if t.preavvisoDovuto(prima, adesso) {
-				if b := tabelloni[t.Da]; b != nil {
-					s.notificatore.avvisa(ctx, ab, k, messaggioPreavviso(t, b))
-					preavvisato = true
+			if b := tabelloni[t.Da]; b != nil {
+				m := messaggioPreavviso(t, b, a)
+				preavvisato = t.preavvisoDovuto(prima, adesso)
+				// Al primo rilevamento parla ViaggiaTreno, qui sotto: la riga,
+				// che adesso porterebbe la stessa misura, sarebbe un doppione.
+				cambiataRiga := t.tabelloneDaSeguire(prima) && (a == nil || rilevamento(a) == 0) &&
+					m.Corpo != prima.Tabellone &&
+					rigaDi(b, t.Numero, t.parte.In(roma).Format("15:04")) != nil
+				if preavvisato || cambiataRiga {
+					s.notificatore.avvisa(ctx, ab, k, m)
+					prima.Preavviso, prima.Tabellone = true, m.Corpo
+					visto[k], cambiato = prima, true
 				}
 			}
 
-			a := letti[k]
 			if a == nil {
-				// Non letto in questo giro: si riprova al prossimo. Il
-				// preavviso però è partito, e va ricordato.
-				if preavvisato {
-					prima.Preavviso = true
-					visto[k], cambiato = prima, true
-				}
-				continue
+				continue // non letto in questo giro: si riprova al prossimo
 			}
 
 			salita := fermataDi(a, t.Da)
@@ -209,7 +215,7 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 			if salita != nil {
 				adessoVisto.Binario = salita.Binario()
 			}
-			adessoVisto.Preavviso = prima.Preavviso || preavvisato
+			adessoVisto.Preavviso, adessoVisto.Tabellone = prima.Preavviso, prima.Tabellone
 			// Finito quando il treno è arrivato dove questa persona sale: da lì
 			// in poi è a bordo, e quello che il treno fa dopo lo vede dal
 			// finestrino. Arrivato al capolinea è la rete di sicurezza per la

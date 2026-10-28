@@ -14,6 +14,7 @@ import (
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
 
 func alle(giorno, h, m int) time.Time { return time.Date(2026, 9, giorno, h, m, 0, 0, roma) }
@@ -130,14 +131,65 @@ func TestPreavvisoUnaVoltaSolaPoiIRilevamenti(t *testing.T) {
 	if n := contate(viste, mu); n != 1 {
 		t.Fatalf("notifiche = %d, atteso il solo preavviso", n)
 	}
-	if tab.letture != 1 {
-		t.Errorf("letture del tabellone = %d, attesa 1: preavviso già dato", tab.letture)
+	if tab.letture != 2 {
+		t.Errorf("letture del tabellone = %d, attese 2: ViaggiaTreno non l'ha ancora visto", tab.letture)
 	}
 
 	f.metti(trenoDi(salita), viaggio(alle(21, 18, 50), 4, fermata(salita, false)))
-	giri(svc, alle(21, 18, 51))
+	giri(svc, alle(21, 18, 51), alle(21, 18, 52))
 	if n := contate(viste, mu); n != 2 {
 		t.Fatalf("notifiche = %d, attese 2: il primo rilevamento dopo il preavviso si è perso", n)
+	}
+	// Visto da ViaggiaTreno, il tabellone non serve più: quella delle 18:51 è
+	// l'ultima lettura, quella che ha preceduto il rilevamento.
+	if tab.letture != 3 {
+		t.Errorf("letture del tabellone = %d, attese 3: si legge anche dopo il rilevamento", tab.letture)
+	}
+}
+
+// Dopo il preavviso, finché ViaggiaTreno non ha visto il treno, è la riga del
+// tabellone che cambia: RFI che mette dieci minuti al treno ancora fermo deve
+// arrivare, se no il preavviso resta a dire "in orario" mentre l'app dice +10.
+// Una riga sparita invece è il treno partito, non una notizia.
+func TestDopoIlPreavvisoSiSegueIlTabellone(t *testing.T) {
+	salita, _ := stazioniDiProva(t)
+	for nome, vt := range map[string]*treniFinti{
+		"non tracciato": sorgenteTreniFinta(),
+		"non ancora partito": func() *treniFinti {
+			f := sorgenteTreniFinta()
+			f.metti(trenoDi(salita), viaggio(time.Time{}, 0, fermata(salita, false)))
+			return f
+		}(),
+	} {
+		t.Run(nome, func(t *testing.T) {
+			srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+			ab, _ := ApriAbbonati("")
+			prende(t, ab, srv.URL+"/pendolare", abitualeDi(salita))
+			riga := rfi.Train{Number: "2247", Category: "RE", Time: "18:55", Platform: "3"}
+			tab := &tabelloniFinti{treni: []rfi.Train{riga}}
+			svc := servizioTreni(t, ab, srv.Client(), vt).ConTabelloni(tab)
+			metti := func(treni ...rfi.Train) {
+				tab.mu.Lock()
+				tab.treni = treni
+				tab.mu.Unlock()
+			}
+
+			giri(svc, alle(21, 18, 40), alle(21, 18, 41))
+			if n := contate(viste, mu); n != 1 {
+				t.Fatalf("notifiche = %d, atteso il solo preavviso", n)
+			}
+			riga.Delay = 10
+			metti(riga)
+			giri(svc, alle(21, 18, 42), alle(21, 18, 43))
+			if n := contate(viste, mu); n != 2 {
+				t.Fatalf("notifiche = %d, attese 2: il +10 di RFI non è arrivato", n)
+			}
+			metti()
+			giri(svc, alle(21, 19, 6))
+			if n := contate(viste, mu); n != 2 {
+				t.Errorf("notifiche = %d, attese 2: la riga sparita è stata notificata", n)
+			}
+		})
 	}
 }
 
@@ -211,29 +263,46 @@ func TestIlTestoDelPreavviso(t *testing.T) {
 	salita, _ := stazioniDiProva(t)
 	tr, parte, _ := abitualeDi(salita).DiOggi(alle(21, 18, 45))
 	a := attesa{TrenoSeguito: tr, parte: parte}
-	misurato := 7
+	misurato, zero := 7, 0
+	rilevato := viaggio(alle(21, 18, 40), 9, fermata(salita, false))
 	for nome, c := range map[string]struct {
 		treni  []rfi.Train
 		titolo string
 		corpo  string
+		letto  *vt.Andamento
 	}{
 		"in orario": {[]rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3"}},
-			"RE 2247 delle 18:55", "Bin. 3, in orario."},
+			"RE 2247 delle 18:55", "Bin. 3, in orario.", nil},
 		"due ritardi": {[]rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3", Delay: 5, LiveDelay: &misurato}},
-			"RE 2247 delle 18:55", "Bin. 3, +5 min (misurato +7 min)."},
+			"RE 2247 delle 18:55", "Bin. 3, +7 min (RFI +5 min).", nil},
+		"due ritardi uguali": {[]rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3", Delay: 7, LiveDelay: &misurato}},
+			"RE 2247 delle 18:55", "Bin. 3, +7 min.", nil},
+		"misurato in orario": {[]rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3", Delay: 5, LiveDelay: &zero}},
+			"RE 2247 delle 18:55", "Bin. 3, in orario (RFI +5 min).", nil},
+		"misurato con ritardo annunciato": {[]rfi.Train{{Number: "2247", Time: "18:55", Platform: "3", Status: "RITARDO", LiveDelay: &misurato}},
+			"Treno 2247 delle 18:55", "Bin. 3, +7 min (RFI ritardo).", nil},
+		// La stazione muta e ViaggiaTreno in ritardo sul viaggio letto
+		// nello stesso giro. Il viaggio vince anche sulla misura del
+		// tabellone, che può avere fino a trenta secondi.
+		"stazione muta, viaggio rilevato": {[]rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3"}},
+			"RE 2247 delle 18:55", "Bin. 3, +9 min (RFI in orario).", rilevato},
+		"viaggio più fresco del tabellone": {[]rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3", LiveDelay: &misurato}},
+			"RE 2247 delle 18:55", "Bin. 3, +9 min (RFI in orario).", rilevato},
+		"viaggio non ancora partito": {[]rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3", Delay: 5}},
+			"RE 2247 delle 18:55", "Bin. 3, +5 min.", viaggio(time.Time{}, 0, fermata(salita, false))},
 		"binario cambiato": {[]rfi.Train{{Number: "2247", Time: "18:55", Platform: "4", PlatformChanged: true, PlatformScheduled: "2", PlatformActual: "4"}},
-			"Treno 2247 delle 18:55", "Bin. 4, non il 2, in orario."},
+			"Treno 2247 delle 18:55", "Bin. 4, non il 2, in orario.", nil},
 		"soppresso": {[]rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Cancelled: true}},
-			"RE 2247 delle 18:55", "Soppresso."},
+			"RE 2247 delle 18:55", "Soppresso.", rilevato},
 		"ritardo annunciato": {[]rfi.Train{{Number: "2247", Time: "18:55", Status: "RITARDO"}},
-			"Treno 2247 delle 18:55", "Binario non ancora assegnato, ritardo."},
+			"Treno 2247 delle 18:55", "Binario non ancora assegnato, ritardo.", nil},
 		// Sdoppiato: due righe con lo stesso numero, vale quella dell'orario.
 		"sdoppiato": {[]rfi.Train{{Number: "2247", Time: "19:40", Platform: "9"}, {Number: "2247", Time: "18:55", Platform: "3"}},
-			"Treno 2247 delle 18:55", "Bin. 3, in orario."},
-		"assente": {nil, "Treno 2247 delle 18:55", "Non compare sul tabellone di " + salita.Name + "."},
+			"Treno 2247 delle 18:55", "Bin. 3, in orario.", nil},
+		"assente": {nil, "Treno 2247 delle 18:55", "Non compare sul tabellone di " + salita.Name + ".", nil},
 	} {
 		t.Run(nome, func(t *testing.T) {
-			m := messaggioPreavviso(a, &rfi.Board{Trains: c.treni})
+			m := messaggioPreavviso(a, &rfi.Board{Trains: c.treni}, c.letto)
 			if m.Titolo != c.titolo || m.Corpo != c.corpo {
 				t.Errorf("= %q / %q\natteso %q / %q", m.Titolo, m.Corpo, c.titolo, c.corpo)
 			}

@@ -12,6 +12,7 @@ import (
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
 )
 
 const (
@@ -142,6 +143,15 @@ func (a attesa) preavvisoDovuto(v VistoTreno, adesso time.Time) bool {
 	return !a.parte.IsZero() && !v.Preavviso && !v.Finito && adesso.Before(a.parte)
 }
 
+// tabelloneDaSeguire dice se, dopo il preavviso, la riga del tabellone è
+// ancora la notizia: finché ViaggiaTreno non ha rilevato il treno, il ritardo
+// che RFI ci scrive è quello che l'app mostra, e dal servizio non ne arriva
+// nessun altro. Al primo rilevamento passa la mano a ViaggiaTreno, e non a
+// un'ora fissa: un treno in ritardo di quaranta minuti è proprio il caso.
+func (a attesa) tabelloneDaSeguire(v VistoTreno) bool {
+	return !a.parte.IsZero() && v.Preavviso && !v.Finito && v.Rilevamento == 0
+}
+
 // SorgenteTabelloni è il tabellone delle partenze, quello stesso che serve il
 // telefono: RFI con sopra le misure di ViaggiaTreno. Interfaccia per poter
 // provare il preavviso senza rete.
@@ -204,7 +214,14 @@ func rigaDi(b *rfi.Board, numero, ora string) *rfi.Train {
 
 // messaggioPreavviso è la notifica quindici minuti prima: quello che dice la
 // riga del tabellone, cioè quello che si leggerebbe aprendo l'app.
-func messaggioPreavviso(a attesa, b *rfi.Board) messaggio {
+//
+// Il ritardo misurato è quello del viaggio letto in questo stesso giro, quando
+// ViaggiaTreno il treno l'ha già visto: è fresco e riguarda proprio questo
+// treno, mentre la misura sulla riga viene dalle partenze della stazione, può
+// mancare e ha fino a trenta secondi. Senza, chi sale a metà linea leggeva "in
+// orario" da una stazione muta con il treno già a +7 — e il giro, avendo il
+// viaggio in mano, lo prendeva per già detto.
+func messaggioPreavviso(a attesa, b *rfi.Board, v *vt.Andamento) messaggio {
 	ora := a.parte.In(roma).Format("15:04")
 	m := messaggio{
 		Titolo: "Treno " + a.Numero + " delle " + ora,
@@ -225,11 +242,15 @@ func messaggioPreavviso(a attesa, b *rfi.Board) messaggio {
 	if r.Category != "" {
 		m.Titolo = r.Category + " " + a.Numero + " delle " + ora
 	}
-	m.Corpo = taglia(rigaScritta(r), 180)
+	misura := r.LiveDelay
+	if v != nil && rilevamento(v) != 0 {
+		misura = &v.Ritardo
+	}
+	m.Corpo = taglia(rigaScritta(r, misura), 180)
 	return m
 }
 
-func rigaScritta(r *rfi.Train) string {
+func rigaScritta(r *rfi.Train, misura *int) string {
 	if r.Cancelled {
 		return "Soppresso."
 	}
@@ -248,8 +269,10 @@ func rigaScritta(r *rfi.Train) string {
 	if r.Status != "" {
 		ritardo = strings.ToLower(r.Status)
 	}
-	if r.LiveDelay != nil && *r.LiveDelay != r.Delay {
-		ritardo += " (misurato " + ritardoScritto(*r.LiveDelay) + ")"
+	// Davanti la misura sul treno, come il numero grande dell'app; RFI fra
+	// parentesi, e solo quando dice altro.
+	if misura != nil && ritardoScritto(*misura) != ritardo {
+		ritardo = ritardoScritto(*misura) + " (RFI " + ritardo + ")"
 	}
 	parti = append(parti, ritardo)
 	s := strings.Join(parti, ", ") + "."

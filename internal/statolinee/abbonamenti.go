@@ -117,6 +117,10 @@ type VistoTreno struct {
 
 	// Preavviso dice che la notifica prima della partenza è già partita.
 	Preavviso bool `json:"warned,omitempty"`
+	// Tabellone è la riga del tabellone come la si è raccontata per ultima,
+	// dal preavviso in poi: finché ViaggiaTreno non vede il treno, è l'unica
+	// cosa che cambia.
+	Tabellone string `json:"board,omitempty"`
 	// Finito è il treno di oggi di un abituale già arrivato dove si sale. Un
 	// segnalibro finito esce dall'elenco e basta; il treno di un abituale
 	// invece rinascerebbe al giro dopo come nuovo, e serve ricordarsi che per
@@ -425,16 +429,17 @@ func (a *Abbonati) TreniSeguiti(adesso time.Time) []TrenoSeguito {
 	return out
 }
 
-// PreavvisiDovuti sono le stazioni di cui serve il tabellone in questo giro:
-// quelle da cui qualcuno sta per salire su un abituale senza averne ancora
-// avuto il preavviso. Ordinate e senza doppioni, come TreniSeguiti.
-func (a *Abbonati) PreavvisiDovuti(adesso time.Time) []int {
+// TabelloniDovuti sono le stazioni di cui serve il tabellone in questo giro:
+// quelle da cui qualcuno sta per salire su un abituale, dal preavviso finché
+// ViaggiaTreno non vede il treno. Ordinate e senza doppioni, come TreniSeguiti.
+func (a *Abbonati) TabelloniDovuti(adesso time.Time) []int {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	var out []int
 	for _, ab := range a.m {
 		for _, t := range ab.inAttesa(adesso) {
-			if t.preavvisoDovuto(ab.VistoTreni[t.Chiave()], adesso) && !slices.Contains(out, t.Da) {
+			v := ab.VistoTreni[t.Chiave()]
+			if (t.preavvisoDovuto(v, adesso) || t.tabelloneDaSeguire(v)) && !slices.Contains(out, t.Da) {
 				out = append(out, t.Da)
 			}
 		}
