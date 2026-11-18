@@ -224,6 +224,20 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 			finito := a.Arrivato || (salita != nil && salita.Passata)
 			adessoVisto.Finito = finito
 
+			// Alla vigilia la sola notizia è il provvedimento, anche al primo
+			// giro: una soppressione decisa nella notte c'è già quando la
+			// finestra si apre, e tacerla come un benvenuto vorrebbe dire
+			// saperla al preavviso, a treno prima già partito. Un binario
+			// assegnato o un ritardo di un treno fermo aspettano il preavviso,
+			// che li dice tutti insieme.
+			if t.vigilia(adesso) {
+				if adessoVisto.Provvedimento && !prima.Provvedimento {
+					s.notificatore.avvisa(ctx, ab, k, messaggioTreno(a, t.TrenoSeguito, salita))
+					visto[k], cambiato = adessoVisto, true
+				}
+				continue
+			}
+
 			if !gia || preavvisato {
 				// Primo giro su questo treno: si prende nota e si tace. Il
 				// segnalibro si mette guardando la scheda del treno, e

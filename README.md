@@ -14,7 +14,7 @@ con l'orario a cui ci arrivano.
 - **toccando un treno si vede dov'è adesso**, con il ritardo a cui è passato da ogni fermata già servita
 - **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
 - **le notifiche su un treno seguito**, a ogni rilevamento di ViaggiaTreno, fino a quando il treno arriva alla stazione da cui sali — poi smettono da sole
-- **i treni abituali**: quello della mattina e quello della sera si salvano una volta, con i giorni in cui li prendi, e ogni giorno le notifiche ripartono da sole — più un **preavviso quindici minuti prima** con binario, ritardo e soppressione
+- **i treni abituali**: quello della mattina e quello della sera si salvano una volta, con i giorni in cui li prendi, e ogni giorno le notifiche ripartono da sole — più un **preavviso quindici minuti prima** con binario, ritardo e soppressione, e un **avviso fino a due ore prima** se il treno viene soppresso
 - **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. È un gettone giallo accanto a quelli delle linee, e toccandolo l'avviso si legge per intero
 - **i treni cancellati restano nella tratta**, con la scritta *soppresso*, anche quando RFI non pubblica le loro fermate — che è sempre, ed è il giorno di sciopero il giorno in cui serve saperlo
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
@@ -631,11 +631,21 @@ con l'ora a cui passa dalla tua stazione e i giorni della settimana in cui lo
 prendi.
 
 Ogni giorno scelto ne nasce il **treno di oggi**, che sul servizio vive da
-quindici minuti prima dell'orario fino a quando arriva dove sali — o tre ore dopo,
+due ore prima dell'orario fino a quando arriva dove sali — o tre ore dopo,
 la rete per il treno che non passa. Fuori da quella finestra non esiste, e non
 costa nessuna lettura: un regionale che parte dal capolinea due ore prima non
 manda notifiche da là. Dentro, è un treno seguito come gli altri, letto una
 volta sola per quanti lo aspettano.
+
+Fino al preavviso, però, lo si legge ogni due minuti e se ne dice **una cosa
+sola: il provvedimento**. Una
+soppressione decisa nella notte ViaggiaTreno la scrive sul viaggio prima che
+il treno parta, e saperla due ore prima vuol dire fare in tempo a prendere il
+treno precedente: un quarto d'ora prima, di solito, quello è già partito. La
+notifica arriva anche se il treno è già soppresso quando la finestra si apre,
+una volta sola, e il preavviso poi la conferma con la riga di RFI. Un binario
+assegnato o un ritardo annunciato su un treno ancora fermo aspettano il
+preavviso, che li dice tutti insieme.
 
 In home compare prima: **appena il tabellone delle partenze della tua stazione
 lo elenca**, fino a quattro ore prima, e comunque da mezz'ora prima, per il
@@ -873,7 +883,7 @@ go run ./cmd/genstations
   treno non riceve quindi niente fino a quando il treno parte — nella scheda
   aperta la riga di RFI c'è lo stesso, ma quella la legge il tabellone, che non
   è il servizio che notifica. Per i treni abituali c'è il preavviso, che legge
-  proprio quella riga.
+  proprio quella riga, e da due ore prima l'avviso di un provvedimento.
 - **Il treno abituale che scavalca la mezzanotte prima della tua stazione non
   si trova.** La data del treno di oggi è quella del giorno in cui passa da
   te, mentre ViaggiaTreno vuole quella in cui parte dall'origine: per un treno

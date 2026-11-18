@@ -561,8 +561,9 @@ const abitualePerIlServer = (x) => ({
 
    Il server lo genera con la stessa chiave e lo stesso giorno — quindi un
    segnalibro messo a mano sullo stesso treno è una scheda sola, non due — ma
-   ha una finestra sua, da quindici minuti prima: è lì che manda il preavviso, e
-   la scheda in home che c'è già da prima non lo sposta.
+   ha una finestra sua, da due ore prima: è lì che avvisa di una soppressione e
+   poi manda il preavviso, e la scheda in home che c'è già da prima non lo
+   sposta.
 
    Tutto in ora di Roma e non in quella del telefono: l'ora salvata è quella
    del tabellone RFI, e il giorno di partenza di ViaggiaTreno è la mezzanotte

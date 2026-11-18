@@ -19,7 +19,7 @@ import (
 
 func alle(giorno, h, m int) time.Time { return time.Date(2026, 9, giorno, h, m, 0, 0, roma) }
 
-// Il treno di oggi esiste nei giorni scelti, dal preavviso alla rete di
+// Il treno di oggi esiste nei giorni scelti, dalla vigilia alla rete di
 // sicurezza, e porta la data che ViaggiaTreno vuole: la mezzanotte italiana.
 func TestIlTrenoDiOggi(t *testing.T) {
 	feriale := TrenoAbituale{Origine: "S01700", Numero: "2247", Da: 1, Ora: "07:12", Giorni: []int{1, 2, 3, 4, 5}}
@@ -30,17 +30,17 @@ func TestIlTrenoDiOggi(t *testing.T) {
 		esiste bool
 		data   time.Time
 	}{
-		{"un minuto prima del preavviso", feriale, alle(21, 6, 56), false, time.Time{}},
-		{"al preavviso", feriale, alle(21, 6, 57), true, alle(21, 0, 0)},
+		{"un minuto prima della vigilia", feriale, alle(21, 5, 11), false, time.Time{}},
+		{"alla vigilia", feriale, alle(21, 5, 12), true, alle(21, 0, 0)},
 		{"all'ultimo minuto", feriale, alle(21, 10, 11), true, alle(21, 0, 0)},
 		{"a rete scattata", feriale, alle(21, 10, 12), false, time.Time{}},
 		{"di sabato", feriale, alle(26, 7, 5), false, time.Time{}},
 		{"senza giorni", TrenoAbituale{Origine: "S01700", Numero: "2247", Da: 1, Ora: "07:12"}, alle(21, 7, 5), false, time.Time{}},
 		// Le finestre che scavalcano la mezzanotte: il treno delle 23:30 del
 		// lunedì si segue ancora martedì all'una, quello delle 00:05 del
-		// martedì si preavvisa lunedì sera.
+		// martedì si guarda da lunedì sera.
 		{"dopo mezzanotte", TrenoAbituale{Origine: "S01700", Numero: "2247", Da: 1, Ora: "23:30", Giorni: []int{1}}, alle(22, 0, 30), true, alle(21, 0, 0)},
-		{"prima di mezzanotte", TrenoAbituale{Origine: "S01700", Numero: "2247", Da: 1, Ora: "00:05", Giorni: []int{2}}, alle(21, 23, 56), true, alle(22, 0, 0)},
+		{"prima di mezzanotte", TrenoAbituale{Origine: "S01700", Numero: "2247", Da: 1, Ora: "00:05", Giorni: []int{2}}, alle(21, 22, 5), true, alle(22, 0, 0)},
 	} {
 		t.Run(c.nome, func(t *testing.T) {
 			tr, _, ok := c.x.DiOggi(c.adesso)
@@ -123,9 +123,18 @@ func TestPreavvisoUnaVoltaSolaPoiIRilevamenti(t *testing.T) {
 	tab := &tabelloniFinti{treni: []rfi.Train{{Number: "2247", Category: "RE", Time: "18:55", Platform: "3"}}}
 	svc := servizioTreni(t, ab, srv.Client(), f).ConTabelloni(tab)
 
-	giri(svc, alle(21, 18, 39)) // prima della finestra: niente, nemmeno letture
+	giri(svc, alle(21, 16, 54)) // prima della finestra: niente, nemmeno letture
 	if n := f.lette(trenoDi(salita)); n != 0 || tab.letture != 0 {
 		t.Fatalf("letture fuori finestra: vt %d, tabellone %d", n, tab.letture)
+	}
+	// Alla vigilia si legge il viaggio ma non il tabellone, e un treno sano
+	// non dice niente: nemmeno il binario che ViaggiaTreno assegna.
+	sano := viaggio(time.Time{}, 0, fermata(salita, false))
+	sano.Fermate[0].BinarioProgrammato = "3"
+	f.metti(trenoDi(salita), sano)
+	giri(svc, alle(21, 16, 56), alle(21, 18, 38))
+	if n := contate(viste, mu); n != 0 || tab.letture != 0 {
+		t.Fatalf("alla vigilia: notifiche %d, letture tabellone %d", n, tab.letture)
 	}
 	giri(svc, alle(21, 18, 45), alle(21, 18, 46))
 	if n := contate(viste, mu); n != 1 {
@@ -144,6 +153,35 @@ func TestPreavvisoUnaVoltaSolaPoiIRilevamenti(t *testing.T) {
 	// l'ultima lettura, quella che ha preceduto il rilevamento.
 	if tab.letture != 3 {
 		t.Errorf("letture del tabellone = %d, attese 3: si legge anche dopo il rilevamento", tab.letture)
+	}
+}
+
+// Un treno soppresso nella notte va detto quando la finestra si apre, due ore
+// prima, e non al preavviso: un quarto d'ora prima il treno precedente è già
+// partito. Una volta sola, e il preavviso poi lo conferma con la riga di RFI.
+func TestSoppressioneAllaVigilia(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+	salita, _ := stazioniDiProva(t)
+	ab, _ := ApriAbbonati("")
+	prende(t, ab, srv.URL+"/pendolare", abitualeDi(salita))
+	f := sorgenteTreniFinta()
+	soppresso := viaggio(time.Time{}, 0, fermata(salita, false))
+	soppresso.ConProvvedimento = true
+	f.metti(trenoDi(salita), soppresso)
+	tab := &tabelloniFinti{treni: []rfi.Train{{Number: "2247", Time: "18:55", Cancelled: true}}}
+	svc := servizioTreni(t, ab, srv.Client(), f).ConTabelloni(tab)
+
+	giri(svc, alle(21, 16, 55), alle(21, 16, 56), alle(21, 17, 30))
+	if n := contate(viste, mu); n != 1 {
+		t.Fatalf("notifiche = %d, attesa una alla vigilia", n)
+	}
+	// Alla vigilia un minuto sì e uno no: le 16:55 saltano.
+	if n := f.lette(trenoDi(salita)); n != 2 {
+		t.Errorf("letture alla vigilia = %d, attese 2", n)
+	}
+	giri(svc, alle(21, 18, 40), alle(21, 18, 41))
+	if n := contate(viste, mu); n != 2 {
+		t.Errorf("notifiche = %d, attese 2: vigilia e preavviso", n)
 	}
 }
 

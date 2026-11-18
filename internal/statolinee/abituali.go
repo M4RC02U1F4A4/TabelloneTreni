@@ -21,11 +21,17 @@ const (
 	// cambia treno a seconda del giorno.
 	MaxAbitualiPerAbbonamento = 20
 
-	// AnticipoPreavviso è quando, prima della partenza, il treno di oggi
-	// comincia a esistere: è il momento del preavviso, ed è abbastanza presto
+	// AnticipoPreavviso è il momento del preavviso, ed è abbastanza presto
 	// da cambiare programma — prendere quello prima, restare a casa — ma non
 	// così presto che il tabellone non sappia ancora niente.
 	AnticipoPreavviso = 15 * time.Minute
+
+	// AnticipoVigilia è quando il treno di oggi comincia a esistere: due ore
+	// prima, ViaggiaTreno lo elenca già, e una soppressione decisa all'alba
+	// arriva quando c'è ancora il treno prima da prendere. Fino al preavviso
+	// si guarda una cosa sola, il provvedimento, ogni due minuti: il resto lo
+	// dice il preavviso.
+	AnticipoVigilia = 2 * time.Hour
 
 	// DurataAbituale è la rete di sicurezza del treno di oggi, come
 	// DurataSeguito lo è del segnalibro: di solito esce prima, arrivando dove
@@ -53,12 +59,12 @@ type TrenoAbituale struct {
 }
 
 // DiOggi è il treno seguito che questo abituale diventa adesso, con l'ora in
-// cui parte dalla stazione di salita. Falso fuori dalla finestra che va dal
-// preavviso alla rete di sicurezza, e nei giorni non scelti.
+// cui parte dalla stazione di salita. Falso fuori dalla finestra che va dalla
+// vigilia alla rete di sicurezza, e nei giorni non scelti.
 //
 // Si guardano anche ieri e domani perché la finestra può scavalcare la
 // mezzanotte: il treno delle 23:30 si segue ancora all'una, e quello delle
-// 00:05 si preavvisa alle 23:55 del giorno prima.
+// 00:05 si guarda dalle 22:05 del giorno prima.
 //
 // ponytail: la data è quella del giorno in cui il treno passa dalla stazione
 // di salita, mentre ViaggiaTreno vuole quella in cui parte dall'origine. Sono
@@ -80,7 +86,7 @@ func (t TrenoAbituale) DiOggi(adesso time.Time) (TrenoSeguito, time.Time, bool) 
 		// giorno del cambio d'ora dura ventitré o venticinque ore, e le 7:12
 		// sarebbero le 6:12 o le 8:12.
 		parte := time.Date(giorno.Year(), giorno.Month(), giorno.Day(), min/60, min%60, 0, 0, roma)
-		if !adesso.Before(parte.Add(-AnticipoPreavviso)) && adesso.Before(parte.Add(DurataAbituale)) {
+		if !adesso.Before(parte.Add(-AnticipoVigilia)) && adesso.Before(parte.Add(DurataAbituale)) {
 			return TrenoSeguito{Origine: t.Origine, Numero: t.Numero, Data: giorno.UnixMilli(), Da: t.Da}, parte, true
 		}
 	}
@@ -138,9 +144,16 @@ func (ab Abbonamento) chiaviInAttesa(adesso time.Time) []string {
 }
 
 // preavvisoDovuto dice se a questo abbonato va ancora mandato il preavviso di
-// questo treno. Dopo la partenza no: arriverebbe a treno passato.
+// questo treno: da quindici minuti prima, e non dopo la partenza, quando
+// arriverebbe a treno passato.
 func (a attesa) preavvisoDovuto(v VistoTreno, adesso time.Time) bool {
-	return !a.parte.IsZero() && !v.Preavviso && !v.Finito && adesso.Before(a.parte)
+	return !a.parte.IsZero() && !a.vigilia(adesso) && !v.Preavviso && !v.Finito && adesso.Before(a.parte)
+}
+
+// vigilia è il treno di oggi prima del preavviso: si legge, ma se ne dice solo
+// il provvedimento.
+func (a attesa) vigilia(adesso time.Time) bool {
+	return !a.parte.IsZero() && adesso.Before(a.parte.Add(-AnticipoPreavviso))
 }
 
 // tabelloneDaSeguire dice se, dopo il preavviso, la riga del tabellone è

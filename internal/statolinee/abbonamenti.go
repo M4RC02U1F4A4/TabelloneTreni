@@ -414,6 +414,12 @@ func (a *Abbonati) TreniSeguiti(adesso time.Time) []TrenoSeguito {
 			if ab.VistoTreni[t.Chiave()].Finito {
 				continue
 			}
+			// Alla vigilia si aspetta solo un provvedimento, che due ore prima
+			// non ha fretta: un giro sì e uno no. Chi lo aspetta da più vicino,
+			// o con un segnalibro, lo fa leggere comunque.
+			if t.vigilia(adesso) && adesso.Minute()%2 != 0 {
+				continue
+			}
 			if k := t.Chiave(); !visti[k] {
 				visti[k] = true
 				// Senza la stazione di salita: qui il treno è un viaggio da
