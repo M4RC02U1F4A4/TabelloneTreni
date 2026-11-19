@@ -202,8 +202,8 @@ function canon(s) {
     .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 }
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /* RFI manda i nomi di stazione urlati — "MILANO PORTA GARIBALDI" — e nell'app
    erano l'unica cosa scritta così: le linee di Trenord arrivano già in tondo, e

@@ -28,6 +28,10 @@ const IntervalloTreni = time.Minute
 // sui quaranta treni più seguiti ci stanno dentro tutte.
 const MaxTreniPerGiro = 40
 
+// MaxTabelloniPerGiro è lo stesso tetto per i tabelloni del preavviso, che
+// pesano ~280 KB l'uno: una stazione per ogni abituale in partenza fra poco.
+const MaxTabelloniPerGiro = 20
+
 // DurataSeguito è la rete di sicurezza per i viaggi di cui ViaggiaTreno non
 // dirà mai più niente — si dimentica i treni di ieri, e un treno che parte
 // alle 23:50 arriva il giorno dopo. È la stessa soglia che il telefono applica
@@ -79,9 +83,15 @@ func (s *Servizio) leggiTreni(ctx context.Context) {
 	if len(seguiti) == 0 {
 		return
 	}
+	giro := s.giri.Add(1) - 1
 	if len(seguiti) > MaxTreniPerGiro {
 		log.Printf("treni seguiti: %d, ne leggo %d", len(seguiti), MaxTreniPerGiro)
-		seguiti = seguiti[:MaxTreniPerGiro]
+		seguiti = aTurno(seguiti, MaxTreniPerGiro, giro)
+	}
+	stazioni := s.abbonati.TabelloniDovuti(adesso)
+	if len(stazioni) > MaxTabelloniPerGiro {
+		log.Printf("tabelloni dovuti: %d, ne leggo %d", len(stazioni), MaxTabelloniPerGiro)
+		stazioni = aTurno(stazioni, MaxTabelloniPerGiro, giro)
 	}
 
 	// Le notifiche non stanno sotto il budget delle letture: sono una richiesta
@@ -90,8 +100,21 @@ func (s *Servizio) leggiTreni(ctx context.Context) {
 	// proprio timeout, dentro manda. È la stessa separazione che il giro delle
 	// linee fa con Riconcilia.
 	letti := s.leggiViaggi(ctx, seguiti)
-	tabelloni := s.leggiTabelloni(ctx, s.abbonati.TabelloniDovuti(adesso))
+	tabelloni := s.leggiTabelloni(ctx, stazioni)
 	s.riconciliaTreni(context.WithoutCancel(ctx), letti, tabelloni, adesso)
+}
+
+// aTurno sceglie i max elementi da leggere in questo giro: una finestra che
+// scorre di max a ogni giro sull'elenco ordinato, così oltre il tetto ognuno
+// viene letto un giro ogni tanto invece che mai. Tagliare sempre in fondo
+// lascerebbe fuori sempre gli stessi, e chiunque si abboni a quaranta treni
+// che stanno in testa all'ordine toglierebbe le notifiche a tutti gli altri.
+func aTurno[T any](s []T, max int, giro uint64) []T {
+	if len(s) <= max {
+		return s
+	}
+	inizio := int(giro * uint64(max) % uint64(len(s)))
+	return slices.Concat(s[inizio:], s[:inizio])[:max]
 }
 
 // leggiViaggi chiede a ViaggiaTreno i treni di questo giro.

@@ -354,10 +354,11 @@ func TestIlTestoDelPreavviso(t *testing.T) {
 func TestAbitualeMalformatoSiRifiuta(t *testing.T) {
 	buono := TrenoAbituale{Origine: "S01700", Numero: "2247", Da: 1, Ora: "07:12", Giorni: []int{1}}
 	for nome, cambia := range map[string]func(*TrenoAbituale){
-		"origine inventata": func(x *TrenoAbituale) { x.Origine = "../../etc" },
-		"senza stazione":    func(x *TrenoAbituale) { x.Da = 0 },
-		"ora storta":        func(x *TrenoAbituale) { x.Ora = "7:12" },
-		"giorno otto":       func(x *TrenoAbituale) { x.Giorni = []int{7} },
+		"origine inventata":  func(x *TrenoAbituale) { x.Origine = "../../etc" },
+		"senza stazione":     func(x *TrenoAbituale) { x.Da = 0 },
+		"stazione inventata": func(x *TrenoAbituale) { x.Da = 99999999 },
+		"ora storta":         func(x *TrenoAbituale) { x.Ora = "7:12" },
+		"giorno otto":        func(x *TrenoAbituale) { x.Giorni = []int{7} },
 	} {
 		t.Run(nome, func(t *testing.T) {
 			x := buono

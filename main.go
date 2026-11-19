@@ -60,7 +60,14 @@ func main() {
 		Addr:              indirizzo(),
 		Handler:           api.New(svc, stations.Default, statici, versione, statoLinee()).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Il corpo più grande che arriva è un abbonamento da 64 KB: trenta
+		// secondi per leggerlo sono un'eternità, ma un corpo che non finisce
+		// mai tiene occupato il server per sempre. La scrittura copre
+		// l'attesa più lunga di una risposta, RFI (25 s) più ViaggiaTreno.
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   60 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 64 << 10,
 	}
 
 	go func() {

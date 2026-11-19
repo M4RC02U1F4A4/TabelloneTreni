@@ -541,13 +541,49 @@ var (
 	numeroTreno = regexp.MustCompile(`^[0-9A-Za-z]{1,10}$`)
 )
 
+// serviziPush sono gli host a cui i browser affidano le notifiche: Chrome e
+// derivati (FCM), Firefox, Safari, Edge. Un punto davanti vale per i
+// sottodomini. Fuori da qui l'endpoint non è un telefono ma un indirizzo
+// qualsiasi, e il servizio finirebbe a fare POST firmate verso chi l'ha
+// scelto — anche dentro la rete del cluster.
+var serviziPush = []string{
+	"fcm.googleapis.com",
+	".push.services.mozilla.com",
+	".push.apple.com",
+	".notify.windows.com",
+}
+
+// endpointPushNoto dice se l'endpoint è quello di un servizio push vero:
+// HTTPS, porta standard, nessuna credenziale, host fra serviziPush.
+func endpointPushNoto(u *url.URL) bool {
+	if u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	for _, s := range serviziPush {
+		if h == s || (strings.HasPrefix(s, ".") && strings.HasSuffix(h, s)) {
+			return true
+		}
+	}
+	return false
+}
+
+// endpointAmmesso è il controllo che valida applica. Una variabile solo
+// perché i test parlano con un servizio push finto su 127.0.0.1.
+var endpointAmmesso = endpointPushNoto
+
 func valida(ab Abbonamento) error {
 	u, err := url.Parse(ab.Sottoscrizione.Endpoint)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+	if err != nil || u.Host == "" || !endpointAmmesso(u) {
 		return errors.New("endpoint non valido")
 	}
 	if len(ab.Linee) > MaxLineePerAbbonamento {
 		return errors.New("troppe linee")
+	}
+	for _, l := range ab.Linee {
+		if !codiceLinea.MatchString(l) {
+			return errors.New("linea non valida")
+		}
 	}
 	if len(ab.Treni) > MaxTreniPerAbbonamento {
 		return errors.New("troppi treni")

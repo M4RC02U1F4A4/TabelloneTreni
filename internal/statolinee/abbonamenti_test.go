@@ -3,6 +3,7 @@ package statolinee
 import (
 	"bytes"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,43 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 )
+
+// I test parlano con servizi push finti, su push.example o su un httptest in
+// TLS: dell'allowlist resta il solo HTTPS. L'allowlist vera la prova
+// TestSoloServiziPushVeri.
+func TestMain(m *testing.M) {
+	endpointAmmesso = func(u *url.URL) bool { return u.Scheme == "https" }
+	os.Exit(m.Run())
+}
+
+// Chiunque può abbonarsi, e l'endpoint è l'indirizzo a cui il servizio farà
+// POST firmate: fuori dai servizi push dei browser sarebbe un SSRF.
+func TestSoloServiziPushVeri(t *testing.T) {
+	for e, atteso := range map[string]bool{
+		"https://fcm.googleapis.com/fcm/send/abc":                true,
+		"https://updates.push.services.mozilla.com/wpush/v2/abc": true,
+		"https://web.push.apple.com/QGx":                         true,
+		"https://wns2-db5p.notify.windows.com/w/?token=abc":      true,
+		"https://FCM.googleapis.com/fcm/send/abc":                true,
+		"https://fcm.googleapis.com:443/fcm/send/abc":            true,
+		"http://fcm.googleapis.com/fcm/send/abc":                 false,
+		"https://fcm.googleapis.com:8443/x":                      false,
+		"https://utente@fcm.googleapis.com/x":                    false,
+		"https://fcm.googleapis.com.example/x":                   false,
+		"https://evilpush.apple.com/x":                           false,
+		"https://kubernetes.default.svc/api":                     false,
+		"https://127.0.0.1/x":                                    false,
+		"https://statolinee:8081/push/abbonamenti":               false,
+	} {
+		u, err := url.Parse(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if endpointPushNoto(u) != atteso {
+			t.Errorf("%s: ammesso = %v, atteso %v", e, !atteso, atteso)
+		}
+	}
+}
 
 func abbonamento(endpoint string, linee ...string) Abbonamento {
 	return Abbonamento{
@@ -107,6 +145,7 @@ func TestRegistrazioniRifiutate(t *testing.T) {
 		},
 		"troppe linee": abbonamento("https://push.example/uno",
 			make([]string, MaxLineePerAbbonamento+1)...),
+		"linea inventata": abbonamento("https://push.example/uno", "S2\nfalso log"),
 	}
 	for nome, ab := range casi {
 		t.Run(nome, func(t *testing.T) {

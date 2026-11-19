@@ -754,3 +754,56 @@ func catalogoConFinta(t *testing.T) *stations.Catalogo {
 	}
 	return c
 }
+
+// Le intestazioni di sicurezza stanno su tutto, pagine e API.
+func TestIntestazioniDiSicurezza(t *testing.T) {
+	h := server()
+	for _, p := range []string{"/", "/api/stations"} {
+		r := chiedi(t, h, p, nil)
+		if !strings.Contains(r.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
+			t.Errorf("%s: CSP = %q", p, r.Header.Get("Content-Security-Policy"))
+		}
+		if r.Header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: manca nosniff", p)
+		}
+	}
+}
+
+// Oltre la scorta un indirizzo riceve 429, e solo lui: dietro il proxy conta
+// l'ultimo di X-Forwarded-For, non RemoteAddr che è il proxy per tutti.
+func TestLimitePerIndirizzo(t *testing.T) {
+	h := server()
+	da := func(xff string) int {
+		req := httptest.NewRequest(http.MethodGet, "/api/stations", nil)
+		req.RemoteAddr = "10.42.0.7:51234"
+		req.Header.Set("X-Forwarded-For", xff)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w.Code
+	}
+	for i := range 120 {
+		if c := da("203.0.113.9"); c != http.StatusOK {
+			t.Fatalf("richiesta %d: %d dentro la scorta", i, c)
+		}
+	}
+	if c := da("203.0.113.9"); c != http.StatusTooManyRequests {
+		t.Fatalf("oltre la scorta: %d, atteso 429", c)
+	}
+	// Un X-Forwarded-For inventato dal client sta davanti a quello del proxy.
+	if c := da("198.51.100.1, 203.0.113.9"); c != http.StatusTooManyRequests {
+		t.Fatalf("un indirizzo falso in testa ha aggirato il limite: %d", c)
+	}
+	if c := da("203.0.113.10"); c != http.StatusOK {
+		t.Fatalf("un altro indirizzo è stato limitato: %d", c)
+	}
+}
+
+// Senza proxy davanti, X-Forwarded-For lo scrive il client: non si guarda.
+func TestIndirizzoPubblicoIgnoraXFF(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/stations", nil)
+	req.RemoteAddr = "203.0.113.9:443"
+	req.Header.Set("X-Forwarded-For", "198.51.100.1")
+	if ip := indirizzoCliente(req); ip != "203.0.113.9" {
+		t.Fatalf("indirizzo = %s", ip)
+	}
+}

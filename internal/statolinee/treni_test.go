@@ -531,3 +531,34 @@ func TestIlTestoDellaNotifica(t *testing.T) {
 		}
 	})
 }
+
+// Oltre il tetto la finestra scorre: ognuno viene letto prima o poi. Tagliare
+// sempre in fondo lascerebbe chi sta in fondo all'ordine senza notifiche, per
+// sempre, appena qualcuno riempie la testa dell'elenco.
+func TestOltreIlTettoSiLeggeATurno(t *testing.T) {
+	elenco := make([]int, 7)
+	for i := range elenco {
+		elenco[i] = i
+	}
+	letti := map[int]int{}
+	for giro := range uint64(7) {
+		turno := aTurno(elenco, 3, giro)
+		if len(turno) != 3 {
+			t.Fatalf("giro %d: %v, attesi 3 elementi", giro, turno)
+		}
+		for _, v := range turno {
+			letti[v]++
+		}
+	}
+	for _, v := range elenco {
+		if letti[v] != 3 {
+			t.Errorf("%d letto %d volte in 7 giri, atteso 3", v, letti[v])
+		}
+	}
+	if !slices.Equal(elenco, []int{0, 1, 2, 3, 4, 5, 6}) {
+		t.Errorf("l'elenco di partenza è cambiato: %v", elenco)
+	}
+	if got := aTurno(elenco[:2], 3, 5); len(got) != 2 {
+		t.Errorf("sotto il tetto si legge tutto, avuto %v", got)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/limite"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
@@ -1139,5 +1140,36 @@ func TestTrenoSdoppiatoNonScambiaLeFermate(t *testing.T) {
 	}
 	if len(tr.Stops) != 2 || tr.Stops[0].Name != "MONZA" {
 		t.Errorf("fermate = %+v, attese le due di RFI: la riga ha preso il percorso dell'altra", tr.Stops)
+	}
+}
+
+// Chi passa in rassegna il catalogo non deve trascinarsi dietro RFI: oltre il
+// tetto al minuto le stazioni non in cache rispondono con un errore, senza
+// che parta nessuna richiesta.
+func TestOltreIlTettoNonSiChiedeARFI(t *testing.T) {
+	s, src := servizio("partenze-1715.html")
+	// Un gettone all'ora: sotto -race il test dura più di un secondo, e col
+	// ritmo vero il secchio se ne guadagnerebbe uno a metà strada.
+	s.letture = limite.Nuovo(LettureRFI, time.Hour)
+	ids := make([]int, 0, LettureRFI+1)
+	for _, st := range stations.Default.Elenco {
+		if len(ids) == cap(ids) {
+			break
+		}
+		ids = append(ids, st.ID)
+	}
+	for _, id := range ids[:LettureRFI] {
+		if _, err := s.Get(context.Background(), id, false, 0); err != nil {
+			t.Fatalf("stazione %d dentro il tetto: %v", id, err)
+		}
+	}
+	if _, err := s.Get(context.Background(), ids[LettureRFI], false, 0); err == nil {
+		t.Fatal("oltre il tetto la lettura è passata")
+	}
+	if src.chiamate != LettureRFI {
+		t.Fatalf("%d richieste a RFI, attese %d", src.chiamate, LettureRFI)
+	}
+	if _, err := s.Get(context.Background(), ids[0], false, 0); err != nil {
+		t.Fatalf("una stazione in cache non conta sul tetto: %v", err)
 	}
 }

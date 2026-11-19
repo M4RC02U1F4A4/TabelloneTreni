@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/trenord"
@@ -46,6 +47,9 @@ type Servizio struct {
 	// L'ora del giro dei treni. time.Now in produzione; i test la fermano,
 	// perché finestre e scadenze si misurano sull'orologio.
 	orologio func() time.Time
+	// Quanti giri dei treni sono partiti: fa scorrere la finestra di aTurno
+	// quando i treni o i tabelloni superano il tetto.
+	giri atomic.Uint64
 
 	// Le comunicazioni si chiedono anche a richiesta, quando qualcuno apre una
 	// riga. Una voce per linea con il suo lucchetto, come fa il tabellone con

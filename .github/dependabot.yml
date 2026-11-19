@@ -1,0 +1,12 @@
+# Le action sono fissate per SHA: senza qualcuno che le aggiorni, resterebbero
+# ferme per sempre alla versione del giorno in cui sono state fissate.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly

@@ -2,7 +2,7 @@
 # binario per quella di destinazione: Go fa cross-compiling nativamente, e così
 # l'immagine multi-architettura si costruisce senza emulazione QEMU, che per un
 # build arm64 su runner amd64 costerebbe minuti invece di secondi.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 
 WORKDIR /src
 # I moduli si scaricano prima del resto del sorgente, così la cache di questo

@@ -80,7 +80,12 @@ func main() {
 		Addr:              indirizzo(),
 		Handler:           svc.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Un corpo che non finisce mai terrebbe occupato il server per
+		// sempre. La scrittura copre una lettura a richiesta da Trenord.
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   60 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 64 << 10,
 	}
 	go func() {
 		log.Printf("statolinee %s in ascolto su %s (linee ogni %s, treni seguiti ogni %s)",

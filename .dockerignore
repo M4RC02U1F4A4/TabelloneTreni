@@ -7,3 +7,6 @@ docs
 # Servono solo ai test, e sono la parte più pesante del sorgente.
 **/testdata
 **/*_test.go
+# Stato locale di Claude (contiene worktree interi) e render degli screenshot.
+.claude
+.render

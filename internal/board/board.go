@@ -4,6 +4,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/limite"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
@@ -24,6 +26,12 @@ import (
 // sulla stessa stazione producano comunque una sola richiesta a RFI ogni mezzo
 // minuto, invece di dieci al minuto.
 const TTL = 30 * time.Second
+
+// LettureRFI è quante pagine al minuto si chiedono a RFI al massimo. Con la
+// cache di trenta secondi sono trenta stazioni diverse aperte di continuo:
+// molte più di quelle che guarda chi usa l'app, molte meno di un giro del
+// catalogo.
+const LettureRFI = 60
 
 type Source interface {
 	Fetch(ctx context.Context, placeID int, arrivals bool) (*rfi.Board, error)
@@ -46,6 +54,12 @@ type Service struct {
 
 	mu    sync.Mutex
 	cache map[chiave]*voce
+
+	// Il tetto sulle pagine chieste a RFI, per tutti insieme: oltre, chi
+	// chiede un tabellone non in cache riceve quello vecchio o un errore. È
+	// la difesa per chi passasse in rassegna le stazioni del catalogo — RFI
+	// bloccherebbe l'indirizzo del servizio, e per tutti.
+	letture *limite.Secchi
 
 	// Cache degli andamenti, separata da quella dei tabelloni: si riempie solo
 	// con i treni che qualcuno apre davvero, che sono pochi, ma va a mani sul
@@ -92,6 +106,7 @@ func New(src Source, cat *stations.Catalogo) *Service {
 		src:        src,
 		catalogo:   cat,
 		cache:      map[chiave]*voce{},
+		letture:    limite.Nuovo(LettureRFI, time.Minute/LettureRFI),
 		viaggi:     map[string]*viaggio{},
 		coordinate: map[string]vt.Treno{},
 		fermate:    map[string][]vt.Fermata{},
@@ -435,6 +450,13 @@ func (s *Service) tabellone(ctx context.Context, placeID int, arrivals bool) (*r
 	// Il fetch è condiviso da tutti quelli in attesa su questa chiave, quindi
 	// non può dipendere da chi è arrivato per primo: se quel client chiude la
 	// pagina, gli altri si vedrebbero fallire una richiesta ancora valida.
+	if !s.letture.Consenti("rfi") {
+		if v.board != nil && time.Since(v.scadeIl) < time.Minute {
+			return v.board, nil
+		}
+		return nil, errors.New("troppe letture da RFI in questo minuto")
+	}
+
 	fetchCtx, annulla := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
 	defer annulla()
 

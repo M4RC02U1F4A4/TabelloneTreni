@@ -94,8 +94,13 @@ func (t TrenoAbituale) DiOggi(adesso time.Time) (TrenoSeguito, time.Time, bool) 
 }
 
 func (t TrenoAbituale) valida() error {
-	if !codiceVT.MatchString(t.Origine) || !numeroTreno.MatchString(t.Numero) || t.Da <= 0 {
+	if !codiceVT.MatchString(t.Origine) || !numeroTreno.MatchString(t.Numero) {
 		return errors.New("treno abituale non valido")
+	}
+	// La stazione di salita è un tabellone da leggere a ogni giro: si
+	// accettano solo quelle del catalogo, le stesse che il telefono propone.
+	if stations.Default.ByID(t.Da) == nil {
+		return errors.New("stazione di salita sconosciuta")
 	}
 	if _, err := minutiDi(t.Ora); err != nil {
 		return err

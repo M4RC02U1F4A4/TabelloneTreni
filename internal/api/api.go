@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/board"
+	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/limite"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/rfi"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/stations"
 	"github.com/M4RC02U1F4A4/TabelloneTreni/internal/vt"
@@ -47,6 +49,11 @@ type Server struct {
 	// tabelloni: vedi avvisiTTL.
 	muAvvisi sync.Mutex
 	avvisi   map[int]voceAvvisi
+
+	// Quante richieste si accettano da un indirizzo: per le API in genere, e
+	// per gli abbonamenti, che finiscono su disco e in un tetto globale.
+	limiteAPI         *limite.Secchi
+	limiteAbbonamenti *limite.Secchi
 }
 
 func New(svc *board.Service, cat *stations.Catalogo, statici fs.FS, versione, statoLinee string) *Server {
@@ -55,6 +62,11 @@ func New(svc *board.Service, cat *stations.Catalogo, statici fs.FS, versione, st
 		statoLinee: strings.TrimSuffix(statoLinee, "/"),
 		clientHTTP: &http.Client{Timeout: 10 * time.Second},
 		avvisi:     map[int]voceAvvisi{},
+		// La home al minuto chiede una decina di cose; centoventi di fila e
+		// quattro al secondo coprono chi apre e chiude schede di continuo.
+		limiteAPI: limite.Nuovo(120, 250*time.Millisecond),
+		// L'app si riabbona a ogni avvio e a ogni campanella toccata.
+		limiteAbbonamenti: limite.Nuovo(10, 30*time.Second),
 	}
 }
 
@@ -73,7 +85,67 @@ func (s *Server) Handler() http.Handler {
 		w.Write([]byte("ok\n"))
 	})
 	mux.Handle("GET /", s.fileStatici())
-	return comprimi(s.dichiaraVersione(mux))
+	return comprimi(s.dichiaraVersione(s.proteggi(mux)))
+}
+
+// csp è la politica dei contenuti: tutto dalla stessa origine, più le tile
+// delle due mappe. Lo 'unsafe-inline' sugli stili serve agli attributi style
+// che la mappa e le barre scrivono nell'HTML generato; gli script inline non
+// ci sono e restano vietati.
+const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: https://tile-a.openstreetmap.fr https://a.tiles.openrailwaymap.org; " +
+	"connect-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; " +
+	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+// proteggi mette le intestazioni di sicurezza su ogni risposta e il limite per
+// indirizzo sulle API, che sono le sole a costare qualcosa: una pagina di RFI,
+// una lettura di ViaggiaTreno, un abbonamento su disco.
+func (s *Server) proteggi(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", csp)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Permissions-Policy", "geolocation=(self), camera=(), microphone=()")
+		// Ignorata dai browser su HTTP in chiaro: vale solo dietro il TLS
+		// del proxy, che è dove serve.
+		h.Set("Strict-Transport-Security", "max-age=31536000")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			ip := indirizzoCliente(r)
+			if !s.limiteAPI.Consenti(ip) ||
+				(r.Method == http.MethodPost && !s.limiteAbbonamenti.Consenti(ip)) {
+				h.Set("Retry-After", "30")
+				errore(w, http.StatusTooManyRequests, "troppe richieste")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// indirizzoCliente è l'indirizzo a cui si conta il limite. Dietro un proxy in
+// rete privata — Traefik, nel cluster — RemoteAddr è il proxy, e quello vero è
+// l'ultimo di X-Forwarded-For: l'unico che scrive il proxy, mentre quelli
+// prima li può scrivere chiunque.
+//
+// ponytail: "rete privata vuol dire proxy" è un'euristica. Esposto senza proxy
+// su una LAN, un client della LAN può scegliersi l'indirizzo; se servisse, un
+// elenco esplicito di proxy fidati.
+func indirizzoCliente(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !(ip.IsPrivate() || ip.IsLoopback()) {
+		return host
+	}
+	if v := r.Header.Values("X-Forwarded-For"); len(v) > 0 {
+		voci := strings.Split(v[len(v)-1], ",")
+		if ultimo := strings.TrimSpace(voci[len(voci)-1]); ultimo != "" {
+			return ultimo
+		}
+	}
+	return host
 }
 
 // dichiaraVersione firma ogni risposta con la versione del server. Serve alla

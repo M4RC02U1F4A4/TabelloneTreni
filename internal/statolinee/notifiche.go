@@ -28,9 +28,8 @@ type Notificatore struct {
 	pubblica string
 	privata  string
 	soggetto string
-	// HTTP sostituisce il client con cui si parla al servizio push. Serve ai
-	// test, che mettono un servizio finto al posto di quello vero; a nil vale
-	// il client di default della libreria.
+	// HTTP è il client con cui si parla al servizio push. I test lo
+	// sostituiscono con uno che si fida del loro servizio finto.
 	HTTP webpush.HTTPClient
 	// inCorso tiene fuori un giro di Riconcilia mentre ce n'è già uno: vedi lì.
 	inCorso atomic.Bool
@@ -44,7 +43,12 @@ func NuovoNotificatore(ab *Abbonati, pubblica, privata string) *Notificatore {
 		return nil
 	}
 	return &Notificatore{abbonati: ab, pubblica: pubblica, privata: privata,
-		soggetto: "https://github.com/M4RC02U1F4A4/TabelloneTreni"}
+		soggetto: "https://github.com/M4RC02U1F4A4/TabelloneTreni",
+		// Un servizio push non rimanda altrove: un redirect porterebbe la
+		// richiesta fuori dagli host ammessi da endpointPushNoto.
+		HTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}}
 }
 
 func (n *Notificatore) ChiavePubblica() string {
