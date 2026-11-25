@@ -24,7 +24,7 @@ const (
 	// AnticipoPreavviso è il momento del preavviso, ed è abbastanza presto
 	// da cambiare programma — prendere quello prima, restare a casa — ma non
 	// così presto che il tabellone non sappia ancora niente.
-	AnticipoPreavviso = 15 * time.Minute
+	AnticipoPreavviso = 20 * time.Minute
 
 	// AnticipoVigilia è quando il treno di oggi comincia a esistere: due ore
 	// prima, ViaggiaTreno lo elenca già, e una soppressione decisa all'alba
@@ -149,7 +149,7 @@ func (ab Abbonamento) chiaviInAttesa(adesso time.Time) []string {
 }
 
 // preavvisoDovuto dice se a questo abbonato va ancora mandato il preavviso di
-// questo treno: da quindici minuti prima, e non dopo la partenza, quando
+// questo treno: da venti minuti prima, e non dopo la partenza, quando
 // arriverebbe a treno passato.
 func (a attesa) preavvisoDovuto(v VistoTreno, adesso time.Time) bool {
 	return !a.parte.IsZero() && !a.vigilia(adesso) && !v.Preavviso && !v.Finito && adesso.Before(a.parte)
@@ -166,9 +166,22 @@ func (a attesa) vigilia(adesso time.Time) bool {
 // che RFI ci scrive è quello che l'app mostra, e dal servizio non ne arriva
 // nessun altro. Al primo rilevamento passa la mano a ViaggiaTreno, e non a
 // un'ora fissa: un treno in ritardo di quaranta minuti è proprio il caso.
+//
+// Tranne che per il binario: se l'ultima riga raccontata non lo aveva, e
+// ViaggiaTreno non lo conosce per la fermata di salita, la riga si segue fino
+// a quando RFI lo assegna. È quello che serve sapere per ultimo, sul
+// marciapiede, e di solito arriva proprio a treno già in viaggio.
 func (a attesa) tabelloneDaSeguire(v VistoTreno) bool {
-	return !a.parte.IsZero() && v.Preavviso && !v.Finito && v.Rilevamento == 0
+	if a.parte.IsZero() || !v.Preavviso || v.Finito {
+		return false
+	}
+	return v.Rilevamento == 0 || (v.Binario == "" && senzaBinario(v.Tabellone))
 }
+
+// nonAssegnato apre la riga raccontata quando RFI non ha ancora un binario.
+const nonAssegnato = "Binario non ancora assegnato"
+
+func senzaBinario(corpo string) bool { return strings.HasPrefix(corpo, nonAssegnato) }
 
 // SorgenteTabelloni è il tabellone delle partenze, quello stesso che serve il
 // telefono: RFI con sopra le misure di ViaggiaTreno. Interfaccia per poter
@@ -230,7 +243,7 @@ func rigaDi(b *rfi.Board, numero, ora string) *rfi.Train {
 	return prima
 }
 
-// messaggioPreavviso è la notifica quindici minuti prima: quello che dice la
+// messaggioPreavviso è la notifica venti minuti prima: quello che dice la
 // riga del tabellone, cioè quello che si leggerebbe aprendo l'app.
 //
 // Il ritardo misurato è quello del viaggio letto in questo stesso giro, quando
@@ -279,7 +292,7 @@ func rigaScritta(r *rfi.Train, misura *int) string {
 	case r.Platform != "":
 		parti = append(parti, "Bin. "+r.Platform)
 	default:
-		parti = append(parti, "Binario non ancora assegnato")
+		parti = append(parti, nonAssegnato)
 	}
 	// Lo stato vince sul numero: "RITARDO" è un ritardo annunciato e non
 	// ancora quantificato, e lo zero accanto direbbe "in orario".

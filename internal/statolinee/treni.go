@@ -209,13 +209,16 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 			// è il treno partito, non una notizia: il "non compare" vale solo
 			// per il preavviso.
 			a := letti[k]
-			preavvisato := false
+			preavvisato, cambiataRiga := false, false
 			if b := tabelloni[t.Da]; b != nil {
 				m := messaggioPreavviso(t, b, a)
 				preavvisato = t.preavvisoDovuto(prima, adesso)
-				// Al primo rilevamento parla ViaggiaTreno, qui sotto: la riga,
+				// Dal primo rilevamento parla ViaggiaTreno, qui sotto: la riga,
 				// che adesso porterebbe la stessa misura, sarebbe un doppione.
-				cambiataRiga := t.tabelloneDaSeguire(prima) && (a == nil || rilevamento(a) == 0) &&
+				// Resta da dire solo il binario, se il preavviso non lo aveva:
+				// la riga torna a parlare quando RFI lo assegna.
+				rilevato := prima.Rilevamento != 0 || (a != nil && rilevamento(a) != 0)
+				cambiataRiga = t.tabelloneDaSeguire(prima) && (!rilevato || !senzaBinario(m.Corpo)) &&
 					m.Corpo != prima.Tabellone &&
 					rigaDi(b, t.Numero, t.parte.In(roma).Format("15:04")) != nil
 				if preavvisato || cambiataRiga {
@@ -280,6 +283,14 @@ func (s *Servizio) riconciliaTreni(ctx context.Context, letti map[string]*vt.And
 				continue
 			}
 			if adessoVisto == prima {
+				continue
+			}
+			// La riga è appena partita con lo stesso tag e la misura di
+			// questo viaggio: un secondo squillo la sostituirebbe sulla
+			// schermata di blocco, e con lei il binario che stava dicendo.
+			// L'arrivo invece è l'ultima notifica, e va detto comunque.
+			if cambiataRiga && !finito {
+				visto[k], cambiato = adessoVisto, true
 				continue
 			}
 

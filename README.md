@@ -14,7 +14,7 @@ con l'orario a cui ci arrivano.
 - **toccando un treno si vede dov'è adesso**, con il ritardo a cui è passato da ogni fermata già servita
 - **lo stato delle linee Trenord**, con il testo degli avvisi e la **notifica sul telefono** quando cambia il bollino di una linea seguita — scioperi compresi
 - **le notifiche su un treno seguito**, a ogni rilevamento di ViaggiaTreno, fino a quando il treno arriva alla stazione da cui sali — poi smettono da sole
-- **i treni abituali**: quello della mattina e quello della sera si salvano una volta, con i giorni in cui li prendi, e ogni giorno le notifiche ripartono da sole — più un **preavviso quindici minuti prima** con binario, ritardo e soppressione, e un **avviso fino a due ore prima** se il treno viene soppresso
+- **i treni abituali**: quello della mattina e quello della sera si salvano una volta, con i giorni in cui li prendi, e ogni giorno le notifiche ripartono da sole — più un **preavviso venti minuti prima** con binario, ritardo e soppressione — e il binario appena RFI lo assegna, se al preavviso mancava — e un **avviso fino a due ore prima** se il treno viene soppresso
 - **gli avvisi di stazione in cima alla home**, la striscia gialla che RFI fa scorrere in fondo al tabellone: ascensori guasti, lavori che spostano i treni per mesi. È un gettone giallo accanto a quelli delle linee, e toccandolo l'avviso si legge per intero
 - **i treni cancellati restano nella tratta**, con la scritta *soppresso*, anche quando RFI non pubblica le loro fermate — che è sempre, ed è il giorno di sciopero il giorno in cui serve saperlo
 - **segue il tema del telefono**, chiaro o scuro, senza un interruttore da toccare
@@ -641,7 +641,7 @@ Fino al preavviso, però, lo si legge ogni due minuti e se ne dice **una cosa
 sola: il provvedimento**. Una
 soppressione decisa nella notte ViaggiaTreno la scrive sul viaggio prima che
 il treno parta, e saperla due ore prima vuol dire fare in tempo a prendere il
-treno precedente: un quarto d'ora prima, di solito, quello è già partito. La
+treno precedente: venti minuti prima, di solito, quello è già partito. La
 notifica arriva anche se il treno è già soppresso quando la finestra si apre,
 una volta sola, e il preavviso poi la conferma con la riga di RFI. Un binario
 assegnato o un ritardo annunciato su un treno ancora fermo aspettano il
@@ -652,7 +652,7 @@ lo elenca**, fino a quattro ore prima, e comunque da mezz'ora prima, per il
 tabellone che non risponde. È il telefono a leggere quei tabelloni, uno per
 stazione e solo quando c'è un abituale da decidere, dalla stessa cache da
 trenta secondi dei preferiti. La notifica non cambia: il preavviso resta a
-quindici minuti.
+venti minuti.
 
 Il treno di oggi **non si scrive da nessuna parte**: si ricalcola a ogni giro
 dall'orologio. Si ricorda solo cosa gli è già stato detto, e che è arrivato —
@@ -662,7 +662,7 @@ la storia ricomincia da capo senza nessuno stato da pulire.
 
 **Il preavviso** risolve per gli abituali il limite di sempre: prima della
 partenza ViaggiaTreno non dice niente, ed è proprio prima di uscire di casa che
-serve sapere se il treno c'è. Quindici minuti prima il servizio legge le partenze
+serve sapere se il treno c'è. Venti minuti prima il servizio legge le partenze
 della tua stazione con lo stesso tabellone che vede il telefono — RFI con
 sopra le misure di ViaggiaTreno — e manda quello che c'è scritto sulla riga:
 binario e se è cambiato, i due ritardi, la soppressione. Davanti c'è il
@@ -677,6 +677,16 @@ ViaggiaTreno non vede il treno: prima di allora è l'unica cosa che cambia, ed
 è quella che l'app mostra. Se RFI mette un ritardo o assegna il binario, la
 riga nuova arriva al posto del preavviso; quando sparisce dal tabellone il
 treno è partito, e non è una notizia.
+
+**Il binario che manca** al preavviso si aspetta anche dopo: se la riga
+diceva "Binario non ancora assegnato" e ViaggiaTreno non ne conosce uno per
+la tua fermata, il tabellone si continua a leggere ogni minuto anche a treno
+rilevato, e quando RFI lo assegna la riga arriva di nuovo, con il ritardo
+misurato davanti. Di quella riga conta solo il binario: un ritardo che cambia
+lo dicono già i rilevamenti. Se nello stesso giro c'è anche un rilevamento
+nuovo, la notifica è una sola, quella col binario, perché la seconda la
+sostituirebbe sulla schermata di blocco. Detto il binario, il tabellone non
+si legge più.
 
 Un treno che **non compare sul tabellone** è una notizia anch'essa — un
 festivo, un treno che oggi non circola — e arriva come tale. Un tabellone che

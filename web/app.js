@@ -548,7 +548,7 @@ const abitualePerIlServer = (x) => ({
    Esiste solo nei giorni scelti, e fino a tre ore dopo l'ora: dopo il treno è
    arrivato da un pezzo. Prima dell'ora compare appena il tabellone delle
    partenze della stazione di salita lo elenca — da lì RFI dice che il treno
-   c'è, e quindici minuti prima era tardi per uscire di casa sapendolo — e
+   c'è, e venti minuti prima era tardi per uscire di casa sapendolo — e
    comunque da mezz'ora prima, per il tabellone che non risponde o non lo
    elenca ancora. Più di quattro ore prima no, nemmeno se il tabellone lo
    mostra: è il treno di domattina visto la sera, una scheda in cima alla home

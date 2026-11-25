@@ -112,7 +112,7 @@ func contate(viste *[]richiesta, mu *sync.Mutex) int {
 	return len(*viste)
 }
 
-// Quindici minuti prima parte il preavviso, una volta sola. Da lì i rilevamenti
+// Venti minuti prima parte il preavviso, una volta sola. Da lì i rilevamenti
 // si contano come per un segnalibro: uno nuovo è una notifica.
 func TestPreavvisoUnaVoltaSolaPoiIRilevamenti(t *testing.T) {
 	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
@@ -132,7 +132,7 @@ func TestPreavvisoUnaVoltaSolaPoiIRilevamenti(t *testing.T) {
 	sano := viaggio(time.Time{}, 0, fermata(salita, false))
 	sano.Fermate[0].BinarioProgrammato = "3"
 	f.metti(trenoDi(salita), sano)
-	giri(svc, alle(21, 16, 56), alle(21, 18, 38))
+	giri(svc, alle(21, 16, 56), alle(21, 18, 33))
 	if n := contate(viste, mu); n != 0 || tab.letture != 0 {
 		t.Fatalf("alla vigilia: notifiche %d, letture tabellone %d", n, tab.letture)
 	}
@@ -157,7 +157,7 @@ func TestPreavvisoUnaVoltaSolaPoiIRilevamenti(t *testing.T) {
 }
 
 // Un treno soppresso nella notte va detto quando la finestra si apre, due ore
-// prima, e non al preavviso: un quarto d'ora prima il treno precedente è già
+// prima, e non al preavviso: venti minuti prima il treno precedente è già
 // partito. Una volta sola, e il preavviso poi lo conferma con la riga di RFI.
 func TestSoppressioneAllaVigilia(t *testing.T) {
 	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
@@ -228,6 +228,69 @@ func TestDopoIlPreavvisoSiSegueIlTabellone(t *testing.T) {
 				t.Errorf("notifiche = %d, attese 2: la riga sparita è stata notificata", n)
 			}
 		})
+	}
+}
+
+// Un preavviso senza binario lascia la cosa più utile da dire: dove andare.
+// La riga si segue anche dopo il primo rilevamento, e quando RFI assegna il
+// binario arriva una notifica sola, anche se nello stesso giro ViaggiaTreno
+// ha un rilevamento nuovo. Detto il binario, il tabellone non serve più.
+func TestIlBinarioArrivaDopoIlPreavviso(t *testing.T) {
+	srv, viste, mu := servizioPushFinto(t, http.StatusCreated)
+	salita, _ := stazioniDiProva(t)
+	ab, _ := ApriAbbonati("")
+	prende(t, ab, srv.URL+"/sul-marciapiede", abitualeDi(salita))
+	f := sorgenteTreniFinta()
+	f.metti(trenoDi(salita), viaggio(time.Time{}, 0, fermata(salita, false)))
+	riga := rfi.Train{Number: "2247", Category: "RE", Time: "18:55"}
+	tab := &tabelloniFinti{treni: []rfi.Train{riga}}
+	metti := func(r rfi.Train) {
+		tab.mu.Lock()
+		tab.treni = []rfi.Train{r}
+		tab.mu.Unlock()
+	}
+	svc := servizioTreni(t, ab, srv.Client(), f).ConTabelloni(tab)
+	raccontata := func() string {
+		return ab.Tutti()[0].VistoTreni[trenoDi(salita).Chiave()].Tabellone
+	}
+
+	giri(svc, alle(21, 18, 36))
+	if n := contate(viste, mu); n != 1 || !senzaBinario(raccontata()) {
+		t.Fatalf("notifiche = %d, riga = %q: atteso il preavviso senza binario", n, raccontata())
+	}
+	// Primo rilevamento: parla ViaggiaTreno, e la riga ancora senza binario
+	// che cambia ritardo non è una notizia.
+	f.metti(trenoDi(salita), viaggio(alle(21, 18, 40), 2, fermata(salita, false)))
+	riga.Delay = 2
+	metti(riga)
+	giri(svc, alle(21, 18, 41), alle(21, 18, 42))
+	if n := contate(viste, mu); n != 2 {
+		t.Fatalf("notifiche = %d, attese 2: preavviso e primo rilevamento", n)
+	}
+	letture := tab.letture
+	// RFI assegna il binario nello stesso giro di un rilevamento nuovo.
+	f.metti(trenoDi(salita), viaggio(alle(21, 18, 44), 3, fermata(salita, false)))
+	riga.Platform = "5"
+	metti(riga)
+	giri(svc, alle(21, 18, 45))
+	if n := contate(viste, mu); n != 3 {
+		t.Fatalf("notifiche = %d, attese 3: il binario va detto una volta sola", n)
+	}
+	if got := raccontata(); got != "Bin. 5, +3 min (RFI +2 min)." {
+		t.Errorf("riga raccontata = %q", got)
+	}
+	if tab.letture != letture+1 {
+		t.Errorf("letture del tabellone = %d, attese %d: il binario dopo il rilevamento non si è cercato", tab.letture, letture+1)
+	}
+	// Detto il binario, si torna ai soli rilevamenti.
+	riga.Delay = 6
+	metti(riga)
+	giri(svc, alle(21, 18, 46), alle(21, 18, 47))
+	if tab.letture != letture+1 {
+		t.Errorf("letture del tabellone = %d, attese %d: il binario era già stato detto", tab.letture, letture+1)
+	}
+	if n := contate(viste, mu); n != 3 {
+		t.Errorf("notifiche = %d, attese 3: niente rilevamenti nuovi", n)
 	}
 }
 
